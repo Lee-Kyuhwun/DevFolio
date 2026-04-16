@@ -3,3 +3,5 @@ build/
 devfolio.egg-info/
 __pycache__/
 *.pyc
+AGENTS.md
+CLAUDE.md
