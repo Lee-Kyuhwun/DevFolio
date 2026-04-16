@@ -1,0 +1,83 @@
+# DevFolio 예시 프로젝트 YAML
+# 이 파일을 참고하여 자신의 프로젝트를 작성하세요.
+# `devfolio data import examples/connected_car_gateway.yaml` 로 가져올 수 있습니다.
+
+id: connected_car_gateway
+name: "커넥티드카 게이트웨이 샘플 프로젝트"
+type: company          # company | side | course
+status: done           # done | in_progress | planned
+organization: "Sample Mobility Corp."
+period:
+  start: "2025-01"
+  end: "2025-04"
+role: "백엔드 엔지니어"
+team_size: 4
+tech_stack:
+  - Spring Boot
+  - Java
+  - PostgreSQL
+  - GitHub Actions
+  - Docker
+  - AWS ECS
+summary: "차량 상태 조회와 원격 명령 중계를 담당하는 커넥티드카 API 백엔드 예시 프로젝트"
+tags:
+  - backend
+  - api
+  - mobility
+
+tasks:
+  - id: task_001
+    name: "배포 자동화 파이프라인 구성"
+    period:
+      start: "2025-01"
+      end: "2025-02"
+    problem: "수동 배포 단계가 많아 배포 실패와 배포 시간 편차가 컸음"
+    solution: "GitHub Actions와 ECS 배포 스크립트를 연결해 테스트, 이미지 빌드, 배포를 자동화"
+    result: "배포 시간을 15분에서 6분으로 줄이고 반복 배포 실패를 크게 감소시킴"
+    tech_used:
+      - GitHub Actions
+      - Docker
+      - AWS ECS
+      - Shell Script
+    keywords:
+      - CI/CD
+      - 자동 배포
+      - 자동화
+    ai_generated_text: ""
+
+  - id: task_002
+    name: "차량 조회 API 성능 개선"
+    period:
+      start: "2025-02"
+      end: "2025-03"
+    problem: "차량 상태 조회 API 응답 시간이 길어 모바일 앱 로딩 체감이 좋지 않았음"
+    solution: "쿼리 구조를 단순화하고 캐시 계층을 추가해 반복 요청을 줄였음"
+    result: "평균 응답 시간을 800ms에서 250ms 수준으로 단축"
+    tech_used:
+      - Java
+      - Spring Boot
+      - PostgreSQL
+      - Redis
+    keywords:
+      - 성능 최적화
+      - 캐싱
+      - API 응답속도
+    ai_generated_text: ""
+
+  - id: task_003
+    name: "운영 장애 대응 로그 정비"
+    period:
+      start: "2025-03"
+      end: "2025-04"
+    problem: "운영 이슈 발생 시 요청 흐름을 추적하기 어려워 원인 파악 시간이 길었음"
+    solution: "요청 ID 기반 구조화 로그를 추가하고 주요 이벤트를 공통 포맷으로 기록"
+    result: "장애 분석 시간을 줄이고 배포 후 이슈 재현 속도를 개선"
+    tech_used:
+      - Spring Boot
+      - JSON Logging
+      - AWS CloudWatch
+    keywords:
+      - 운영 안정성
+      - 로그 분석
+      - 관측성
+    ai_generated_text: ""

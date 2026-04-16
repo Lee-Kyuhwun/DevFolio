@@ -1,0 +1,5 @@
+.pytest_cache/
+build/
+devfolio.egg-info/
+__pycache__/
+*.pyc

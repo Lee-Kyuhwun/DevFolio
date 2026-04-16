@@ -1,0 +1,49 @@
+# {{ project.name }}
+
+| 항목 | 내용 |
+|------|------|
+| 기간 | {{ project.period.display() }} |
+| 소속 | {{ project.organization }} |
+| 역할 | {{ project.role }} |
+| 팀 규모 | {{ project.team_size }}명 |
+| 기술 스택 | {{ project.tech_stack | join(", ") }} |
+| 상태 | {{ project.status_display() }} |
+
+## 프로젝트 개요
+
+{{ project.summary }}
+
+{% if project.tags %}
+**태그**: {{ project.tags | join(", ") }}
+
+{% endif %}
+## 주요 작업 내역
+
+{% for task in project.tasks %}
+### {{ task.name }}
+
+{% if task.period.start %}*기간: {{ task.period.display() }}*{% endif %}
+
+{% if task.ai_generated_text %}
+{{ task.ai_generated_text }}
+{% else %}
+**문제 상황**
+
+{{ task.problem }}
+
+**해결 방법**
+
+{{ task.solution }}
+
+**성과**
+
+{{ task.result }}
+
+**사용 기술**: {{ task.tech_used | join(", ") }}
+{% endif %}
+
+{% if task.keywords %}
+*키워드: {{ task.keywords | join(", ") }}*
+{% endif %}
+
+{% endfor %}

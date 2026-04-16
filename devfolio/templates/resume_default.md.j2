@@ -1,0 +1,51 @@
+# {{ user.name }} 경력기술서
+{% if user.email or user.github or user.blog %}
+
+{% if user.email %}- 이메일: {{ user.email }}
+{% endif %}{% if user.github %}- GitHub: {{ user.github }}
+{% endif %}{% if user.blog %}- 블로그: {{ user.blog }}
+{% endif %}
+{% endif %}
+---
+
+## 프로젝트 이력
+
+{% for project in projects %}
+### {{ project.name }}
+
+| 항목 | 내용 |
+|------|------|
+| 기간 | {{ project.period.display() }} |
+| 유형 | {{ project.type_display() }} |
+| 소속 | {{ project.organization }} |
+| 역할 | {{ project.role }} |
+| 팀 규모 | {{ project.team_size }}명 |
+| 기술 스택 | {{ project.tech_stack | join(", ") }} |
+
+**프로젝트 개요**
+
+{{ project.summary }}
+
+{% if project.tasks %}
+**주요 작업 내역**
+
+{% for task in project.tasks %}
+#### {{ task.name }}
+
+{% if task.period.start %}*기간: {{ task.period.display() }}*
+
+{% endif %}
+{% if task.ai_generated_text %}
+{{ task.ai_generated_text }}
+{% else %}
+- **문제 상황**: {{ task.problem }}
+- **해결 방법**: {{ task.solution }}
+- **성과**: {{ task.result }}
+- **사용 기술**: {{ task.tech_used | join(", ") }}
+{% endif %}
+
+{% endfor %}
+{% endif %}
+
+---
+{% endfor %}

@@ -1,0 +1,25 @@
+# {{ user.name }}
+{% if user.email %}{{ user.email }}{% endif %}{% if user.github %} | {{ user.github }}{% endif %}{% if user.blog %} | {{ user.blog }}{% endif %}
+
+---
+
+{% for project in projects %}
+## {{ project.name }} ({{ project.period.display() }})
+
+**{{ project.organization }}** | {{ project.role }} | {{ project.tech_stack | join(" · ") }}
+
+{{ project.summary }}
+
+{% for task in project.tasks %}
+**{{ task.name }}**
+{% if task.ai_generated_text %}
+{{ task.ai_generated_text }}
+{% else %}
+- {{ task.problem }}
+- {{ task.solution }}
+- {{ task.result }}
+{% endif %}
+
+{% endfor %}
+
+{% endfor %}

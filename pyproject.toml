@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "devfolio"
+version = "0.1.0"
+description = "개발자 포트폴리오 & 경력기술서 자동화 시스템"
+requires-python = ">=3.11"
+dependencies = [
+    "typer[all]>=0.12.0",
+    "ruamel.yaml>=0.18.0",
+    "jinja2>=3.1.0",
+    "keyring>=25.0.0",
+    "rich>=13.7.0",
+    "pydantic>=2.0.0",
+    "platformdirs>=4.0.0",
+]
+
+[project.optional-dependencies]
+ai = [
+    "litellm>=1.40.0",
+]
+pdf = [
+    "weasyprint>=62.0",
+    "markdown>=3.6",
+]
+docx = [
+    "python-docx>=1.1.0",
+]
+all = [
+    "litellm>=1.40.0",
+    "weasyprint>=62.0",
+    "markdown>=3.6",
+    "python-docx>=1.1.0",
+]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",
+    "pytest-mock>=3.14.0",
+    "litellm>=1.40.0",
+    "markdown>=3.6",
+]
+
+[project.scripts]
+devfolio = "devfolio.main:cli"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["devfolio*"]
+
+[tool.setuptools.package-data]
+devfolio = ["templates/*.j2"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=devfolio --cov-report=term-missing"
+
+[tool.coverage.run]
+omit = ["tests/*"]
