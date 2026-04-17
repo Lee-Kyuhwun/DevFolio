@@ -1,0 +1,92 @@
+{% extends "base.md.j2" %}
+
+{% block header %}
+# {{ user.name }} — 업무 성과 정리
+
+{% if user.email or user.github %}
+{% if user.email %}{{ user.email }}{% endif %}{% if user.github %} · {{ user.github }}{% endif %}
+{% endif %}
+
+---
+{% endblock header %}
+
+{% block projects %}
+{% set done_projects = projects | selectattr('status', 'equalto', 'done') | list %}
+{% set wip_projects  = projects | selectattr('status', 'equalto', 'in_progress') | list %}
+
+{% if done_projects %}
+## 완료 업무
+
+{% for project in done_projects %}
+### {{ project.name }}
+{% if project.organization %}> {{ project.organization }} | {% else %}>{% endif %} {{ project.period.display() }} | {{ project.role }}{% if project.team_size > 1 %} ({{ project.team_size }}인 팀){% endif %}
+
+{{ project.summary }}
+
+{% if project.tech_stack %}
+**사용 기술** `{{ project.tech_stack | join('` `') }}`
+{% endif %}
+
+{% if project.tasks %}
+**세부 성과**
+
+| 업무 | 기간 | 성과 |
+|------|------|------|
+{% for task in project.tasks %}
+| {{ task.name }} | {{ task.period.display() if task.period.start else '-' }} | {{ task.result }} |
+{% endfor %}
+
+{% for task in project.tasks %}
+{% if task.problem or task.solution %}
+#### {{ task.name }}
+
+{% if task.problem %}
+- **배경 / 문제**: {{ task.problem }}
+{% endif %}
+{% if task.solution %}
+- **접근 방식**: {{ task.solution }}
+{% endif %}
+{% if task.result %}
+- **결과**: {{ task.result }}
+{% endif %}
+{% if task.tech_used %}
+- **활용 기술**: `{{ task.tech_used | join('` `') }}`
+{% endif %}
+{% endif %}
+{% endfor %}
+{% endif %}
+
+---
+{% endfor %}
+{% endif %}
+
+{% if wip_projects %}
+## 진행 중 업무
+
+{% for project in wip_projects %}
+### {{ project.name }}
+{% if project.organization %}> {{ project.organization }} | {% else %}>{% endif %} {{ project.period.display() }} | {{ project.role }}
+
+{{ project.summary }}
+
+{% if project.tasks %}
+**현재까지 성과**
+
+{% for task in project.tasks %}
+- **{{ task.name }}**: {{ task.result if task.result else '진행 중' }}
+{% endfor %}
+{% endif %}
+
+---
+{% endfor %}
+{% endif %}
+
+## 기술 역량 요약
+
+{% set all_stacks = [] %}
+{% for p in projects %}{% for t in p.tech_stack %}{% if t not in all_stacks %}{% set _ = all_stacks.append(t) %}{% endif %}{% endfor %}{% endfor %}
+`{{ all_stacks | join('` `') }}`
+
+{% endblock projects %}
+
+{% block footer %}{% endblock footer %}

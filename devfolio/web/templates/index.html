@@ -238,7 +238,7 @@
               <span>문서 종류</span>
               <select id="preview-doc-type">
                 <option value="portfolio">Portfolio</option>
-                <option value="resume">Resume</option>
+                <option value="resume">Resume / 경력기술서</option>
               </select>
             </label>
             <label class="field">
@@ -251,8 +251,13 @@
             <label class="field">
               <span>템플릿</span>
               <select id="preview-template">
-                <option value="default">default</option>
-                <option value="compact">compact</option>
+                <!-- portfolio -->
+                <option value="default" data-doctype="portfolio">default</option>
+                <option value="dev"     data-doctype="portfolio">dev — 개발자 스타일</option>
+                <!-- resume -->
+                <option value="default"     data-doctype="resume">default</option>
+                <option value="compact"     data-doctype="resume">compact — 단축형</option>
+                <option value="achievement" data-doctype="resume">achievement — 사내 성과 정리</option>
               </select>
             </label>
             <label class="field">

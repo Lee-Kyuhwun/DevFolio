@@ -359,6 +359,25 @@ function bindPreviewControls() {
   ['preview-doc-type', 'preview-source', 'preview-template', 'preview-format'].forEach(id => {
     document.getElementById(id)?.addEventListener('change', syncPreviewState);
   });
+  document.getElementById('preview-doc-type')?.addEventListener('change', filterTemplateOptions);
+  filterTemplateOptions();
+}
+
+function filterTemplateOptions() {
+  const docType = document.getElementById('preview-doc-type')?.value || 'portfolio';
+  const sel = document.getElementById('preview-template');
+  if (!sel) return;
+  const current = sel.value;
+  Array.from(sel.options).forEach(opt => {
+    const allowed = opt.dataset.doctype;
+    opt.hidden = allowed ? allowed !== docType : false;
+  });
+  // 현재 선택이 숨겨졌으면 첫 번째 visible로 이동
+  if (sel.options[sel.selectedIndex]?.hidden) {
+    const first = Array.from(sel.options).find(o => !o.hidden);
+    if (first) sel.value = first.value;
+  }
+  syncPreviewState();
 }
 
 function formToJson(form) {

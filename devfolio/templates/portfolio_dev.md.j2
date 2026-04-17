@@ -1,0 +1,70 @@
+{% extends "base.md.j2" %}
+
+{% block header %}
+# {{ user.name }}
+
+{% if user.github %}**GitHub** {{ user.github }}{% if user.blog %} · **Blog** {{ user.blog }}{% endif %}{% if user.email %} · {{ user.email }}{% endif %}
+{% elif user.email %}{{ user.email }}{% if user.blog %} · {{ user.blog }}{% endif %}
+{% endif %}
+
+`{{ projects | map(attribute='tech_stack') | sum(start=[]) | unique | list | join('` `') }}`
+
+---
+{% endblock header %}
+
+{% block projects %}
+{% for project in projects %}
+## {{ project.name }}
+
+> {{ project.summary }}
+
+```
+period : {{ project.period.display() }}
+role   : {{ project.role }}{% if project.organization %}  @{{ project.organization }}{% endif %}
+
+stack  : {{ project.tech_stack | join(' / ') }}
+team   : {{ project.team_size }}명{% if project.team_size == 1 %} (solo){% endif %}
+```
+
+{% if project.tasks %}
+{% for task in project.tasks %}
+### `{{ task.name }}`
+{% if task.period.start %}
+*{{ task.period.display() }}*
+{% endif %}
+
+{% if task.ai_generated_text %}
+{{ task.ai_generated_text }}
+{% else %}
+{% if task.problem %}
+**Problem**
+
+{{ task.problem }}
+
+{% endif %}
+{% if task.solution %}
+**What I did**
+
+{{ task.solution }}
+
+{% endif %}
+{% if task.result %}
+**Result**
+
+{{ task.result }}
+
+{% endif %}
+{% if task.tech_used %}
+```
+tech: {{ task.tech_used | join(' · ') }}
+```
+{% endif %}
+{% endif %}
+{% endfor %}
+{% endif %}
+
+---
+{% endfor %}
+{% endblock projects %}
+
+{% block footer %}{% endblock footer %}

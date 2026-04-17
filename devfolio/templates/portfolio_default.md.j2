@@ -1,55 +1,37 @@
 {% extends "base.md.j2" %}
 
 {% block header %}
-# {{ user.name }} 포트폴리오
-{% if user.email or user.github %}
+# {{ user.name }}
 
-{% if user.email %}- 이메일: {{ user.email }}{% endif %}
-{% if user.github %}- GitHub: {{ user.github }}{% endif %}
-{% if user.blog %}- 블로그: {{ user.blog }}{% endif %}
+{% if user.email %}`{{ user.email }}`{% endif %}{% if user.github %} · [GitHub]({{ user.github }}){% endif %}{% if user.blog %} · [Blog]({{ user.blog }}){% endif %}
 
-{% endif %}
 ---
 {% endblock header %}
 
 {% block projects %}
-## 소개
-
-안녕하세요! 저는 **{{ user.name }}** 개발자입니다.
-
----
-
-## 프로젝트 목록
+## Projects
 
 {% for project in projects %}
----
+### {{ project.name }}
 
-### {{ loop.index }}. {{ project.name }}
-
-> {{ project.summary }}
+{{ project.summary }}
 
 | | |
 |---|---|
 | **기간** | {{ project.period.display() }} |
-| **유형** | {{ project.type_display() }} |
-| **역할** | {{ project.role }} |
-| **소속** | {{ project.organization }} |
+| **역할** | {{ project.role }}{% if project.organization %} @ {{ project.organization }}{% endif %} |
 | **팀 규모** | {{ project.team_size }}명 |
-
-**기술 스택**
-
-{% for tech in project.tech_stack %}
-![{{ tech }}](https://img.shields.io/badge/{{ tech | urlencode }}-333?style=flat)
-{% endfor %}
+| **기술 스택** | {{ project.tech_stack | join(', ') }} |
 
 {% if project.tasks %}
-**주요 성과**
-
 {% for task in project.tasks %}
-- **{{ task.name }}**: {{ task.result }}
-{% endfor %}
+**{{ task.name }}**
+{{ task.result }}
 
+{% endfor %}
 {% endif %}
+
+---
 {% endfor %}
 {% endblock projects %}
 
