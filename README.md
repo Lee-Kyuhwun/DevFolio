@@ -115,91 +115,28 @@ Sync stores raw DevFolio data plus generated Markdown and HTML artifacts in a de
 - Jinja2 block inheritance: `base.md.j2` → `{% block header/projects/footer %}`
 - customize individual sections without duplicating the full template
 
-## Installation
+## Getting Started
 
-DevFolio is currently intended to run from source.
+Choose the method that fits your setup. **Docker** is the easiest — no Python installation needed. **pip** gives you the full CLI including `devfolio scan`.
 
-### Requirements
+---
 
-- Python 3.11 or newer
-- `git` for GitHub sync workflows
-- optional system dependencies for PDF export depending on your platform
+### Method A — Docker (Web UI only, easiest)
 
-### Clone the repository
+> **Requires:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running.
+> Check with: `docker --version`
 
-```bash
-git clone https://github.com/Lee-Kyuhwun/DevFolio.git
-cd DevFolio
-```
-
-### Base install
-
-```bash
-pip install -e .
-```
-
-### Optional extras
-
-AI features:
-
-```bash
-pip install -e ".[ai]"
-```
-
-PDF export:
-
-```bash
-pip install -e ".[pdf]"
-```
-
-All optional runtime features:
-
-```bash
-pip install -e ".[all]"
-```
-
-Development setup:
-
-```bash
-pip install -e ".[dev]"
-```
-
-### Web UI (Portfolio Studio)
-
-```bash
-pip install -e ".[gui]"
-devfolio serve
-```
-
-Opens `http://127.0.0.1:8000` in your browser automatically.
-
-Options:
-
-```bash
-devfolio serve --port 9000          # custom port
-devfolio serve --host 0.0.0.0       # bind to all interfaces
-devfolio serve --no-open            # skip auto browser launch
-```
-
-### Docker
-
-```bash
-docker build -t devfolio .
-docker run --rm \
-  -v "$HOME/.local/share/devfolio:/root/.local/share/devfolio" \
-  -v "$HOME/.config/devfolio:/root/.config/devfolio" \
-  devfolio --help
-```
-
-### Docker with Web UI (recommended)
-
-The easiest way to run the Portfolio Studio is with Docker Compose.
-
-**1. Clone and create a `.env` file with your API keys:**
+**Step 1 — Clone the repository**
 
 ```bash
 git clone https://github.com/Lee-Kyuhwun/DevFolio.git
 cd DevFolio
+```
+
+**Step 2 — (Optional) Create a `.env` file if you want AI features**
+
+```bash
+# create .env in the DevFolio folder — leave blank lines for keys you don't have
 cat > .env << 'EOF'
 ANTHROPIC_API_KEY=sk-ant-...
 OPENAI_API_KEY=sk-...
@@ -207,33 +144,63 @@ GEMINI_API_KEY=...
 EOF
 ```
 
-**2. Start the GUI:**
+> You can skip this step and add keys later from the web UI settings page.
+
+**Step 3 — Start the web UI**
 
 ```bash
-docker compose up
+docker compose up --build
 ```
 
-Open `http://localhost:8000` in your browser.
+> The first build takes about 1–2 minutes. Subsequent starts are instant.
 
-**3. Stop:**
+Open **http://localhost:8000** in your browser.
+
+**Step 4 — Stop**
 
 ```bash
 docker compose down
 ```
 
-Data is persisted in Docker named volumes (`devfolio-config`, `devfolio-data`) across restarts.
+Your data is saved in Docker named volumes (`devfolio-config`, `devfolio-data`) and survives restarts.
 
-> **API keys in Docker**: the web UI runs without a system keyring. Pass keys as environment variables in `.env` — they are picked up automatically by DevFolio's env-variable fallback.
+> **If you see errors after pulling new code**, rebuild the image:
+> ```bash
+> docker compose build --no-cache
+> docker compose up
+> ```
 
-## Quick Start
+---
 
-### 1. Clone the repository and install
+### Method B — pip install (full CLI + scan)
+
+> **Requires:** Python 3.11 or newer.
+> Check with: `python3 --version`
+
+**Step 1 — Clone the repository**
 
 ```bash
 git clone https://github.com/Lee-Kyuhwun/DevFolio.git
 cd DevFolio
-pip install -e ".[all]"   # includes AI, PDF, DOCX, web UI
 ```
+
+**Step 2 — Create a virtual environment (recommended)**
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate      # macOS / Linux
+# .venv\Scripts\activate       # Windows
+```
+
+> A virtual environment keeps DevFolio's dependencies isolated from your system Python. You need to activate it each time you open a new terminal (`source .venv/bin/activate`).
+
+**Step 3 — Install**
+
+```bash
+pip install -e ".[all]"
+```
+
+This installs the `devfolio` command plus all optional features (AI, PDF, DOCX, web UI).
 
 Minimum install (CLI only, no AI/PDF/web):
 
@@ -241,22 +208,36 @@ Minimum install (CLI only, no AI/PDF/web):
 pip install -e .
 ```
 
-### 2. Initialize DevFolio
+**Step 4 — Verify the install**
+
+```bash
+devfolio --help
+```
+
+If you see the help output, the install succeeded.
+
+---
+
+## Quick Start (after install)
+
+### 1. Initialize DevFolio
 
 ```bash
 devfolio init
 ```
 
-This creates your local config and walks through profile, AI, and optional GitHub backup setup.
-**Required:** enter your email during init — it is used to identify your commits when scanning git repositories.
+This creates your local config and walks you through:
+- your name and **email** (required — used to identify your own commits during scanning)
+- optional AI provider setup (Anthropic / OpenAI / Gemini / Ollama)
+- optional GitHub backup sync
 
-### 3. Scan your git repositories (auto-generate portfolio)
+### 2. Scan a git repository — auto-generate your portfolio
 
 ```bash
 devfolio scan /path/to/your-project
 ```
 
-DevFolio reads the git history, filters commits authored by your email, computes metrics, and saves a portfolio project automatically.
+DevFolio reads the git history, filters commits authored by **your email**, computes contribution metrics, and saves a portfolio project automatically.
 
 ```
 scanning /path/to/your-project (author=you@example.com)...
@@ -268,50 +249,56 @@ scanning /path/to/your-project (author=you@example.com)...
 │ 언어: Python, TypeScript, Go                               │
 │ 분류: {'feat': 28, 'fix': 9, 'perf': 5}                   │
 ╰────────────────────────────────────────────────────────────╯
+✓ 새 프로젝트 등록: your-project (sha=a1b2c3d4)
 ```
 
-If you run `devfolio scan` again on the same repository without new commits, the result is returned instantly from cache (no re-analysis).
-Use `--refresh` to force re-analysis even if the HEAD SHA has not changed.
-
-Options:
+Running `devfolio scan` again on the same repository with no new commits returns the cached result instantly. Use `--refresh` to force a re-scan.
 
 ```bash
-devfolio scan .                        # current directory
-devfolio scan ~/projects/my-app        # absolute path
-devfolio scan . --author you@work.com  # override email
-devfolio scan . --refresh              # force re-scan
-devfolio scan . --dry-run              # preview without saving
-devfolio scan . --yes                  # skip confirmation prompt
+devfolio scan .                          # scan current directory
+devfolio scan ~/projects/my-app          # scan by path
+devfolio scan . --author you@work.com    # override email
+devfolio scan . --refresh                # force re-scan
+devfolio scan . --dry-run                # preview without saving
+devfolio scan . --yes                    # skip confirmation prompt
 ```
 
-### 4. Start the local studio
+> **Note:** `devfolio scan` requires the pip install method (Method B). It cannot access local directories from inside Docker without extra volume mount configuration.
+
+### 3. Open the web studio
 
 ```bash
-devfolio serve
+devfolio serve          # pip install
+# or
+docker compose up       # Docker
 ```
 
-Use the browser flow to paste project notes, generate an AI draft, review it, preview it, and save it.
+Browse to **http://localhost:8000** to review scanned projects, edit drafts, preview, and export.
 
-### 5. Export a resume or portfolio
+### 4. Export a resume or portfolio
 
 ```bash
 devfolio export resume
 devfolio export portfolio --format pdf
 ```
 
-### 6. Optional CLI workflow
+### 5. (Optional) Add projects or tasks manually via CLI
 
 ```bash
 devfolio project add
 devfolio task add --project "My Project"
 ```
 
-### 7. Optionally configure GitHub backup sync
+### 6. (Optional) Configure GitHub backup sync
 
 ```bash
 devfolio sync setup --repo your-account/devfolio-backup
 devfolio sync run
 ```
+
+---
+
+## Installation
 
 ## Import Existing Data
 
@@ -590,91 +577,28 @@ AI 기능은 선택 사항이며 Anthropic, OpenAI, Gemini, Ollama를 지원합�
 - Jinja2 block 상속: `base.md.j2` → `{% block header/projects/footer %}`
 - 전체 템플릿 복사 없이 특정 섹션만 커스터마이징 가능
 
-## 설치
+## 시작하기
 
-현재 DevFolio는 소스 기반 실행을 기준으로 합니다.
+설치 방법은 두 가지입니다. **Docker**는 Python 설치 없이 가장 빠르게 시작할 수 있습니다. **pip**은 `devfolio scan` 을 포함한 모든 기능을 사용할 수 있습니다.
 
-### 요구 사항
+---
 
-- Python 3.11 이상
-- GitHub sync 사용 시 `git`
-- 환경에 따라 PDF export용 추가 시스템 라이브러리
+### 방법 A — Docker (웹 UI 전용, 가장 쉬움)
 
-### 저장소 클론
+> **필요:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) 설치 및 실행 중이어야 합니다.
+> 설치 확인: `docker --version`
 
-```bash
-git clone https://github.com/Lee-Kyuhwun/DevFolio.git
-cd DevFolio
-```
-
-### 기본 설치
-
-```bash
-pip install -e .
-```
-
-### 선택적 extras
-
-AI 기능:
-
-```bash
-pip install -e ".[ai]"
-```
-
-PDF export:
-
-```bash
-pip install -e ".[pdf]"
-```
-
-모든 선택 기능:
-
-```bash
-pip install -e ".[all]"
-```
-
-개발 환경:
-
-```bash
-pip install -e ".[dev]"
-```
-
-### 웹 UI (Portfolio Studio)
-
-```bash
-pip install -e ".[gui]"
-devfolio serve
-```
-
-브라우저가 `http://127.0.0.1:8000` 으로 자동으로 열립니다.
-
-옵션:
-
-```bash
-devfolio serve --port 9000          # 포트 변경
-devfolio serve --host 0.0.0.0       # 모든 인터페이스에 바인딩
-devfolio serve --no-open            # 브라우저 자동 열기 비활성화
-```
-
-### Docker
-
-```bash
-docker build -t devfolio .
-docker run --rm \
-  -v "$HOME/.local/share/devfolio:/root/.local/share/devfolio" \
-  -v "$HOME/.config/devfolio:/root/.config/devfolio" \
-  devfolio --help
-```
-
-### Docker + 웹 UI (권장)
-
-Portfolio Studio를 가장 쉽게 실행하는 방법은 Docker Compose입니다.
-
-**1. 저장소 클론 후 `.env` 파일에 API 키 설정:**
+**1단계 — 저장소 클론**
 
 ```bash
 git clone https://github.com/Lee-Kyuhwun/DevFolio.git
 cd DevFolio
+```
+
+**2단계 — (선택) AI 기능을 사용하려면 `.env` 파일 생성**
+
+```bash
+# DevFolio 폴더 안에 .env 파일 생성 — 없는 키는 빈칸으로 두면 됩니다
 cat > .env << 'EOF'
 ANTHROPIC_API_KEY=sk-ant-...
 OPENAI_API_KEY=sk-...
@@ -682,15 +606,19 @@ GEMINI_API_KEY=...
 EOF
 ```
 
-**2. GUI 시작:**
+> 이 단계를 건너뛰어도 됩니다. 나중에 웹 UI 설정 페이지에서 추가할 수 있습니다.
+
+**3단계 — 웹 UI 시작**
 
 ```bash
-docker compose up
+docker compose up --build
 ```
 
-브라우저에서 `http://localhost:8000` 으로 접속합니다.
+> 처음 빌드는 1~2분 소요됩니다. 이후 재시작은 즉시 됩니다.
 
-**3. 종료:**
+브라우저에서 **http://localhost:8000** 으로 접속하세요.
+
+**4단계 — 종료**
 
 ```bash
 docker compose down
@@ -698,40 +626,81 @@ docker compose down
 
 데이터는 Docker named volume (`devfolio-config`, `devfolio-data`) 에 저장되어 재시작 후에도 유지됩니다.
 
-> **Docker에서 API 키**: 웹 UI는 시스템 키링 없이 실행됩니다. `.env` 파일의 환경변수를 통해 키를 전달하면 DevFolio가 자동으로 인식합니다.
+> **새 코드를 받은 뒤 에러가 나면** 이미지를 다시 빌드하세요:
+> ```bash
+> docker compose build --no-cache
+> docker compose up
+> ```
 
-## 빠른 시작
+---
 
-### 1. 저장소 클론 및 설치
+### 방법 B — pip 설치 (전체 CLI + scan 기능)
+
+> **필요:** Python 3.11 이상.
+> 버전 확인: `python3 --version`
+
+**1단계 — 저장소 클론**
 
 ```bash
 git clone https://github.com/Lee-Kyuhwun/DevFolio.git
 cd DevFolio
-pip install -e ".[all]"   # AI, PDF, DOCX, 웹 UI 포함 전체 설치
 ```
 
-최소 설치 (CLI 전용, AI/PDF/웹 UI 제외):
+**2단계 — 가상 환경 생성 (권장)**
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate      # macOS / Linux
+# .venv\Scripts\activate       # Windows
+```
+
+> 가상 환경을 사용하면 DevFolio 의존성이 시스템 Python과 분리됩니다.
+> 터미널을 새로 열 때마다 `source .venv/bin/activate` 로 활성화해야 합니다.
+
+**3단계 — 설치**
+
+```bash
+pip install -e ".[all]"
+```
+
+AI, PDF, DOCX, 웹 UI 를 포함한 모든 기능을 설치합니다.
+
+CLI 전용 최소 설치 (AI/PDF/웹 UI 제외):
 
 ```bash
 pip install -e .
 ```
 
-### 2. DevFolio 초기화
+**4단계 — 설치 확인**
+
+```bash
+devfolio --help
+```
+
+도움말이 출력되면 설치가 완료된 것입니다.
+
+---
+
+## 빠른 시작 (설치 후)
+
+### 1. DevFolio 초기화
 
 ```bash
 devfolio init
 ```
 
-이 명령은 로컬 설정 파일을 만들고 사용자 정보, AI, 선택적 GitHub 백업 설정까지 안내합니다.
-**필수:** 초기화 시 이메일을 입력하세요 — git 저장소 스캔 시 본인 커밋을 식별하는 데 사용됩니다.
+로컬 설정 파일을 만들고 아래 항목을 순서대로 안내합니다:
+- 이름 및 **이메일** (필수 — git 저장소 스캔 시 본인 커밋을 식별하는 데 사용됩니다)
+- AI Provider 설정 (Anthropic / OpenAI / Gemini / Ollama) — 선택
+- GitHub 백업 sync 설정 — 선택
 
-### 3. Git 저장소 스캔 (포트폴리오 자동 생성)
+### 2. Git 저장소 스캔 — 포트폴리오 자동 생성
 
 ```bash
 devfolio scan /path/to/your-project
 ```
 
-DevFolio가 git 이력을 읽고 본인 이메일로 작성된 커밋만 필터링해서 지표를 산출한 뒤, 포트폴리오 프로젝트를 자동으로 저장합니다.
+DevFolio가 git 이력을 읽고 **본인 이메일로 작성된 커밋만** 필터링해 기여 지표를 산출한 뒤, 포트폴리오 프로젝트를 자동으로 저장합니다.
 
 ```
 scanning /path/to/your-project (author=you@example.com)...
@@ -743,50 +712,58 @@ scanning /path/to/your-project (author=you@example.com)...
 │ 언어: Python, TypeScript, Go                               │
 │ 분류: {'feat': 28, 'fix': 9, 'perf': 5}                   │
 ╰────────────────────────────────────────────────────────────╯
+✓ 새 프로젝트 등록: your-project (sha=a1b2c3d4)
 ```
 
 같은 저장소를 다시 스캔할 때 새 커밋이 없으면 캐시에서 즉시 결과를 반환합니다 (재분석 없음).
 `--refresh` 를 사용하면 HEAD SHA 변경 여부에 관계없이 강제로 재분석합니다.
 
-옵션:
-
 ```bash
-devfolio scan .                          # 현재 디렉터리
-devfolio scan ~/projects/my-app          # 절대 경로
+devfolio scan .                          # 현재 디렉터리 스캔
+devfolio scan ~/projects/my-app          # 경로 지정
 devfolio scan . --author you@work.com    # 이메일 직접 지정
 devfolio scan . --refresh                # 강제 재스캔
 devfolio scan . --dry-run                # 저장 없이 미리보기
 devfolio scan . --yes                    # 확인 없이 바로 저장
 ```
 
-### 4. 로컬 스튜디오 시작
+> **참고:** `devfolio scan` 은 pip 설치 방법(방법 B)에서만 사용 가능합니다.
+> Docker 환경에서는 별도 볼륨 마운트 없이 로컬 디렉터리를 접근할 수 없습니다.
+
+### 3. 웹 스튜디오 열기
 
 ```bash
-devfolio serve
+devfolio serve          # pip 설치 후
+# 또는
+docker compose up       # Docker 사용 시
 ```
 
-브라우저에서 작업물을 붙여넣고 AI draft를 만든 뒤, 검토 후 저장하고 preview/export 하세요.
+**http://localhost:8000** 에서 스캔된 프로젝트를 확인하고, 초안 편집 및 내보내기를 할 수 있습니다.
 
-### 5. 문서 내보내기
+### 4. 이력서/포트폴리오 내보내기
 
 ```bash
 devfolio export resume
 devfolio export portfolio --format pdf
 ```
 
-### 6. 필요하면 CLI 워크플로우 사용
+### 5. (선택) CLI로 프로젝트/작업 직접 입력
 
 ```bash
 devfolio project add
 devfolio task add --project "My Project"
 ```
 
-### 7. 필요하면 GitHub 백업 sync 설정
+### 6. (선택) GitHub 백업 sync 설정
 
 ```bash
 devfolio sync setup --repo your-account/devfolio-backup
 devfolio sync run
 ```
+
+---
+
+## 설치 세부 옵션
 
 ## 기존 데이터 가져오기
 
