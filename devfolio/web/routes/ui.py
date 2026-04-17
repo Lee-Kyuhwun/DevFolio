@@ -15,11 +15,11 @@ _templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templ
 
 @router.get("/", response_class=HTMLResponse)
 def index(request: Request) -> HTMLResponse:
-    """설정 메인 페이지."""
+    """Portfolio Studio 메인 페이지."""
     from devfolio.core.storage import is_initialized, load_config
 
     initialized = is_initialized()
-    cfg = load_config() if initialized else None
+    cfg = load_config()
 
     return _templates.TemplateResponse(
         "index.html",

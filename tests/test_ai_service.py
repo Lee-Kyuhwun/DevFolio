@@ -12,6 +12,7 @@ from devfolio.exceptions import (
     DevfolioAIRateLimitError,
 )
 from devfolio.models.config import AIProviderConfig, Config
+from devfolio.models.draft import ProjectDraft, TaskDraft
 from devfolio.models.project import Period, Project, Task
 
 
@@ -203,6 +204,85 @@ class TestGenerateProjectSummary:
         service._call = capture
         service.generate_project_summary(make_project(), lang="ko")
         assert "블루그린 배포 구축" in captured["user"]
+
+
+class TestGenerateProjectDraft:
+    def test_parses_json_into_project_draft(self):
+        service = AIService(make_config())
+        service._call = MagicMock(
+            return_value="""
+{
+  "name": "AI 초안 프로젝트",
+  "type": "company",
+  "status": "done",
+  "organization": "테스트 회사",
+  "period": {"start": "2024-01", "end": "2024-06"},
+  "role": "백엔드 개발자",
+  "team_size": 3,
+  "tech_stack": ["Python", "FastAPI"],
+  "summary": "초안 요약",
+  "tags": ["api"],
+  "tasks": [
+    {
+      "name": "API 구축",
+      "period": {"start": "2024-02", "end": "2024-05"},
+      "problem": "분산된 API",
+      "solution": "단일 게이트웨이 구축",
+      "result": "응답 속도 개선",
+      "tech_used": ["FastAPI"],
+      "keywords": ["gateway"],
+      "ai_generated_text": ""
+    }
+  ]
+}
+"""
+        )
+
+        draft = service.generate_project_draft("원본 텍스트", lang="ko")
+
+        assert draft.name == "AI 초안 프로젝트"
+        assert draft.raw_text == "원본 텍스트"
+        assert draft.tasks[0].name == "API 구축"
+
+    def test_invalid_json_raises_user_friendly_error(self):
+        service = AIService(make_config())
+        service._call = MagicMock(return_value="not-json")
+
+        with pytest.raises(DevfolioAIError, match="JSON"):
+            service.generate_project_draft("원본 텍스트")
+
+
+class TestDraftAugmentation:
+    def test_generate_draft_summary_uses_existing_project_summary_flow(self):
+        service = AIService(make_config())
+        draft = ProjectDraft(
+            name="초안 프로젝트",
+            tech_stack=["Python"],
+            tasks=[TaskDraft(name="작업", result="성과")],
+        )
+        service._call = MagicMock(return_value="생성된 요약")
+
+        result = service.generate_draft_project_summary(draft, lang="ko")
+
+        assert result == "생성된 요약"
+        service._call.assert_called_once()
+
+    def test_generate_draft_task_texts_updates_each_task(self):
+        service = AIService(make_config())
+        draft = ProjectDraft(
+            name="초안 프로젝트",
+            tasks=[
+                TaskDraft(name="작업 1", problem="문제", solution="해결", result="성과", tech_used=["Python"]),
+                TaskDraft(name="작업 2", problem="문제", solution="해결", result="성과", tech_used=["Docker"]),
+            ],
+        )
+        service.generate_task_text = MagicMock(side_effect=["bullet 1", "bullet 2"])
+
+        updated = service.generate_draft_task_texts(draft, lang="ko")
+
+        assert updated.tasks[0].ai_generated_text == "bullet 1"
+        assert updated.tasks[1].ai_generated_text == "bullet 2"
+        assert service.generate_task_text.call_count == 2
 
 
 # ---------------------------------------------------------------------------

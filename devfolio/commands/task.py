@@ -55,8 +55,8 @@ def _do_add_task(project_name: str) -> Optional[Task]:
     if task:
         console.print(f"\n[bold green]✓ 작업 내역 등록 완료![/bold green] ID: [dim]{task.id}[/dim]")
         console.print(
-            f"[dim]다음 단계: `devfolio ai generate task \"{project_name}\" --task \"{task.name}\"` "
-            f"또는 `devfolio export resume`[/dim]"
+            f"[dim]다음 단계: `devfolio serve`에서 초안을 검토/preview 하거나 "
+            f"`devfolio ai generate task \"{project_name}\" --task \"{task.name}\"` 를 실행하세요.[/dim]"
         )
     else:
         console.print(f"[red]오류:[/red] 프로젝트를 찾을 수 없습니다: {project_name}")

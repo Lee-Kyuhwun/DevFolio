@@ -70,7 +70,8 @@ def run_init(force: bool = False) -> None:
         f"\n[bold green]✓ 설정이 완료되었습니다![/bold green] "
         f"[dim]{config_path or '(경로 확인 불가)'} 에 저장되었습니다.[/dim]\n"
     )
-    console.print("  시작하려면: [bold]devfolio project add[/bold]")
+    console.print("  추천 시작 경로: [bold]devfolio serve[/bold]")
+    console.print("  CLI로 바로 입력하려면: [bold]devfolio project add[/bold]")
     if config.sync.enabled:
         console.print("  백업하려면: [bold]devfolio sync run[/bold]")
 

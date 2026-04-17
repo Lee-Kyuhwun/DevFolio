@@ -87,6 +87,11 @@ def generate_project(
     project: str = typer.Argument(..., help="프로젝트명"),
     lang: str = typer.Option("ko", "--lang", "-l", help="언어 (ko/en/both)"),
     provider: Optional[str] = typer.Option(None, "--provider", help="AI Provider 오버라이드"),
+    save_summary: bool = typer.Option(
+        False,
+        "--save-summary",
+        help="생성한 프로젝트 요약을 즉시 저장",
+    ),
 ):
     """프로젝트 전체 요약 문단 생성."""
     check_init()
@@ -112,6 +117,14 @@ def generate_project(
 
     console.print("\n[bold green]── AI 생성 결과 ──[/bold green]\n")
     console.print(result)
+
+    should_save = save_summary or Confirm.ask(
+        "\n이 요약을 프로젝트에 저장하시겠습니까?",
+        default=save_summary,
+    )
+    if should_save:
+        pm.save_project_summary(proj.id, result)
+        console.print("[bold green]✓ 프로젝트 요약이 저장되었습니다.[/bold green]")
 
 
 @generate_app.command("resume")

@@ -9,7 +9,7 @@ from typer.testing import CliRunner
 from devfolio.core import storage
 from devfolio.core.project_manager import ProjectManager
 from devfolio.main import app
-from devfolio.models.config import Config
+from devfolio.models.config import AIProviderConfig, Config
 
 runner = CliRunner()
 
@@ -128,3 +128,27 @@ def test_project_edit_rename_updates_lookup_and_file(cli_store):
     assert not old_file.exists()
     assert new_file.exists()
     assert manager.get_project("CLI 원본") is None
+
+
+def test_ai_generate_project_can_save_summary(cli_store):
+    manager = ProjectManager()
+    manager.create_project(name="AI 저장 테스트", period_start="2024-01")
+
+    config = storage.load_config()
+    config.default_ai_provider = "anthropic"
+    config.ai_providers = [
+        AIProviderConfig(name="anthropic", model="claude-sonnet-4-20250514", key_stored=True)
+    ]
+    storage.save_config(config)
+
+    with patch(
+        "devfolio.commands.ai.AIService.generate_project_summary",
+        return_value="저장된 AI 요약",
+    ):
+        result = runner.invoke(
+            app,
+            ["ai", "generate", "project", "AI 저장 테스트", "--save-summary"],
+        )
+
+    assert result.exit_code == 0, result.stdout
+    assert manager.get_project("AI 저장 테스트").summary == "저장된 AI 요약"

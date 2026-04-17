@@ -28,9 +28,9 @@ app.add_typer(task.app, name="task", help="작업 내역 CRUD")
 app.add_typer(config.app, name="config", help="설정 관리 (AI Provider 등)")
 app.add_typer(ai.app, name="ai", help="AI 문서 생성 / JD 매칭 / 문구 개선")
 app.add_typer(export.app, name="export", help="Markdown / PDF / DOCX / HTML 내보내기")
-app.add_typer(data.app, name="data", help="백업 / 복원 / YAML·JSON 가져오기")
+app.add_typer(data.app, name="data", help="백업 / 복원 / 고급 YAML·JSON 가져오기")
 app.add_typer(sync.app, name="sync", help="GitHub 백업 동기화")
-app.add_typer(serve_cmd.app, name="serve", help="웹 기반 설정 GUI 시작")
+app.add_typer(serve_cmd.app, name="serve", help="웹 기반 Portfolio Studio 시작")
 
 
 @app.command("init")

@@ -1,4 +1,4 @@
-"""FastAPI 앱 팩토리."""
+"""FastAPI Portfolio Studio 앱 팩토리."""
 
 from __future__ import annotations
 
@@ -19,10 +19,10 @@ def create_app():  # type: ignore[return]
     from devfolio.web.routes.ui import router as ui_router
 
     app = FastAPI(
-        title="DevFolio Settings",
-        description="DevFolio 설정 관리 웹 UI",
+        title="DevFolio Portfolio Studio",
+        description="DevFolio 프로젝트 입력, AI draft, preview, export용 로컬 웹 UI",
         version="0.1.0",
-        docs_url=None,   # Swagger UI 비활성화 (설정 전용 UI)
+        docs_url=None,
         redoc_url=None,
     )
 

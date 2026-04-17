@@ -88,8 +88,8 @@ def add_project(
         f"ID: [dim]{project.id}[/dim]"
     )
     console.print(
-        f"[dim]다음 단계: `devfolio task add --project \"{project.name}\"` "
-        f"또는 `devfolio export resume`[/dim]"
+        f"[dim]다음 단계: `devfolio serve`에서 AI draft/preview 흐름으로 이어가거나 "
+        f"`devfolio task add --project \"{project.name}\"`를 실행하세요.[/dim]"
     )
 
     if Confirm.ask("\n작업 내역을 바로 추가하시겠습니까?", default=False):
@@ -117,7 +117,7 @@ def list_projects(
 
     if not projects:
         console.print("[yellow]등록된 프로젝트가 없습니다.[/yellow]")
-        console.print("  [dim]devfolio project add[/dim] 로 첫 프로젝트를 등록하세요.")
+        console.print("  [dim]devfolio serve[/dim] 또는 [dim]devfolio project add[/dim] 로 첫 프로젝트를 등록하세요.")
         return
 
     table = Table(title="프로젝트 목록", show_header=True, header_style="bold cyan")

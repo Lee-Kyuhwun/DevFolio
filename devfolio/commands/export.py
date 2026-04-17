@@ -117,7 +117,7 @@ def export_resume(
             ) from e
 
     console.print(f"[bold green]✓ 내보내기 완료:[/bold green] {result}")
-    console.print("[dim]다음 단계: `devfolio sync run`으로 GitHub 백업을 갱신할 수 있습니다.[/dim]")
+    console.print("[dim]다음 단계: `devfolio serve`에서 preview를 계속 다듬거나 `devfolio sync run`으로 GitHub 백업을 갱신할 수 있습니다.[/dim]")
 
 
 @app.command("portfolio")
@@ -186,7 +186,7 @@ def export_portfolio(
             ) from e
 
     console.print(f"[bold green]✓ 내보내기 완료:[/bold green] {result}")
-    console.print("[dim]다음 단계: `devfolio sync run`으로 GitHub 백업을 갱신할 수 있습니다.[/dim]")
+    console.print("[dim]다음 단계: `devfolio serve`에서 preview를 계속 다듬거나 `devfolio sync run`으로 GitHub 백업을 갱신할 수 있습니다.[/dim]")
 
 
 @app.command("project")

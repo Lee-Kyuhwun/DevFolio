@@ -1,4 +1,4 @@
-"""devfolio data * — 데이터 백업/복원 커맨드."""
+"""devfolio data * — 데이터 백업/복원/고급 가져오기 커맨드."""
 
 import json
 from pathlib import Path
@@ -16,7 +16,7 @@ from devfolio.core.storage import project_id_from_name
 from devfolio.exceptions import DevfolioError
 from devfolio.models.project import Project
 
-app = typer.Typer(help="데이터 백업 및 복원", rich_markup_mode="rich")
+app = typer.Typer(help="데이터 백업 및 복원 / 고급 가져오기", rich_markup_mode="rich")
 console = Console()
 pm = ProjectManager()
 yaml = YAML(typ="safe")
@@ -92,20 +92,20 @@ def restore_cmd(
 
 @app.command("import")
 def import_data(
-    file: Path = typer.Argument(..., help="가져올 YAML/JSON 파일 경로"),
+    file: Path = typer.Argument(..., help="가져올 YAML/JSON 파일 경로 (고급 import용)"),
     yes: bool = typer.Option(False, "--yes", "-y", help="중복 확인 건너뜀"),
 ):
-    """YAML 또는 JSON 형식으로 프로젝트 일괄 가져오기.
+    """YAML 또는 JSON 형식으로 프로젝트를 일괄 가져오는 고급 import 기능.
 
-    예시 형식:
-    [{"name": "...", "type": "company", "period": {"start": "2024-01"}, ...}]
+    일반 사용자는 `devfolio serve`의 Intake 플로우를 우선 권장합니다.
+    이 명령은 기존 데이터 이관, 백업 복원, 파워유저용 일괄 입력에 적합합니다.
     """
     check_init()
 
     if not file.exists():
         raise DevfolioError(
             f"가져올 파일을 찾을 수 없습니다: {file}",
-            hint="경로를 다시 확인하거나 `examples/connected_car_gateway.yaml` 예시를 참고하세요.",
+            hint="경로를 다시 확인하거나 `examples/connected_car_gateway.yaml` 고급 import 예시를 참고하세요.",
         )
 
     try:
@@ -150,9 +150,10 @@ def import_data(
             skipped += 1
 
     console.print(
-        f"\n[bold green]✓ 가져오기 완료[/bold green] "
+        f"\n[bold green]✓ 고급 import 완료[/bold green] "
         f"(성공: {imported}, 건너뜀: {skipped})"
     )
+    console.print("[dim]다음 단계: `devfolio serve`에서 가져온 프로젝트를 검토하고 preview/export 하세요.[/dim]")
 
 
 @app.command("export-json")

@@ -1,5 +1,7 @@
 """프로젝트 및 작업 내역 CRUD 관리자."""
 
+from __future__ import annotations
+
 import uuid
 from typing import Optional
 
@@ -15,10 +17,23 @@ from devfolio.exceptions import (
     DevfolioProjectNotFoundError,
     DevfolioTaskNotFoundError,
 )
+from devfolio.models.draft import ProjectDraft
 from devfolio.models.project import Period, Project, Task
 
 
 class ProjectManager:
+    @staticmethod
+    def _clean_string_list(values: Optional[list[str]]) -> list[str]:
+        return [value.strip() for value in (values or []) if value and value.strip()]
+
+    @staticmethod
+    def _next_task_id(used_ids: Optional[set[str]] = None) -> str:
+        used = used_ids or set()
+        while True:
+            candidate = f"task_{uuid.uuid4().hex[:8]}"
+            if candidate not in used:
+                return candidate
+
     def _next_project_id(self, name: str, exclude_project_id: Optional[str] = None) -> str:
         """프로젝트명으로 고유 ID 생성.
 
@@ -49,6 +64,116 @@ class ProjectManager:
             f"프로젝트 ID를 생성할 수 없습니다: '{name}'",
             hint="프로젝트명을 더 구체적으로 지정하세요.",
         )
+
+    def draft_from_project(self, project: Project) -> ProjectDraft:
+        """저장된 Project를 웹 편집용 Draft로 변환한다."""
+        return ProjectDraft.model_validate(project.model_dump())
+
+    def project_from_draft(
+        self,
+        draft: ProjectDraft,
+        project_id: Optional[str] = None,
+        *,
+        transient: bool = False,
+    ) -> Project:
+        """Draft를 Project 모델로 변환한다.
+
+        transient=True인 경우 저장하지 않는 미리보기용 Project를 생성한다.
+        """
+        project_name = (draft.name or "").strip() or ("Untitled Project" if transient else "")
+        if not project_name:
+            raise DevfolioError(
+                "프로젝트명은 비워둘 수 없습니다.",
+                hint="초안 검토 단계에서 프로젝트명을 먼저 입력하세요.",
+            )
+
+        resolved_id = (project_id or draft.id or "").strip()
+        if not resolved_id:
+            base_name = draft.name.strip() if draft.name.strip() else "draft_project"
+            resolved_id = project_id_from_name(base_name)
+
+        used_task_ids: set[str] = set()
+        tasks: list[Task] = []
+        for task_draft in draft.tasks:
+            task_name = (task_draft.name or "").strip() or "Untitled Task"
+            task_id = (task_draft.id or "").strip()
+            if not task_id or task_id in used_task_ids:
+                task_id = self._next_task_id(used_task_ids)
+            used_task_ids.add(task_id)
+
+            tasks.append(
+                Task(
+                    id=task_id,
+                    name=task_name,
+                    period=Period.model_validate(task_draft.period.model_dump(exclude_none=False)),
+                    problem=task_draft.problem,
+                    solution=task_draft.solution,
+                    result=task_draft.result,
+                    tech_used=self._clean_string_list(task_draft.tech_used),
+                    keywords=self._clean_string_list(task_draft.keywords),
+                    ai_generated_text=task_draft.ai_generated_text,
+                )
+            )
+
+        return Project(
+            id=resolved_id,
+            name=project_name,
+            type=draft.type,
+            status=draft.status,
+            organization=draft.organization,
+            period=Period.model_validate(draft.period.model_dump(exclude_none=False)),
+            role=draft.role,
+            team_size=draft.team_size,
+            tech_stack=self._clean_string_list(draft.tech_stack),
+            summary=draft.summary,
+            tags=self._clean_string_list(draft.tags),
+            tasks=tasks,
+        )
+
+    def save_project_draft(
+        self,
+        draft: ProjectDraft,
+        project_id: Optional[str] = None,
+    ) -> Project:
+        """웹 편집 초안을 실제 Project로 저장한다."""
+        draft_name = (draft.name or "").strip()
+        if not draft_name:
+            raise DevfolioError(
+                "프로젝트명은 비워둘 수 없습니다.",
+                hint="초안 검토 단계에서 프로젝트명을 먼저 입력하세요.",
+            )
+
+        target = self.get_project_or_raise(project_id) if project_id else None
+        if target is None:
+            project = self.project_from_draft(
+                draft,
+                project_id=self._next_project_id(draft_name),
+            )
+            save_project(project)
+            return project
+
+        updated_project = self.project_from_draft(
+            draft,
+            project_id=target.id,
+        )
+        return self.rename_project(
+            target.id,
+            new_name=updated_project.name,
+            type=updated_project.type,
+            status=updated_project.status,
+            organization=updated_project.organization,
+            period=updated_project.period,
+            role=updated_project.role,
+            team_size=updated_project.team_size,
+            tech_stack=updated_project.tech_stack,
+            summary=updated_project.summary,
+            tags=updated_project.tags,
+            tasks=updated_project.tasks,
+        )
+
+    def save_project_summary(self, name_or_id: str, summary: str) -> Project:
+        """프로젝트 요약을 저장한다."""
+        return self.update_project(name_or_id, summary=summary)
 
     # ------------------------------------------------------------------
     # 프로젝트
@@ -165,9 +290,9 @@ class ProjectManager:
         """프로젝트에 작업 내역을 추가한다."""
         project = self.get_project_or_raise(project_name)
         task = Task(
-            id=f"task_{uuid.uuid4().hex[:8]}",
+            id=self._next_task_id({t.id for t in project.tasks}),
             name=name,
-            period=Period(start=period_start, end=period_end),
+            period=Period(start=period_start or None, end=period_end or None),
             problem=problem,
             solution=solution,
             result=result,

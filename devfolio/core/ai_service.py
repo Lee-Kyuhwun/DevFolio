@@ -1,6 +1,8 @@
 """AI Provider 추상화 서비스 (litellm 기반, lazy import)."""
 
+import json
 import os
+import re
 import time
 from typing import Optional
 
@@ -12,6 +14,7 @@ from devfolio.exceptions import (
 )
 from devfolio.log import get_logger
 from devfolio.models.config import AIProviderConfig, Config
+from devfolio.models.draft import ProjectDraft
 from devfolio.models.project import Project, Task
 from devfolio.utils.security import get_api_key
 
@@ -48,6 +51,11 @@ _JD_MATCH_SYSTEM = """당신은 개발자 채용 전문가입니다.
 3. 강조할 경험 추천
 4. 보완할 내용 제안
 을 구체적으로 알려주세요."""
+
+_INTAKE_SYSTEM = """당신은 개발자 포트폴리오 작성 도우미입니다.
+사용자가 자유롭게 적은 프로젝트 설명을 읽고, 포트폴리오 작성에 적합한 구조화 초안을 JSON으로 정리하세요.
+사실을 임의로 과장하지 말고, 불명확한 값은 빈 문자열이나 null로 남겨두세요.
+반드시 JSON 객체만 반환하세요. 마크다운 코드블록은 사용하지 마세요."""
 
 # ---------------------------------------------------------------------------
 # AI 서비스 클래스
@@ -152,6 +160,68 @@ class AIService:
                     time.sleep(_RETRY_DELAY)
         raise DevfolioAIError(str(last_error)) from last_error
 
+    @staticmethod
+    def _language_instruction(lang: str) -> str:
+        mapping = {
+            "ko": "한국어로 작성하세요.",
+            "en": "영어로 작성하세요.",
+            "both": "한국어와 영어를 함께 제공합니다. 먼저 한국어, 다음에 영어를 작성하세요.",
+        }
+        return mapping.get(lang, mapping["ko"])
+
+    @staticmethod
+    def _extract_json(raw: str) -> dict:
+        cleaned = raw.strip()
+        fenced = re.search(r"```(?:json)?\s*(.*?)```", cleaned, re.DOTALL)
+        if fenced:
+            cleaned = fenced.group(1).strip()
+
+        try:
+            payload = json.loads(cleaned)
+        except json.JSONDecodeError as e:
+            raise DevfolioAIError(
+                "AI가 구조화 초안을 올바른 JSON으로 반환하지 않았습니다.",
+                hint="다시 시도하거나 모델 응답 형식을 점검하세요.",
+            ) from e
+
+        if not isinstance(payload, dict):
+            raise DevfolioAIError(
+                "AI가 프로젝트 초안을 객체 형태로 반환하지 않았습니다.",
+                hint="다시 시도하거나 다른 AI Provider를 선택하세요.",
+            )
+        return payload
+
+    @staticmethod
+    def _draft_project_to_project(draft: ProjectDraft) -> Project:
+        tasks = [
+            Task(
+                id=task.id or f"draft_task_{index}",
+                name=task.name or f"Task {index + 1}",
+                period=task.period,
+                problem=task.problem,
+                solution=task.solution,
+                result=task.result,
+                tech_used=task.tech_used,
+                keywords=task.keywords,
+                ai_generated_text=task.ai_generated_text,
+            )
+            for index, task in enumerate(draft.tasks)
+        ]
+        return Project(
+            id=draft.id or "draft_project",
+            name=draft.name or "Untitled Project",
+            type=draft.type,
+            status=draft.status,
+            organization=draft.organization,
+            period=draft.period,
+            role=draft.role,
+            team_size=draft.team_size,
+            tech_stack=draft.tech_stack,
+            summary=draft.summary,
+            tags=draft.tags,
+            tasks=tasks,
+        )
+
     # ------------------------------------------------------------------
     # 공개 API
     # ------------------------------------------------------------------
@@ -167,12 +237,6 @@ class AIService:
         if task.ai_generated_text and not force_refresh:
             return task.ai_generated_text
 
-        lang_map = {
-            "ko": "한국어로 작성하세요.",
-            "en": "영어로 작성하세요.",
-            "both": "한국어와 영어를 병기하여 작성하세요.",
-        }
-
         prompt = f"""다음 작업 내역을 경력기술서 bullet point로 변환해주세요.
 
 작업명: {task.name}
@@ -181,7 +245,7 @@ class AIService:
 성과: {task.result}
 사용 기술: {", ".join(task.tech_used)}
 
-{lang_map.get(lang, lang_map["ko"])}
+{self._language_instruction(lang)}
 개조식 bullet point 3~5개를 작성해주세요."""
 
         return self._call(_TASK_SYSTEM, prompt, provider_name)
@@ -209,7 +273,7 @@ class AIService:
 주요 작업 내역:
 {tasks_text}
 
-언어: {"한국어" if lang == "ko" else "영어"}
+언어 지시: {self._language_instruction(lang)}
 3~5문장으로 작성해주세요."""
 
         return self._call(_PROJECT_SYSTEM, prompt, provider_name)
@@ -245,10 +309,138 @@ class AIService:
 프로젝트 이력:
 {projects_text}
 
-언어: {"한국어" if lang == "ko" else "영어"}
+언어 지시: {self._language_instruction(lang)}
 완성된 경력기술서 형식으로 작성해주세요."""
 
         return self._call(_RESUME_SYSTEM, prompt, provider_name)
+
+    def generate_project_draft(
+        self,
+        raw_text: str,
+        lang: str = "ko",
+        provider_name: Optional[str] = None,
+    ) -> ProjectDraft:
+        """자유 텍스트를 구조화된 프로젝트 초안으로 변환한다."""
+        prompt = f"""다음 자유 텍스트를 읽고 개발자 포트폴리오용 프로젝트 초안 JSON으로 구조화해주세요.
+
+요구 사항:
+- 사실로 보이지 않는 정보는 추측하지 말고 빈 문자열 또는 null로 두세요.
+- type은 company, side, course 중 하나만 사용하세요.
+- status는 done, in_progress, planned 중 하나만 사용하세요.
+- period는 {{\"start\": \"YYYY-MM 또는 null\", \"end\": \"YYYY-MM 또는 null\"}} 형식으로 작성하세요.
+- tech_stack, tags, tasks, tech_used, keywords는 항상 배열로 반환하세요.
+- tasks 각 항목은 name, period, problem, solution, result, tech_used, keywords, ai_generated_text 필드를 모두 포함하세요.
+- team_size를 알 수 없으면 1을 사용하세요.
+- 응답은 JSON 객체만 반환하세요.
+
+출력 스키마:
+{{
+  "name": "",
+  "type": "company",
+  "status": "done",
+  "organization": "",
+  "period": {{"start": null, "end": null}},
+  "role": "",
+  "team_size": 1,
+  "tech_stack": [],
+  "summary": "",
+  "tags": [],
+  "tasks": [
+    {{
+      "name": "",
+      "period": {{"start": null, "end": null}},
+      "problem": "",
+      "solution": "",
+      "result": "",
+      "tech_used": [],
+      "keywords": [],
+      "ai_generated_text": ""
+    }}
+  ]
+}}
+
+언어 지시: {self._language_instruction(lang)}
+
+[자유 텍스트]
+{raw_text}"""
+
+        payload = self._extract_json(self._call(_INTAKE_SYSTEM, prompt, provider_name))
+        payload.setdefault("name", "")
+        payload.setdefault("type", "company")
+        payload.setdefault("status", "done")
+        payload.setdefault("organization", "")
+        payload.setdefault("period", {"start": None, "end": None})
+        payload.setdefault("role", "")
+        payload.setdefault("team_size", 1)
+        payload.setdefault("tech_stack", [])
+        payload.setdefault("summary", "")
+        payload.setdefault("tags", [])
+        payload.setdefault("tasks", [])
+        payload["raw_text"] = raw_text
+
+        for task in payload["tasks"]:
+            if not isinstance(task, dict):
+                continue
+            task.setdefault("name", "")
+            task.setdefault("period", {"start": None, "end": None})
+            task.setdefault("problem", "")
+            task.setdefault("solution", "")
+            task.setdefault("result", "")
+            task.setdefault("tech_used", [])
+            task.setdefault("keywords", [])
+            task.setdefault("ai_generated_text", "")
+
+        return ProjectDraft.model_validate(payload)
+
+    def generate_draft_project_summary(
+        self,
+        draft: ProjectDraft,
+        lang: str = "ko",
+        provider_name: Optional[str] = None,
+    ) -> str:
+        """저장 전 초안 기준 프로젝트 요약을 생성한다."""
+        return self.generate_project_summary(
+            self._draft_project_to_project(draft),
+            lang=lang,
+            provider_name=provider_name,
+        )
+
+    def generate_draft_task_texts(
+        self,
+        draft: ProjectDraft,
+        lang: str = "ko",
+        provider_name: Optional[str] = None,
+        force_refresh: bool = True,
+    ) -> ProjectDraft:
+        """저장 전 초안 기준으로 작업 bullet을 일괄 생성한다."""
+        if not draft.tasks:
+            raise DevfolioAIError(
+                "AI bullet을 생성할 작업 내역이 없습니다.",
+                hint="초안에 최소 한 개의 작업을 추가한 뒤 다시 시도하세요.",
+            )
+
+        updated_tasks = []
+        for index, task in enumerate(draft.tasks, start=1):
+            temp_task = Task(
+                id=task.id or f"draft_task_{index}",
+                name=task.name or f"Task {index}",
+                period=task.period,
+                problem=task.problem,
+                solution=task.solution,
+                result=task.result,
+                tech_used=task.tech_used,
+                keywords=task.keywords,
+                ai_generated_text=task.ai_generated_text,
+            )
+            generated = self.generate_task_text(
+                temp_task,
+                lang=lang,
+                provider_name=provider_name,
+                force_refresh=force_refresh,
+            )
+            updated_tasks.append(task.model_copy(update={"ai_generated_text": generated}))
+
+        return draft.model_copy(update={"tasks": updated_tasks})
 
     def refine_text(
         self,

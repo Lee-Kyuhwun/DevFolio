@@ -4,6 +4,7 @@ import csv
 import html as html_mod
 import io
 import re
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -65,12 +66,15 @@ def _sanitize_filename(filename: str) -> str:
 def _validate_output_path(path: Path) -> Path:
     """출력 경로가 안전한지 검증 (path traversal 방지)."""
     resolved = path.resolve()
-    home = Path.home().resolve()
-    cwd = Path.cwd().resolve()
-    if not (str(resolved).startswith(str(home)) or str(resolved).startswith(str(cwd))):
+    allowed_roots = [
+        Path.home().resolve(),
+        Path.cwd().resolve(),
+        Path(tempfile.gettempdir()).resolve(),
+    ]
+    if not any(str(resolved).startswith(str(root)) for root in allowed_roots):
         raise DevfolioExportError(
             f"출력 경로가 허용 범위를 벗어났습니다: {path}",
-            hint="홈 디렉터리 또는 현재 작업 디렉터리 하위 경로를 지정하세요.",
+            hint="홈 디렉터리, 현재 작업 디렉터리, 또는 시스템 임시 디렉터리 하위 경로를 지정하세요.",
         )
     return resolved
 

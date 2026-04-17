@@ -1,1 +1,1 @@
-"""DevFolio 웹 UI — 설정 GUI (FastAPI + Jinja2)."""
+"""DevFolio 웹 UI — Portfolio Studio (FastAPI + Jinja2)."""

@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from devfolio.models.config import AIProviderConfig, Config, ExportConfig, SyncConfig, UserConfig
+from devfolio.models.draft import DraftPreviewRequest, ProjectDraft, TaskDraft
 from devfolio.models.project import Period, Project, Task
 
 
@@ -133,6 +134,31 @@ class TestProject:
         restored = Project.model_validate(data)
         assert restored.name == original.name
         assert restored.period.start == original.period.start
+
+
+# ---------------------------------------------------------------------------
+# Draft models
+# ---------------------------------------------------------------------------
+
+class TestDraftModels:
+    def test_project_draft_allows_empty_name_before_save(self):
+        draft = ProjectDraft()
+        assert draft.name == ""
+        assert draft.tasks == []
+
+    def test_task_draft_defaults(self):
+        task = TaskDraft()
+        assert task.name == ""
+        assert task.period.start is None
+        assert task.ai_generated_text == ""
+
+    def test_preview_request_requires_draft_payload_when_source_is_draft(self):
+        with pytest.raises(ValidationError):
+            DraftPreviewRequest(source="draft")
+
+    def test_preview_request_accepts_saved_source_without_draft(self):
+        request = DraftPreviewRequest(source="saved", project_ids=["alpha"])
+        assert request.project_ids == ["alpha"]
 
 
 # ---------------------------------------------------------------------------

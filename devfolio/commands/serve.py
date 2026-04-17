@@ -1,11 +1,11 @@
-"""devfolio serve — 웹 기반 설정 UI 시작."""
+"""devfolio serve — 웹 기반 Portfolio Studio 시작."""
 
 from __future__ import annotations
 
 import typer
 from rich.console import Console
 
-app = typer.Typer(help="웹 기반 설정 UI", invoke_without_command=True)
+app = typer.Typer(help="웹 기반 Portfolio Studio", invoke_without_command=True)
 console = Console()
 
 
@@ -15,7 +15,7 @@ def serve(
     port: int = typer.Option(8000, help="포트 번호"),
     open_browser: bool = typer.Option(True, "--open/--no-open", help="브라우저 자동 열기"),
 ) -> None:
-    """웹 기반 설정 GUI를 시작합니다.
+    """웹 기반 Portfolio Studio를 시작합니다.
 
     브라우저에서 http://<host>:<port> 로 접속하세요.
 
@@ -33,7 +33,7 @@ def serve(
     from devfolio.web.app import create_app
 
     url = f"http://{host}:{port}"
-    console.print(f"\n[bold cyan]DevFolio Settings UI[/bold cyan]")
+    console.print(f"\n[bold cyan]DevFolio Portfolio Studio[/bold cyan]")
     console.print(f"  주소: [link={url}]{url}[/link]")
     console.print("  종료: Ctrl+C\n")
 
