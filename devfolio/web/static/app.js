@@ -240,6 +240,15 @@ function bindGlobalActions() {
     input.type = input.type === 'password' ? 'text' : 'password';
     button.textContent = input.type === 'password' ? 'show' : 'hide';
   });
+
+  document.getElementById('btn-scan-run')?.addEventListener('click', handleGitScan);
+  document.getElementById('btn-scan-clear')?.addEventListener('click', () => {
+    document.getElementById('scan-repo-path').value = '';
+    document.getElementById('scan-author-email').value = '';
+    document.getElementById('scan-refresh').checked = false;
+    hideScanResult();
+  });
+  document.getElementById('btn-scan-go-projects')?.addEventListener('click', () => switchTab('projects'));
 }
 
 function bindDraftEditors() {
@@ -920,5 +929,88 @@ async function exportPreview() {
     const result = await apiPost(`/api/export/${state.preview.docType}`, payload);
     showToast(`내보내기 완료: ${result.path}`);
     document.getElementById('preview-meta').textContent = `내보내기 완료 · ${result.format} · ${result.path}`;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Git Scan
+// ---------------------------------------------------------------------------
+
+function hideScanResult() {
+  const panel = document.getElementById('scan-result-panel');
+  if (panel) panel.style.display = 'none';
+}
+
+function renderScanResult(data) {
+  const panel = document.getElementById('scan-result-panel');
+  panel.style.display = '';
+
+  const statusLabel = { created: '✓ 신규 등록', updated: '✓ 갱신 완료', cached: '✓ 캐시 히트' };
+  document.getElementById('scan-result-status').textContent = statusLabel[data.status] || data.status;
+  document.getElementById('scan-result-name').textContent = data.project_name || '결과';
+
+  const metrics = data.metrics || {};
+  const metricsBlock = document.getElementById('scan-metrics-block');
+  if (Object.keys(metrics).length) {
+    const langs = Object.entries(metrics.languages || {}).map(([k]) => k).join(', ') || '-';
+    const cats = Object.entries(metrics.categories || {}).map(([k, v]) => `${k}:${v}`).join(', ') || '-';
+    metricsBlock.innerHTML = `
+      <table class="scan-metrics-table">
+        <tr><th>커밋</th><td>${metrics.commit_count || 0}건 (전체 대비 ${((metrics.authorship_ratio || 0) * 100).toFixed(0)}%)</td></tr>
+        <tr><th>변경 LOC</th><td>+${metrics.insertions || 0} / -${metrics.deletions || 0}</td></tr>
+        <tr><th>변경 파일</th><td>${metrics.files_touched || 0}개</td></tr>
+        <tr><th>기간</th><td>${metrics.first_date || '?'} ~ ${metrics.last_date || '?'}</td></tr>
+        <tr><th>언어</th><td>${langs}</td></tr>
+        <tr><th>커밋 분류</th><td>${cats}</td></tr>
+      </table>`;
+  } else {
+    metricsBlock.innerHTML = '';
+  }
+
+  const tasksBlock = document.getElementById('scan-tasks-block');
+  const tasks = data.tasks || [];
+  if (tasks.length) {
+    const rows = tasks.map(t =>
+      `<li><strong>${t.name}</strong><br/><span class="scan-task-result">${t.result}</span></li>`
+    ).join('');
+    tasksBlock.innerHTML = `<ul class="scan-task-list">${rows}</ul>`;
+  } else {
+    tasksBlock.innerHTML = '';
+  }
+
+  document.getElementById('scan-action-row').style.display = '';
+}
+
+async function handleGitScan() {
+  const repoPath = document.getElementById('scan-repo-path').value.trim();
+  if (!repoPath) {
+    showToast('저장소 경로를 입력하세요.', 'error');
+    return;
+  }
+
+  const button = document.getElementById('btn-scan-run');
+  hideScanResult();
+
+  await withButtonState(button, '스캔 중...', async () => {
+    const payload = {
+      repo_path: repoPath,
+      author_email: document.getElementById('scan-author-email').value.trim() || null,
+      refresh: document.getElementById('scan-refresh').checked,
+    };
+    try {
+      const result = await apiPost('/api/scan/git', payload);
+      renderScanResult(result);
+      state.projects = await apiGet('/api/projects');
+      renderProjectsList();
+      if (result.status === 'cached') {
+        showToast(result.message || '이미 최신 상태입니다.', 'success');
+      } else if (result.status === 'created') {
+        showToast(`포트폴리오 등록 완료: ${result.project_name}`);
+      } else {
+        showToast(`포트폴리오 갱신 완료: ${result.project_name}`);
+      }
+    } catch (err) {
+      showToast(err.message || '스캔 중 오류가 발생했습니다.', 'error');
+    }
   });
 }

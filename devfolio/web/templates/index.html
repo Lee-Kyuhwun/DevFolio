@@ -50,6 +50,7 @@
 
       <nav class="studio-nav" aria-label="sections">
         <button class="nav-item active" data-tab="intake" type="button">Intake</button>
+        <button class="nav-item" data-tab="scan" type="button">Git Scan ✦</button>
         <button class="nav-item" data-tab="projects" type="button">Projects</button>
         <button class="nav-item" data-tab="preview" type="button">Preview</button>
         <button class="nav-item" data-tab="settings" type="button">Settings</button>
@@ -78,6 +79,62 @@
           <button id="btn-go-preview" type="button" class="btn btn-primary">현재 초안 미리보기</button>
         </div>
       </header>
+
+      <!-- ── Git Scan 탭 ── -->
+      <section class="tab-panel" id="tab-scan">
+        <div class="two-column">
+          <section class="studio-panel">
+            <div class="section-header">
+              <p class="eyebrow">Git 저장소 자동 분석</p>
+              <h3>Git Scan</h3>
+              <p>로컬 git 저장소 경로를 입력하면 본인 커밋을 분석해 포트폴리오 프로젝트를 자동으로 생성합니다.</p>
+            </div>
+
+            <label class="field">
+              <span>저장소 경로</span>
+              <input type="text" id="scan-repo-path" placeholder="/home/user/projects/my-app 또는 /repos/my-app" />
+            </label>
+
+            <label class="field">
+              <span>Author 이메일 <em>(비워두면 설정의 이메일 사용)</em></span>
+              <input type="email" id="scan-author-email" placeholder="you@example.com" />
+            </label>
+
+            <div class="field-grid compact">
+              <label class="field checkbox-field">
+                <input type="checkbox" id="scan-refresh" />
+                <span>강제 재스캔 (캐시 무시)</span>
+              </label>
+            </div>
+
+            <div class="action-row">
+              <button id="btn-scan-run" type="button" class="btn btn-primary">스캔 시작</button>
+              <button id="btn-scan-clear" type="button" class="btn btn-ghost">초기화</button>
+            </div>
+
+            <div id="scan-hint" class="inline-note">
+              <strong>Docker 사용 시:</strong> 홈 디렉터리가 컨테이너 내 <code>/home/user</code>로 자동 마운트됩니다.<br/>
+              예: 로컬 경로가 <code>~/projects/my-app</code>이면 → <code>/home/user/projects/my-app</code> 입력<br/>
+              다른 경로를 사용하려면 <code>.env</code>에 <code>REPOS_DIR=/원하는/경로</code>를 추가하세요.
+            </div>
+          </section>
+
+          <section class="studio-panel" id="scan-result-panel" style="display:none">
+            <div class="section-header">
+              <p class="eyebrow" id="scan-result-status"></p>
+              <h3 id="scan-result-name">스캔 결과</h3>
+            </div>
+
+            <div id="scan-metrics-block"></div>
+
+            <div id="scan-tasks-block"></div>
+
+            <div class="action-row" id="scan-action-row" style="display:none">
+              <button id="btn-scan-go-projects" type="button" class="btn btn-primary">Projects 탭에서 확인</button>
+            </div>
+          </section>
+        </div>
+      </section>
 
       <section class="tab-panel active" id="tab-intake">
         <div class="two-column">

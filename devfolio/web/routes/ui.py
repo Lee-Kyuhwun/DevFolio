@@ -22,9 +22,9 @@ def index(request: Request) -> HTMLResponse:
     cfg = load_config()
 
     return _templates.TemplateResponse(
+        request,
         "index.html",
         {
-            "request": request,
             "initialized": initialized,
             "config": cfg,
         },

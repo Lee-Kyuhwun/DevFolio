@@ -629,3 +629,50 @@ code {
     display: grid;
   }
 }
+
+/* ── Git Scan ── */
+.scan-metrics-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+  margin: 1rem 0;
+}
+.scan-metrics-table th,
+.scan-metrics-table td {
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+}
+.scan-metrics-table th {
+  width: 7rem;
+  color: var(--text-muted, #6b7280);
+  font-weight: 500;
+}
+.scan-task-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.scan-task-list li {
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 6px;
+  font-size: 0.88rem;
+}
+.scan-task-result {
+  color: var(--text-muted, #6b7280);
+  font-size: 0.82rem;
+}
+.checkbox-field {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+.checkbox-field input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}

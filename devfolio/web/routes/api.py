@@ -64,6 +64,12 @@ class AIProviderCreate(BaseModel):
     base_url: Optional[str] = None
 
 
+class GitScanRequest(BaseModel):
+    repo_path: str
+    author_email: Optional[str] = None
+    refresh: bool = False
+
+
 class DraftIntakeRequest(BaseModel):
     raw_text: str
     lang: str = "ko"
@@ -527,3 +533,111 @@ def export_portfolio(body: DraftPreviewRequest) -> dict[str, Any]:
         return _export_document(request)
     except DevfolioError as exc:
         _raise_from_devfolio(exc)
+
+
+# ---------------------------------------------------------------------------
+# Git Scan
+# ---------------------------------------------------------------------------
+
+@router.post("/scan/git")
+def scan_git(body: GitScanRequest) -> dict[str, Any]:
+    """Git 저장소를 스캔해 본인 커밋 기반 포트폴리오를 자동 생성한다."""
+    from pathlib import Path as _Path
+    from devfolio.core.git_scanner import build_project_payload, scan_repo
+    from devfolio.core.storage import list_projects, save_project
+
+    cfg = load_config()
+    author_email = (body.author_email or cfg.user.email or "").strip()
+    if not author_email:
+        raise HTTPException(
+            status_code=400,
+            detail="author email이 설정되지 않았습니다. Settings > 사용자 프로필에서 이메일을 먼저 등록하세요.",
+        )
+
+    repo_path = _Path(body.repo_path.strip())
+    if not repo_path.exists():
+        raise HTTPException(status_code=400, detail=f"경로를 찾을 수 없습니다: {repo_path}")
+
+    try:
+        # 캐시 체크: 같은 repo_url + HEAD SHA 이면 즉시 반환
+        if not body.refresh:
+            from devfolio.core.git_scanner import _run_git, _detect_repo_url, _is_git_repo
+            if _is_git_repo(repo_path):
+                head_sha = _run_git(repo_path, ["rev-parse", "HEAD"]).strip()
+                repo_url = _detect_repo_url(repo_path)
+                for p in list_projects():
+                    if (
+                        p.repo_url
+                        and p.repo_url == repo_url
+                        and p.last_commit_sha == head_sha
+                    ):
+                        return {
+                            "status": "cached",
+                            "message": f"이미 최신 상태입니다 (sha={head_sha[:8]})",
+                            "project_id": p.id,
+                            "project_name": p.name,
+                            "metrics": p.scan_metrics,
+                        }
+
+        scan_result = scan_repo(repo_path, author_email=author_email)
+    except DevfolioError as exc:
+        _raise_from_devfolio(exc)
+
+    payload = build_project_payload(scan_result)
+
+    # 기존 프로젝트 갱신 vs 신규 등록
+    existing = next(
+        (p for p in list_projects() if p.repo_url and p.repo_url == payload["repo_url"]),
+        None,
+    )
+
+    from devfolio.models.project import Period, Project, Task
+
+    def _make_project(pid: str) -> Project:
+        tasks = []
+        for i, t in enumerate(payload["tasks"]):
+            tasks.append(Task(
+                id=f"task_{i+1:03d}",
+                name=t["name"],
+                period=Period(start=t.get("period_start"), end=t.get("period_end")),
+                problem=t.get("problem", ""),
+                solution=t.get("solution", ""),
+                result=t.get("result", ""),
+                keywords=t.get("keywords", []),
+            ))
+        return Project(
+            id=pid,
+            name=payload["name"],
+            type=payload["type"],
+            status=payload["status"],
+            period=Period(start=payload.get("period_start"), end=payload.get("period_end")),
+            role=payload.get("role", ""),
+            team_size=payload.get("team_size", 1),
+            tech_stack=payload.get("tech_stack", []),
+            summary=payload.get("summary", ""),
+            tags=payload.get("tags", []),
+            tasks=tasks,
+            repo_url=payload.get("repo_url", ""),
+            last_commit_sha=payload.get("last_commit_sha", ""),
+            scan_metrics=payload.get("scan_metrics", {}),
+        )
+
+    if existing:
+        project = _make_project(existing.id)
+        save_project(project)
+        status = "updated"
+    else:
+        project_id = pm._next_project_id(payload["name"])
+        project = _make_project(project_id)
+        save_project(project)
+        status = "created"
+
+    metrics = payload.get("scan_metrics", {})
+    return {
+        "status": status,
+        "project_id": project.id,
+        "project_name": project.name,
+        "metrics": metrics,
+        "summary": payload.get("summary", ""),
+        "tasks": [{"name": t.name, "result": t.result} for t in project.tasks],
+    }

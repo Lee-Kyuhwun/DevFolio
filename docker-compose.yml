@@ -6,6 +6,9 @@ services:
     volumes:
       - devfolio-config:/root/.config/devfolio
       - devfolio-data:/root/.local/share/devfolio
+      # Git Scan: 로컬 저장소를 컨테이너 안에서 접근 가능하게 마운트
+      # REPOS_DIR 환경변수로 경로 지정 (기본: 홈 디렉터리)
+      - ${REPOS_DIR:-~}:/home/user:ro
     environment:
       # API 키는 환경변수로 주입 (keyring 불필요)
       # .env 파일을 만들거나 직접 설정하세요
