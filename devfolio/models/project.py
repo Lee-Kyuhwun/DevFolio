@@ -68,6 +68,9 @@ class Project(BaseModel):
     summary: str = Field(default="", description="한 줄 요약")
     tags: list[str] = Field(default_factory=list, description="태그")
     tasks: list[Task] = Field(default_factory=list, description="작업 내역 목록")
+    repo_url: str = Field(default="", description="원본 Git 저장소 URL (scan 캐싱용)")
+    last_commit_sha: str = Field(default="", description="마지막으로 스캔한 커밋 SHA")
+    scan_metrics: dict = Field(default_factory=dict, description="git scan 지표 캐시")
 
     def type_display(self) -> str:
         mapping = {"company": "회사 업무", "side": "사이드 프로젝트", "course": "인강/학습"}

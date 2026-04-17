@@ -6,7 +6,7 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 
-from devfolio.commands import ai, config, data, export, project, sync, task
+from devfolio.commands import ai, config, data, export, project, scan, sync, task
 from devfolio.commands.init_cmd import run_init
 from devfolio.commands import serve as serve_cmd
 from devfolio.exceptions import DevfolioError
@@ -30,6 +30,7 @@ app.add_typer(ai.app, name="ai", help="AI 문서 생성 / JD 매칭 / 문구 개
 app.add_typer(export.app, name="export", help="Markdown / PDF / DOCX / HTML 내보내기")
 app.add_typer(data.app, name="data", help="백업 / 복원 / 고급 YAML·JSON 가져오기")
 app.add_typer(sync.app, name="sync", help="GitHub 백업 동기화")
+app.add_typer(scan.app, name="scan", help="Git 저장소 스캔 → 포트폴리오 자동 생성")
 app.add_typer(serve_cmd.app, name="serve", help="웹 기반 Portfolio Studio 시작")
 
 

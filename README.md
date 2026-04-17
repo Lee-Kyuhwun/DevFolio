@@ -227,15 +227,64 @@ Data is persisted in Docker named volumes (`devfolio-config`, `devfolio-data`) a
 
 ## Quick Start
 
-### 1. Initialize DevFolio
+### 1. Clone the repository and install
+
+```bash
+git clone https://github.com/Lee-Kyuhwun/DevFolio.git
+cd DevFolio
+pip install -e ".[all]"   # includes AI, PDF, DOCX, web UI
+```
+
+Minimum install (CLI only, no AI/PDF/web):
+
+```bash
+pip install -e .
+```
+
+### 2. Initialize DevFolio
 
 ```bash
 devfolio init
 ```
 
 This creates your local config and walks through profile, AI, and optional GitHub backup setup.
+**Required:** enter your email during init — it is used to identify your commits when scanning git repositories.
 
-### 2. Start the local studio
+### 3. Scan your git repositories (auto-generate portfolio)
+
+```bash
+devfolio scan /path/to/your-project
+```
+
+DevFolio reads the git history, filters commits authored by your email, computes metrics, and saves a portfolio project automatically.
+
+```
+scanning /path/to/your-project (author=you@example.com)...
+╭─── Scan Summary ──────────────────────────────────────────╮
+│ your-project  new scan                                     │
+│ 기간: 2025-01 ~ 2026-04                                    │
+│ 커밋: 42건 / 전체 대비 87%                                 │
+│ 변경: +12430 / -3201 LOC, 95 파일                         │
+│ 언어: Python, TypeScript, Go                               │
+│ 분류: {'feat': 28, 'fix': 9, 'perf': 5}                   │
+╰────────────────────────────────────────────────────────────╯
+```
+
+If you run `devfolio scan` again on the same repository without new commits, the result is returned instantly from cache (no re-analysis).
+Use `--refresh` to force re-analysis even if the HEAD SHA has not changed.
+
+Options:
+
+```bash
+devfolio scan .                        # current directory
+devfolio scan ~/projects/my-app        # absolute path
+devfolio scan . --author you@work.com  # override email
+devfolio scan . --refresh              # force re-scan
+devfolio scan . --dry-run              # preview without saving
+devfolio scan . --yes                  # skip confirmation prompt
+```
+
+### 4. Start the local studio
 
 ```bash
 devfolio serve
@@ -243,20 +292,21 @@ devfolio serve
 
 Use the browser flow to paste project notes, generate an AI draft, review it, preview it, and save it.
 
-### 3. Export a resume or portfolio
+### 5. Export a resume or portfolio
 
 ```bash
 devfolio export resume
+devfolio export portfolio --format pdf
 ```
 
-### 4. Optional CLI workflow
+### 6. Optional CLI workflow
 
 ```bash
 devfolio project add
 devfolio task add --project "My Project"
 ```
 
-### 5. Optionally configure GitHub backup sync
+### 7. Optionally configure GitHub backup sync
 
 ```bash
 devfolio sync setup --repo your-account/devfolio-backup
@@ -285,6 +335,7 @@ devfolio data import ./my-projects.json
 
 - `devfolio init`
 - `devfolio serve`
+- `devfolio scan <path>` — git scan → auto-generate portfolio project
 - `devfolio project add|list|show|edit|delete`
 - `devfolio task add|list|show|edit|delete`
 
@@ -651,15 +702,64 @@ docker compose down
 
 ## 빠른 시작
 
-### 1. DevFolio 초기화
+### 1. 저장소 클론 및 설치
+
+```bash
+git clone https://github.com/Lee-Kyuhwun/DevFolio.git
+cd DevFolio
+pip install -e ".[all]"   # AI, PDF, DOCX, 웹 UI 포함 전체 설치
+```
+
+최소 설치 (CLI 전용, AI/PDF/웹 UI 제외):
+
+```bash
+pip install -e .
+```
+
+### 2. DevFolio 초기화
 
 ```bash
 devfolio init
 ```
 
 이 명령은 로컬 설정 파일을 만들고 사용자 정보, AI, 선택적 GitHub 백업 설정까지 안내합니다.
+**필수:** 초기화 시 이메일을 입력하세요 — git 저장소 스캔 시 본인 커밋을 식별하는 데 사용됩니다.
 
-### 2. 로컬 스튜디오 시작
+### 3. Git 저장소 스캔 (포트폴리오 자동 생성)
+
+```bash
+devfolio scan /path/to/your-project
+```
+
+DevFolio가 git 이력을 읽고 본인 이메일로 작성된 커밋만 필터링해서 지표를 산출한 뒤, 포트폴리오 프로젝트를 자동으로 저장합니다.
+
+```
+scanning /path/to/your-project (author=you@example.com)...
+╭─── Scan Summary ──────────────────────────────────────────╮
+│ your-project  new scan                                     │
+│ 기간: 2025-01 ~ 2026-04                                    │
+│ 커밋: 42건 / 전체 대비 87%                                 │
+│ 변경: +12430 / -3201 LOC, 95 파일                         │
+│ 언어: Python, TypeScript, Go                               │
+│ 분류: {'feat': 28, 'fix': 9, 'perf': 5}                   │
+╰────────────────────────────────────────────────────────────╯
+```
+
+같은 저장소를 다시 스캔할 때 새 커밋이 없으면 캐시에서 즉시 결과를 반환합니다 (재분석 없음).
+`--refresh` 를 사용하면 HEAD SHA 변경 여부에 관계없이 강제로 재분석합니다.
+
+옵션:
+
+```bash
+devfolio scan .                          # 현재 디렉터리
+devfolio scan ~/projects/my-app          # 절대 경로
+devfolio scan . --author you@work.com    # 이메일 직접 지정
+devfolio scan . --refresh                # 강제 재스캔
+devfolio scan . --dry-run                # 저장 없이 미리보기
+devfolio scan . --yes                    # 확인 없이 바로 저장
+```
+
+### 4. 로컬 스튜디오 시작
 
 ```bash
 devfolio serve
@@ -667,20 +767,21 @@ devfolio serve
 
 브라우저에서 작업물을 붙여넣고 AI draft를 만든 뒤, 검토 후 저장하고 preview/export 하세요.
 
-### 3. 문서 내보내기
+### 5. 문서 내보내기
 
 ```bash
 devfolio export resume
+devfolio export portfolio --format pdf
 ```
 
-### 4. 필요하면 CLI 워크플로우 사용
+### 6. 필요하면 CLI 워크플로우 사용
 
 ```bash
 devfolio project add
 devfolio task add --project "My Project"
 ```
 
-### 5. 필요하면 GitHub 백업 sync 설정
+### 7. 필요하면 GitHub 백업 sync 설정
 
 ```bash
 devfolio sync setup --repo your-account/devfolio-backup
@@ -709,6 +810,7 @@ devfolio data import ./my-projects.json
 
 - `devfolio init`
 - `devfolio serve`
+- `devfolio scan <경로>` — git 스캔 → 포트폴리오 자동 생성
 - `devfolio project add|list|show|edit|delete`
 - `devfolio task add|list|show|edit|delete`
 
