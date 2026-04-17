@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class AIProviderConfig(BaseModel):
@@ -32,6 +33,22 @@ class UserConfig(BaseModel):
     github: str = Field(default="")
     blog: str = Field(default="")
 
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        if v and "@" not in v:
+            raise ValueError(f"유효하지 않은 이메일 형식입니다: {v!r}")
+        return v
+
+    @field_validator("github", "blog")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        if v and not v.startswith(("http://", "https://", "github.com/")):
+            raise ValueError(
+                f"URL은 http:// 또는 https://로 시작해야 합니다: {v!r}"
+            )
+        return v
+
 
 class SyncConfig(BaseModel):
     """GitHub 백업 동기화 설정."""
@@ -40,6 +57,16 @@ class SyncConfig(BaseModel):
     repo_url: str = Field(default="")
     branch: str = Field(default="main")
 
+    @field_validator("branch")
+    @classmethod
+    def validate_branch(cls, v: str) -> str:
+        if v and not re.match(r"^[A-Za-z0-9][A-Za-z0-9_./-]*$", v):
+            raise ValueError(
+                f"유효하지 않은 브랜치 이름입니다: {v!r}. "
+                "영문자/숫자로 시작하고 영문자, 숫자, '.', '_', '/', '-'만 사용 가능합니다."
+            )
+        return v
+
 
 class Config(BaseModel):
     """전체 설정."""
@@ -47,6 +74,7 @@ class Config(BaseModel):
     version: str = Field(default="1.0")
     default_ai_provider: str = Field(default="")
     default_language: str = Field(default="ko", pattern="^(ko|en|both)$")
+    timezone: str = Field(default="Asia/Seoul", description="타임존 (예: Asia/Seoul, UTC)")
     ai_providers: list[AIProviderConfig] = Field(default_factory=list)
     export: ExportConfig = Field(default_factory=ExportConfig)
     user: UserConfig = Field(default_factory=UserConfig)

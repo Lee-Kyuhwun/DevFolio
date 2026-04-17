@@ -9,6 +9,7 @@ from rich.panel import Panel
 from devfolio.commands import ai, config, data, export, project, sync, task
 from devfolio.commands.init_cmd import run_init
 from devfolio.exceptions import DevfolioError
+from devfolio.i18n import init_from_config
 
 app = typer.Typer(
     name="devfolio",
@@ -48,6 +49,15 @@ def main(ctx: typer.Context):
 
 def cli():
     """CLI 진입점 — 전역 DevfolioError 처리."""
+    # config가 있으면 언어 설정을 i18n에 반영
+    try:
+        from devfolio.core.storage import is_initialized, load_config
+        if is_initialized():
+            cfg = load_config()
+            init_from_config(cfg.default_language)
+    except Exception:
+        pass  # config 없어도 기본 로케일(ko)로 진행
+
     try:
         app()
     except DevfolioError as e:

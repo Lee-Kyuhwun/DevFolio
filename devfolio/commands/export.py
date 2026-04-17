@@ -6,22 +6,18 @@ from typing import Optional
 import typer
 from rich.console import Console
 
+from devfolio.commands.common import check_init
 from devfolio.core.export_engine import ExportEngine
 from devfolio.core.project_manager import ProjectManager
-from devfolio.core.storage import is_initialized, list_projects, load_config
+from devfolio.core.storage import list_projects, load_config
 from devfolio.core.template_engine import TemplateEngine
-from devfolio.exceptions import DevfolioError, DevfolioNotInitializedError
+from devfolio.exceptions import DevfolioError
 
 app = typer.Typer(help="문서 내보내기", rich_markup_mode="rich")
 console = Console()
 pm = ProjectManager()
 
-_FORMATS = {"md", "pdf", "docx", "html", "json"}
-
-
-def _check_init():
-    if not is_initialized():
-        raise DevfolioNotInitializedError()
+_FORMATS = {"md", "pdf", "docx", "html", "json", "csv"}
 
 
 def _do_export(content: str, fmt: str, filename: str, output: Optional[Path]) -> Path:
@@ -57,7 +53,7 @@ def export_resume(
     ),
 ):
     """경력기술서 내보내기."""
-    _check_init()
+    check_init()
 
     config = load_config()
     fmt = (format or config.export.default_format or "md").lower()
@@ -107,6 +103,11 @@ def export_resume(
                     from devfolio.core.storage import EXPORTS_DIR
                     result = EXPORTS_DIR / "resume.json"
                 result.write_text(content, encoding="utf-8")
+            elif fmt == "csv":
+                engine = ExportEngine()
+                result = engine.export_csv(selected, f"resume_{template_name}")
+                if output:
+                    result = engine.copy_to(result, output)
             else:
                 result = _do_export(content, fmt, f"resume_{template_name}", output)
         except Exception as e:
@@ -129,11 +130,11 @@ def export_portfolio(
     ),
 ):
     """포트폴리오 내보내기."""
-    _check_init()
+    check_init()
 
     config = load_config()
     template_name = template or config.export.default_template or "default"
-    supported_formats = {"md", "html", "pdf"}
+    supported_formats = {"md", "html", "pdf", "csv"}
     default_portfolio_format = (
         config.export.default_format if config.export.default_format in supported_formats else "html"
     )
@@ -165,13 +166,19 @@ def export_portfolio(
 
     with console.status("[cyan]포트폴리오를 생성하는 중...[/cyan]"):
         try:
-            content = tmpl_engine.render(
-                projects=selected,
-                config=config,
-                template_name=template_name,
-                doc_type="portfolio",
-            )
-            result = _do_export(content, fmt, f"portfolio_{template_name}", output)
+            if fmt == "csv":
+                engine = ExportEngine()
+                result = engine.export_csv(selected, f"portfolio_{template_name}")
+                if output:
+                    result = engine.copy_to(result, output)
+            else:
+                content = tmpl_engine.render(
+                    projects=selected,
+                    config=config,
+                    template_name=template_name,
+                    doc_type="portfolio",
+                )
+                result = _do_export(content, fmt, f"portfolio_{template_name}", output)
         except Exception as e:
             raise DevfolioError(
                 f"포트폴리오를 내보낼 수 없습니다: {e}",
@@ -189,7 +196,7 @@ def export_project(
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="출력 파일 경로"),
 ):
     """단일 프로젝트 한 장 요약 내보내기."""
-    _check_init()
+    check_init()
 
     fmt = format.lower()
     project = pm.get_project_or_raise(name)

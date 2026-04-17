@@ -7,21 +7,16 @@ from rich.console import Console
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
+from devfolio.commands.common import check_init
 from devfolio.core.project_manager import ProjectManager
-from devfolio.core.storage import is_initialized
-from devfolio.exceptions import DevfolioNotInitializedError
+from devfolio.models.project import Task
 
 app = typer.Typer(help="작업 내역 관리", rich_markup_mode="rich")
 console = Console()
 pm = ProjectManager()
 
 
-def _check_init():
-    if not is_initialized():
-        raise DevfolioNotInitializedError()
-
-
-def _do_add_task(project_name: str):
+def _do_add_task(project_name: str) -> Optional[Task]:
     """대화형 작업 내역 입력 (내부 재사용 함수)."""
     console.print("\n[bold cyan]── 작업 내역 등록 ──[/bold cyan]\n")
     console.print("[dim]기간과 상세 설명은 비워둘 수 있고, 나중에 `task edit`로 보완할 수 있습니다.[/dim]\n")
@@ -74,7 +69,7 @@ def add_task(
     project: str = typer.Option(..., "--project", "-p", help="프로젝트명"),
 ):
     """작업 내역 등록."""
-    _check_init()
+    check_init()
 
     proj = pm.get_project_or_raise(project)
 
@@ -90,7 +85,7 @@ def list_tasks(
     project: str = typer.Argument(..., help="프로젝트명 또는 ID"),
 ):
     """프로젝트의 작업 내역 목록 조회."""
-    _check_init()
+    check_init()
 
     proj = pm.get_project_or_raise(project)
 
@@ -125,7 +120,7 @@ def show_task(
     task_name: str = typer.Argument(..., help="작업명"),
 ):
     """작업 내역 상세 조회."""
-    _check_init()
+    check_init()
 
     proj, task = pm.get_task_or_raise(project, task_name)
 
@@ -149,7 +144,7 @@ def edit_task(
     task_name: str = typer.Argument(..., help="작업명"),
 ):
     """작업 내역 수정."""
-    _check_init()
+    check_init()
 
     _, task = pm.get_task_or_raise(project, task_name)
 
@@ -192,7 +187,7 @@ def delete_task(
     yes: bool = typer.Option(False, "--yes", "-y", help="확인 프롬프트 건너뜀"),
 ):
     """작업 내역 삭제."""
-    _check_init()
+    check_init()
     _, task = pm.get_task_or_raise(project, task_name)
 
     if not yes:

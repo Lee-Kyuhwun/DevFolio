@@ -11,8 +11,11 @@ from pydantic import ValidationError
 from ruamel.yaml import YAML
 
 from devfolio.exceptions import DevfolioYAMLError
+from devfolio.log import get_logger
 from devfolio.models.config import Config
 from devfolio.models.project import Project
+
+logger = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # 경로 설정 (platformdirs 기반 크로스플랫폼)
@@ -170,8 +173,8 @@ def list_projects() -> list[Project]:
                     data = _yaml.load(f) or {}
                 projects.append(Project.model_validate(data))
                 seen_ids.add(project_id)
-            except Exception:
-                # 손상된 파일은 조용히 건너뜀
+            except Exception as e:
+                logger.warning("손상된 프로젝트 파일 건너뜀: %s (%s)", yaml_file, e)
                 continue
     return projects
 

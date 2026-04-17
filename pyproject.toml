@@ -8,18 +8,18 @@ version = "0.1.0"
 description = "개발자 포트폴리오 & 경력기술서 자동화 시스템"
 requires-python = ">=3.11"
 dependencies = [
-    "typer[all]>=0.12.0",
-    "ruamel.yaml>=0.18.0",
-    "jinja2>=3.1.0",
-    "keyring>=25.0.0",
-    "rich>=13.7.0",
-    "pydantic>=2.0.0",
-    "platformdirs>=4.0.0",
+    "typer[all]>=0.12.0,<1.0",
+    "ruamel.yaml>=0.18.0,<0.19",
+    "jinja2>=3.1.0,<4.0",
+    "keyring>=25.0.0,<27.0",
+    "rich>=13.7.0,<15.0",
+    "pydantic>=2.0.0,<3.0",
+    "platformdirs>=4.0.0,<5.0",
 ]
 
 [project.optional-dependencies]
 ai = [
-    "litellm>=1.40.0",
+    "litellm>=1.40.0,<3.0",
 ]
 pdf = [
     "weasyprint>=62.0",
@@ -40,6 +40,7 @@ dev = [
     "pytest-mock>=3.14.0",
     "litellm>=1.40.0",
     "markdown>=3.6",
+    "ruff>=0.4.0",
 ]
 
 [project.scripts]

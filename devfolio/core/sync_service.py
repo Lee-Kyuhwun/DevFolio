@@ -14,9 +14,11 @@ from devfolio.core import storage
 from devfolio.core.export_engine import ExportEngine
 from devfolio.core.template_engine import TemplateEngine
 from devfolio.exceptions import DevfolioSyncError, DevfolioSyncNotConfiguredError
+from devfolio.log import get_logger
 from devfolio.models.config import Config, SyncConfig
 
-_SEOUL_TZ = ZoneInfo("Asia/Seoul")
+logger = get_logger(__name__)
+
 _REPO_SLUG_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 
@@ -25,6 +27,7 @@ class SyncService:
         self.config = config
         self.template_engine = TemplateEngine()
         self.export_engine = ExportEngine()
+        self._tz = ZoneInfo(config.timezone)
 
     @staticmethod
     def normalize_repo_url(value: str) -> str:
@@ -87,7 +90,7 @@ class SyncService:
         return result
 
     def _current_timestamp(self) -> datetime:
-        return datetime.now(_SEOUL_TZ)
+        return datetime.now(self._tz)
 
     def _update_state(
         self,
@@ -206,7 +209,7 @@ class SyncService:
                 error_message="원격 브랜치 정보를 가져올 수 없습니다.",
             )
             checkout_args = (
-                ["git", "checkout", sync.branch]
+                ["git", "checkout", "--", sync.branch]
                 if local_branch
                 else ["git", "checkout", "-B", sync.branch, f"origin/{sync.branch}"]
             )
@@ -319,6 +322,7 @@ class SyncService:
         sync = self._sync_config()
 
         try:
+            logger.info("동기화 시작: %s (branch: %s)", sync.repo_url, sync.branch)
             self.validate_remote_access()
             repo_dir = self._ensure_local_repo(sync)
             self._ensure_clean_repo(repo_dir)

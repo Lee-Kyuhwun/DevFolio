@@ -1,8 +1,13 @@
+{% extends "base.md.j2" %}
+
+{% block header %}
 # {{ user.name }}
 {% if user.email %}{{ user.email }}{% endif %}{% if user.github %} | {{ user.github }}{% endif %}{% if user.blog %} | {{ user.blog }}{% endif %}
 
 ---
+{% endblock header %}
 
+{% block projects %}
 {% for project in projects %}
 ## {{ project.name }} ({{ project.period.display() }})
 
@@ -23,3 +28,6 @@
 {% endfor %}
 
 {% endfor %}
+{% endblock projects %}
+
+{% block footer %}{% endblock footer %}

@@ -6,18 +6,13 @@ import typer
 from rich.console import Console
 from rich.prompt import Prompt
 
-from devfolio.core.storage import is_initialized, load_config, save_config
+from devfolio.commands.common import check_init
+from devfolio.core.storage import load_config, save_config
 from devfolio.core.sync_service import SyncService
-from devfolio.exceptions import DevfolioNotInitializedError
 from devfolio.models.config import SyncConfig
 
 app = typer.Typer(help="GitHub 백업 동기화", rich_markup_mode="rich")
 console = Console()
-
-
-def _check_init():
-    if not is_initialized():
-        raise DevfolioNotInitializedError()
 
 
 @app.command("setup")
@@ -26,7 +21,7 @@ def sync_setup(
     branch: Optional[str] = typer.Option(None, "--branch", "-b", help="동기화 브랜치 (기본: main)"),
 ):
     """GitHub 백업 저장소 연결."""
-    _check_init()
+    check_init()
 
     config = load_config()
     repo_input = repo or Prompt.ask(
@@ -48,9 +43,9 @@ def sync_setup(
 
 
 @app.command("status")
-def sync_status():
+def sync_status() -> None:
     """현재 GitHub 동기화 설정 및 마지막 실행 상태 조회."""
-    _check_init()
+    check_init()
 
     service = SyncService(load_config())
     status = service.get_status()
@@ -69,9 +64,9 @@ def sync_status():
 
 
 @app.command("run")
-def sync_run():
+def sync_run() -> None:
     """현재 DevFolio 데이터를 GitHub 백업 저장소로 동기화."""
-    _check_init()
+    check_init()
 
     service = SyncService(load_config())
     with console.status("[cyan]GitHub 백업을 동기화하는 중...[/cyan]"):

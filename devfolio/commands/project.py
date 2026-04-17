@@ -7,9 +7,8 @@ from rich.console import Console
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
+from devfolio.commands.common import check_init
 from devfolio.core.project_manager import ProjectManager
-from devfolio.core.storage import is_initialized
-from devfolio.exceptions import DevfolioNotInitializedError
 
 app = typer.Typer(help="프로젝트 관리", rich_markup_mode="rich")
 console = Console()
@@ -21,18 +20,13 @@ _TYPE_LABELS = {"company": "회사 업무", "side": "사이드 프로젝트", "c
 _STATUS_LABELS = {"done": "완료", "in_progress": "진행 중", "planned": "예정"}
 
 
-def _check_init():
-    if not is_initialized():
-        raise DevfolioNotInitializedError()
-
-
 @app.command("add")
 def add_project(
     name: Optional[str] = typer.Option(None, "--name", "-n", help="프로젝트명"),
     type: Optional[str] = typer.Option(None, "--type", "-t", help="유형 (company/side/course)"),
 ):
     """새 프로젝트 등록."""
-    _check_init()
+    check_init()
 
     console.print("\n[bold cyan]── 새 프로젝트 등록 ──[/bold cyan]\n")
     console.print("[dim]Enter를 누르면 선택 항목은 비워둘 수 있고, 나중에 `project edit`로 수정할 수 있습니다.[/dim]\n")
@@ -65,7 +59,11 @@ def add_project(
 
     try:
         team_size = int(team_size_str)
+        if team_size < 1:
+            console.print("[yellow]⚠ 팀 규모는 1 이상이어야 합니다. 기본값 1로 설정합니다.[/yellow]")
+            team_size = 1
     except ValueError:
+        console.print(f"[yellow]⚠ '{team_size_str}'은(는) 유효한 숫자가 아닙니다. 기본값 1로 설정합니다.[/yellow]")
         team_size = 1
 
     tech_stack = [s.strip() for s in tech_stack_str.split(",") if s.strip()]
@@ -98,7 +96,7 @@ def add_project(
         _add_task_interactive(project.name)
 
 
-def _add_task_interactive(project_name: str):
+def _add_task_interactive(project_name: str) -> None:
     """task add를 프로젝트 추가 흐름 내에서 재사용."""
     from devfolio.commands.task import _do_add_task
     _do_add_task(project_name)
@@ -111,7 +109,7 @@ def list_projects(
     tag: Optional[str] = typer.Option(None, "--tag", help="태그 필터"),
 ):
     """전체 프로젝트 목록 조회."""
-    _check_init()
+    check_init()
 
     projects = pm.list_projects(
         stack_filter=stack, type_filter=type, tag_filter=tag
@@ -148,7 +146,7 @@ def show_project(
     name: str = typer.Argument(..., help="프로젝트명 또는 ID"),
 ):
     """프로젝트 상세 조회."""
-    _check_init()
+    check_init()
 
     project = pm.get_project_or_raise(name)
 
@@ -184,7 +182,7 @@ def edit_project(
     name: str = typer.Argument(..., help="프로젝트명 또는 ID"),
 ):
     """프로젝트 정보 수정."""
-    _check_init()
+    check_init()
 
     project = pm.get_project_or_raise(name)
 
@@ -230,7 +228,7 @@ def delete_project(
     yes: bool = typer.Option(False, "--yes", "-y", help="확인 프롬프트 건너뜀"),
 ):
     """프로젝트 삭제."""
-    _check_init()
+    check_init()
 
     project = pm.get_project_or_raise(name)
 

@@ -84,7 +84,7 @@ def ai_set(
 
 
 @ai_app.command("list")
-def ai_list():
+def ai_list() -> None:
     """등록된 AI Provider 목록 조회."""
     config = load_config()
 
@@ -163,7 +163,7 @@ def ai_remove(
 
 
 @app.command("show")
-def show_config():
+def show_config() -> None:
     """현재 설정 전체 조회."""
     config = load_config()
 

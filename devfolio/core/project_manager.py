@@ -68,6 +68,7 @@ class ProjectManager:
         summary: str = "",
         tags: Optional[list[str]] = None,
     ) -> Project:
+        """새 프로젝트를 생성하고 저장한다."""
         project_id = self._next_project_id(name)
 
         project = Project(
@@ -88,21 +89,25 @@ class ProjectManager:
         return project
 
     def get_project(self, name_or_id: str) -> Optional[Project]:
+        """이름 또는 ID로 프로젝트 검색. 없으면 None."""
         return find_project_by_name(name_or_id)
 
     def get_project_or_raise(self, name_or_id: str) -> Project:
+        """이름 또는 ID로 프로젝트 검색. 없으면 DevfolioProjectNotFoundError."""
         project = find_project_by_name(name_or_id)
         if not project:
             raise DevfolioProjectNotFoundError(name_or_id)
         return project
 
     def update_project(self, name_or_id: str, **kwargs) -> Project:
+        """프로젝트 필드를 업데이트한다."""
         project = self.get_project_or_raise(name_or_id)
         updated = project.model_copy(update={k: v for k, v in kwargs.items() if v is not None})
         save_project(updated)
         return updated
 
     def rename_project(self, name_or_id: str, new_name: str, **kwargs) -> Project:
+        """프로젝트명을 변경하고 필드를 업데이트한다. ID 충돌 시 자동 suffix 부여."""
         project = self.get_project_or_raise(name_or_id)
 
         updates = {k: v for k, v in kwargs.items() if v is not None}
@@ -120,6 +125,7 @@ class ProjectManager:
         return updated
 
     def delete_project(self, name_or_id: str) -> bool:
+        """프로젝트를 삭제한다. 없으면 DevfolioProjectNotFoundError."""
         project = self.get_project_or_raise(name_or_id)
         return delete_project_file(project.id)
 
@@ -156,6 +162,7 @@ class ProjectManager:
         tech_used: Optional[list[str]] = None,
         keywords: Optional[list[str]] = None,
     ) -> Task:
+        """프로젝트에 작업 내역을 추가한다."""
         project = self.get_project_or_raise(project_name)
         task = Task(
             id=f"task_{uuid.uuid4().hex[:8]}",
@@ -186,6 +193,7 @@ class ProjectManager:
         return project, task
 
     def update_task(self, project_name: str, task_name: str, **kwargs) -> Task:
+        """작업 내역을 수정한다. 내용 변경 시 AI 캐시를 무효화."""
         project, task = self.get_task_or_raise(project_name, task_name)
 
         # 내용 변경 시 AI 캐시 무효화
@@ -204,8 +212,8 @@ class ProjectManager:
         return updated_task
 
     def delete_task(self, project_name: str, task_name: str) -> bool:
+        """작업 내역을 삭제한다. 없으면 False."""
         project = self.get_project_or_raise(project_name)
-        # raise 없이 직접 확인
         task = next(
             (t for t in project.tasks if t.name == task_name or t.id == task_name),
             None,

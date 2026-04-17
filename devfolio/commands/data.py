@@ -2,17 +2,18 @@
 
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import typer
 from rich.console import Console
 from rich.prompt import Confirm
 from ruamel.yaml import YAML
 
+from devfolio.commands.common import check_init
 from devfolio.core.project_manager import ProjectManager
-from devfolio.core.storage import backup, is_initialized, restore, save_project
+from devfolio.core.storage import backup, restore, save_project
 from devfolio.core.storage import project_id_from_name
-from devfolio.exceptions import DevfolioError, DevfolioNotInitializedError
+from devfolio.exceptions import DevfolioError
 from devfolio.models.project import Project
 
 app = typer.Typer(help="데이터 백업 및 복원", rich_markup_mode="rich")
@@ -21,12 +22,7 @@ pm = ProjectManager()
 yaml = YAML(typ="safe")
 
 
-def _check_init():
-    if not is_initialized():
-        raise DevfolioNotInitializedError()
-
-
-def _load_import_payload(file_path: Path):
+def _load_import_payload(file_path: Path) -> Any:
     suffix = file_path.suffix.lower()
     raw = file_path.read_text(encoding="utf-8")
 
@@ -56,7 +52,7 @@ def backup_cmd(
     ),
 ):
     """DevFolio 데이터 전체를 ZIP으로 백업."""
-    _check_init()
+    check_init()
 
     if not output:
         from datetime import datetime
@@ -104,7 +100,7 @@ def import_data(
     예시 형식:
     [{"name": "...", "type": "company", "period": {"start": "2024-01"}, ...}]
     """
-    _check_init()
+    check_init()
 
     if not file.exists():
         raise DevfolioError(
@@ -164,7 +160,7 @@ def export_json(
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="출력 파일 경로"),
 ):
     """모든 프로젝트를 JSON으로 내보내기."""
-    _check_init()
+    check_init()
 
     from devfolio.core.storage import list_projects as _list_projects
     projects = _list_projects()

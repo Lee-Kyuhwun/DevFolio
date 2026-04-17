@@ -7,9 +7,10 @@ import typer
 from rich.console import Console
 from rich.prompt import Confirm
 
+from devfolio.commands.common import check_init
 from devfolio.core.ai_service import AIService
 from devfolio.core.project_manager import ProjectManager
-from devfolio.core.storage import is_initialized, list_projects, load_config
+from devfolio.core.storage import list_projects, load_config
 
 app = typer.Typer(help="AI 기능", rich_markup_mode="rich")
 generate_app = typer.Typer(help="AI 문서 생성")
@@ -17,15 +18,6 @@ app.add_typer(generate_app, name="generate")
 
 console = Console()
 pm = ProjectManager()
-
-
-def _check_init():
-    if not is_initialized():
-        console.print(
-            "[red]오류:[/red] DevFolio가 초기화되지 않았습니다. "
-            "[bold]devfolio init[/bold] 을 먼저 실행하세요."
-        )
-        raise typer.Exit(1)
 
 
 def _get_service() -> AIService:
@@ -48,7 +40,7 @@ def generate_task(
     refresh: bool = typer.Option(False, "--refresh", "-r", help="캐시 무시하고 재생성"),
 ):
     """작업 내역 → 경력기술서 bullet point 생성."""
-    _check_init()
+    check_init()
 
     proj = pm.get_project(project)
     if not proj:
@@ -97,7 +89,7 @@ def generate_project(
     provider: Optional[str] = typer.Option(None, "--provider", help="AI Provider 오버라이드"),
 ):
     """프로젝트 전체 요약 문단 생성."""
-    _check_init()
+    check_init()
 
     proj = pm.get_project(project)
     if not proj:
@@ -132,7 +124,7 @@ def generate_resume(
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="저장 파일 경로"),
 ):
     """전체 경력기술서 AI 생성."""
-    _check_init()
+    check_init()
 
     all_projects = list_projects()
     if not all_projects:
@@ -184,7 +176,7 @@ def match_jd(
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="결과 저장 경로"),
 ):
     """채용 공고 JD와 포트폴리오 매칭 분석."""
-    _check_init()
+    check_init()
 
     if not jd_file and not jd_text:
         console.print("[red]오류:[/red] --file 또는 --text 옵션을 지정하세요.")
@@ -239,7 +231,7 @@ def refine(
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="결과 저장 경로"),
 ):
     """기존 문구 AI 개선."""
-    _check_init()
+    check_init()
 
     if not file and not text:
         console.print("[red]오류:[/red] --file 또는 --text 옵션을 지정하세요.")

@@ -1,9 +1,20 @@
-"""Markdown / PDF / DOCX / HTML 내보내기 엔진."""
+"""Markdown / PDF / DOCX / HTML / CSV 내보내기 엔진."""
 
+import csv
+import html as html_mod
+import io
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from devfolio.models.project import Project
 
 from devfolio.core.storage import EXPORTS_DIR
+from devfolio.exceptions import DevfolioExportError
+from devfolio.log import get_logger
+
+logger = get_logger(__name__)
 
 _PDF_CSS = """
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
@@ -44,6 +55,26 @@ a:hover { text-decoration: underline; }
 """
 
 
+def _sanitize_filename(filename: str) -> str:
+    """파일명에서 디렉터리 구분자와 위험 문자를 제거."""
+    filename = filename.replace("/", "_").replace("\\", "_")
+    filename = filename.replace("..", "_")
+    return filename
+
+
+def _validate_output_path(path: Path) -> Path:
+    """출력 경로가 안전한지 검증 (path traversal 방지)."""
+    resolved = path.resolve()
+    home = Path.home().resolve()
+    cwd = Path.cwd().resolve()
+    if not (str(resolved).startswith(str(home)) or str(resolved).startswith(str(cwd))):
+        raise DevfolioExportError(
+            f"출력 경로가 허용 범위를 벗어났습니다: {path}",
+            hint="홈 디렉터리 또는 현재 작업 디렉터리 하위 경로를 지정하세요.",
+        )
+    return resolved
+
+
 class ExportEngine:
     def __init__(self):
         EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -55,7 +86,7 @@ class ExportEngine:
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{title}</title>
+<title>{html_mod.escape(title)}</title>
 <style>
 {_PDF_CSS}
 {_HTML_EXTRA_CSS}
@@ -73,6 +104,7 @@ class ExportEngine:
     # ------------------------------------------------------------------
 
     def export_markdown(self, content: str, filename: str) -> Path:
+        filename = _sanitize_filename(filename)
         if not filename.endswith(".md"):
             filename = filename + ".md"
         output_path = EXPORTS_DIR / filename
@@ -84,6 +116,7 @@ class ExportEngine:
     # ------------------------------------------------------------------
 
     def export_pdf(self, content: str, filename: str) -> Path:
+        filename = _sanitize_filename(filename)
         if not filename.endswith(".pdf"):
             filename = filename + ".pdf"
         output_path = EXPORTS_DIR / filename
@@ -114,6 +147,7 @@ class ExportEngine:
     # ------------------------------------------------------------------
 
     def export_docx(self, content: str, filename: str) -> Path:
+        filename = _sanitize_filename(filename)
         if not filename.endswith(".docx"):
             filename = filename + ".docx"
         output_path = EXPORTS_DIR / filename
@@ -137,6 +171,7 @@ class ExportEngine:
     # ------------------------------------------------------------------
 
     def export_html(self, content: str, filename: str) -> Path:
+        filename = _sanitize_filename(filename)
         if not filename.endswith(".html"):
             filename = filename + ".html"
         output_path = EXPORTS_DIR / filename
@@ -147,11 +182,65 @@ class ExportEngine:
         return output_path
 
     # ------------------------------------------------------------------
+    # CSV
+    # ------------------------------------------------------------------
+
+    def export_csv(self, projects: "list[Project]", filename: str) -> Path:
+        """프로젝트 목록을 CSV로 내보낸다.
+
+        각 행은 프로젝트 하나를 나타내며, 태스크 목록은 세미콜론으로 구분한다.
+
+        Args:
+            projects: 내보낼 프로젝트 목록
+            filename: 출력 파일명 (확장자 없어도 자동 추가)
+
+        Returns:
+            생성된 CSV 파일의 경로
+        """
+        filename = _sanitize_filename(filename)
+        if not filename.endswith(".csv"):
+            filename = filename + ".csv"
+        output_path = EXPORTS_DIR / filename
+
+        fieldnames = [
+            "id", "name", "type", "status", "organization",
+            "period", "role", "team_size", "tech_stack",
+            "summary", "tags", "task_count", "tasks",
+        ]
+
+        buf = io.StringIO()
+        writer = csv.DictWriter(buf, fieldnames=fieldnames, lineterminator="\n")
+        writer.writeheader()
+
+        for p in projects:
+            task_names = "; ".join(t.name for t in p.tasks)
+            writer.writerow({
+                "id": p.id,
+                "name": p.name,
+                "type": p.type,
+                "status": p.status,
+                "organization": p.organization,
+                "period": p.period.display(),
+                "role": p.role,
+                "team_size": p.team_size,
+                "tech_stack": "; ".join(p.tech_stack),
+                "summary": p.summary,
+                "tags": "; ".join(p.tags),
+                "task_count": len(p.tasks),
+                "tasks": task_names,
+            })
+
+        output_path.write_text(buf.getvalue(), encoding="utf-8-sig")  # utf-8-sig: Excel 호환
+        logger.debug("CSV export: %s (%d rows)", output_path, len(projects))
+        return output_path
+
+    # ------------------------------------------------------------------
     # 파일을 지정 경로로 복사
     # ------------------------------------------------------------------
 
     def copy_to(self, source: Path, destination: Path) -> Path:
         import shutil
+        _validate_output_path(destination)
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
         return destination
@@ -183,6 +272,7 @@ class ExportEngine:
                 in_ul = False
 
         def inline(text: str) -> str:
+            text = html_mod.escape(text)
             text = re.sub(r"\*\*(.*?)\*\*", r"<strong>\1</strong>", text)
             text = re.sub(r"\*(.*?)\*", r"<em>\1</em>", text)
             text = re.sub(r"`(.*?)`", r"<code>\1</code>", text)

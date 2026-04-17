@@ -1,5 +1,6 @@
 """Jinja2 기반 문서 템플릿 렌더링."""
 
+import html as html_mod
 from pathlib import Path
 from typing import Optional
 
@@ -28,7 +29,11 @@ class TemplateEngine:
         if search_paths:
             self._env: Optional[Environment] = Environment(
                 loader=FileSystemLoader(search_paths),
-                autoescape=select_autoescape([]),
+                autoescape=select_autoescape(
+                    enabled_extensions=("html", "htm"),
+                    default_for_string=False,
+                    default=False,
+                ),
                 trim_blocks=True,
                 lstrip_blocks=True,
             )
@@ -37,7 +42,11 @@ class TemplateEngine:
 
     def _render_str(self, template_str: str, **context) -> str:
         env = Environment(
-            autoescape=select_autoescape([]),
+            autoescape=select_autoescape(
+                enabled_extensions=("html", "htm"),
+                default_for_string=False,
+                default=False,
+            ),
             trim_blocks=True,
             lstrip_blocks=True,
         )

@@ -10,9 +10,12 @@ from devfolio.exceptions import (
     DevfolioAINotConfiguredError,
     DevfolioAIRateLimitError,
 )
+from devfolio.log import get_logger
 from devfolio.models.config import AIProviderConfig, Config
 from devfolio.models.project import Project, Task
 from devfolio.utils.security import get_api_key
+
+logger = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # 시스템 프롬프트 (모듈 상수)
@@ -130,6 +133,7 @@ class AIService:
         last_error: Exception = RuntimeError("알 수 없는 오류")
         for attempt in range(1, _MAX_RETRIES + 1):
             try:
+                logger.debug("AI 호출 시도 %d/%d (model=%s)", attempt, _MAX_RETRIES, kwargs["model"])
                 response = litellm.completion(**kwargs)
                 return response.choices[0].message.content or ""
             except Exception as e:
@@ -138,10 +142,12 @@ class AIService:
                     raise DevfolioAIAuthError(provider.name) from e
                 if "RateLimitError" in err_class:
                     if attempt < _MAX_RETRIES:
+                        logger.warning("Rate limit 발생, %0.1f초 후 재시도 (%d/%d)", _RETRY_DELAY * attempt, attempt, _MAX_RETRIES)
                         time.sleep(_RETRY_DELAY * attempt)
                         continue
                     raise DevfolioAIRateLimitError(provider.name) from e
                 last_error = e
+                logger.warning("AI 호출 실패 (%d/%d): %s", attempt, _MAX_RETRIES, e)
                 if attempt < _MAX_RETRIES:
                     time.sleep(_RETRY_DELAY)
         raise DevfolioAIError(str(last_error)) from last_error

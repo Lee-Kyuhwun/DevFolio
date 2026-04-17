@@ -29,7 +29,7 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
 }
 
 
-def run_init(force: bool = False):
+def run_init(force: bool = False) -> None:
     """대화형 초기 설정."""
     console.print(Panel(_BANNER, style="bold blue", border_style="blue"))
     console.print("  [bold cyan]개발자 포트폴리오 & 경력기술서 자동화 도구[/bold cyan]\n")
@@ -94,7 +94,7 @@ def _select_provider() -> str:
     return choices[choice]
 
 
-def _configure_provider(config: Config, provider_name: str):
+def _configure_provider(config: Config, provider_name: str) -> None:
     models = _PROVIDER_MODELS.get(provider_name, [])
 
     if models:
@@ -130,7 +130,7 @@ def _configure_provider(config: Config, provider_name: str):
     config.default_ai_provider = provider_name
 
 
-def _configure_sync(config: Config):
+def _configure_sync(config: Config) -> None:
     repo_input = Prompt.ask("GitHub 저장소 URL 또는 owner/repo")
     branch = Prompt.ask("동기화 브랜치", default=config.sync.branch or "main")
 

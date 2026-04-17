@@ -1,0 +1,28 @@
+{% block header %}
+# {{ user.name }}
+{% if user.email or user.github or user.blog %}
+{% if user.email %}- 이메일: {{ user.email }}
+{% endif %}{% if user.github %}- GitHub: {{ user.github }}
+{% endif %}{% if user.blog %}- 블로그: {{ user.blog }}
+{% endif %}
+{% endif %}
+---
+{% endblock header %}
+
+{% block body %}
+{% block projects %}
+{% for project in projects %}
+{% block project scoped %}
+### {{ project.name }}
+
+{{ project.summary }}
+
+{% endblock project %}
+{% endfor %}
+{% endblock projects %}
+{% endblock body %}
+
+{% block footer %}
+---
+*DevFolio로 생성됨*
+{% endblock footer %}
