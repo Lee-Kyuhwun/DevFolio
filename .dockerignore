@@ -17,3 +17,4 @@ Makefile
 tox.ini
 .claude/
 examples/
+# web/static 과 web/templates 는 런타임에 필요하므로 제외하지 않음

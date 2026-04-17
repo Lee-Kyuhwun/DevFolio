@@ -1,0 +1,22 @@
+services:
+  devfolio:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - devfolio-config:/root/.config/devfolio
+      - devfolio-data:/root/.local/share/devfolio
+    environment:
+      # API 키는 환경변수로 주입 (keyring 불필요)
+      # .env 파일을 만들거나 직접 설정하세요
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - DEVFOLIO_LOG_LEVEL=${DEVFOLIO_LOG_LEVEL:-WARNING}
+      - DEVFOLIO_LANG=${DEVFOLIO_LANG:-ko}
+    command: ["serve", "--host", "0.0.0.0", "--no-open"]
+    restart: unless-stopped
+
+volumes:
+  devfolio-config:
+  devfolio-data:

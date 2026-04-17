@@ -5,6 +5,9 @@
 ## [Unreleased]
 
 ### Added
+- 웹 기반 설정 GUI (`devfolio serve` — FastAPI + Jinja2, 포트 8000)
+- `docker-compose.yml` — 한 명령으로 GUI 실행 (`docker compose up`)
+- `gui` extra — `pip install 'devfolio[gui]'` (fastapi, uvicorn)
 - GitHub Actions CI/CD 파이프라인 (Python 3.11/3.12/3.13 매트릭스, lint, 테스트)
 - 로깅 프레임워크 (`DEVFOLIO_LOG_LEVEL` 환경변수로 레벨 제어)
 - Export 경로 검증 (path traversal 방지)

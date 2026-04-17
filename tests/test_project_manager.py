@@ -1,5 +1,4 @@
 """프로젝트 관리자 단위 테스트."""
-
 from unittest.mock import patch
 
 import pytest
@@ -135,6 +134,37 @@ class TestUpdateProject:
     def test_update_nonexistent_raises(self, pm):
         with pytest.raises(DevfolioProjectNotFoundError):
             pm.update_project("없는 프로젝트", summary="...")
+
+
+class TestRenameProject:
+    def test_rename_updates_id_and_replaces_file(self, pm, tmp_devfolio):
+        from devfolio.core.storage import PROJECTS_DIR, project_id_from_name
+
+        old = pm.create_project(name="원본 프로젝트", period_start="2024-01")
+        old_file = PROJECTS_DIR / f"{old.id}.yaml"
+        assert old_file.exists()
+
+        renamed = pm.rename_project("원본 프로젝트", new_name="리네임된 프로젝트")
+        new_id = project_id_from_name("리네임된 프로젝트")
+        new_file = PROJECTS_DIR / f"{new_id}.yaml"
+
+        assert renamed.name == "리네임된 프로젝트"
+        assert renamed.id == new_id
+        assert not old_file.exists()
+        assert new_file.exists()
+        assert pm.get_project("원본 프로젝트") is None
+        assert pm.get_project("리네임된 프로젝트") is not None
+
+    def test_rename_allows_reusing_old_name_without_collision(self, pm):
+        old = pm.create_project(name="재사용 이름", period_start="2024-01")
+
+        renamed = pm.rename_project("재사용 이름", new_name="새 이름")
+        recreated = pm.create_project(name="재사용 이름", period_start="2024-02")
+
+        assert renamed.id != old.id
+        assert recreated.id == old.id
+        assert pm.get_project("새 이름") is not None
+        assert pm.get_project("재사용 이름") is not None
 
 
 # ---------------------------------------------------------------------------

@@ -101,3 +101,30 @@ def test_sync_setup_saves_normalized_repo_url(cli_store):
     assert config.sync.enabled is True
     assert config.sync.repo_url == "https://github.com/openai/devfolio-backup.git"
     assert config.sync.branch == "backup"
+
+
+def test_project_edit_rename_updates_lookup_and_file(cli_store):
+    from devfolio.core.storage import PROJECTS_DIR, project_id_from_name
+
+    manager = ProjectManager()
+    original = manager.create_project(name="CLI 원본", period_start="2024-01")
+    old_file = PROJECTS_DIR / f"{original.id}.yaml"
+    assert old_file.exists()
+
+    result = runner.invoke(
+        app,
+        ["project", "edit", "CLI 원본"],
+        input="CLI 변경됨\n\n\n\n\n\n\n\n\n",
+    )
+
+    assert result.exit_code == 0, result.stdout
+
+    new_id = project_id_from_name("CLI 변경됨")
+    new_file = PROJECTS_DIR / f"{new_id}.yaml"
+    renamed = manager.get_project("CLI 변경됨")
+
+    assert renamed is not None
+    assert renamed.id == new_id
+    assert not old_file.exists()
+    assert new_file.exists()
+    assert manager.get_project("CLI 원본") is None

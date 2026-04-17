@@ -22,5 +22,8 @@ COPY devfolio/ devfolio/
 # DevFolio 데이터 볼륨 마운트 포인트
 VOLUME ["/root/.local/share/devfolio", "/root/.config/devfolio"]
 
+# 웹 UI 포트
+EXPOSE 8000
+
 ENTRYPOINT ["devfolio"]
 CMD ["--help"]

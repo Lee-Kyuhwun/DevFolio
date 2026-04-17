@@ -28,11 +28,17 @@ pdf = [
 docx = [
     "python-docx>=1.1.0",
 ]
+gui = [
+    "fastapi>=0.110.0,<1.0",
+    "uvicorn[standard]>=0.29.0,<1.0",
+]
 all = [
     "litellm>=1.40.0",
     "weasyprint>=62.0",
     "markdown>=3.6",
     "python-docx>=1.1.0",
+    "fastapi>=0.110.0,<1.0",
+    "uvicorn[standard]>=0.29.0,<1.0",
 ]
 dev = [
     "pytest>=8.0.0",
@@ -51,7 +57,7 @@ where = ["."]
 include = ["devfolio*"]
 
 [tool.setuptools.package-data]
-devfolio = ["templates/*.j2"]
+devfolio = ["templates/*.j2", "web/templates/*.html", "web/static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DevFolio Settings</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="layout">
+    <!-- Sidebar -->
+    <nav class="sidebar">
+      <div class="sidebar-header">
+        <span class="logo">⚡ DevFolio</span>
+        <span class="subtitle">Settings</span>
+      </div>
+      <ul class="nav-list">
+        <li><a href="#" class="nav-item active" data-tab="profile">👤 프로필</a></li>
+        <li><a href="#" class="nav-item" data-tab="ai">🤖 AI 설정</a></li>
+        <li><a href="#" class="nav-item" data-tab="export">📄 내보내기</a></li>
+        <li><a href="#" class="nav-item" data-tab="sync">🔄 GitHub Sync</a></li>
+        <li><a href="#" class="nav-item" data-tab="general">⚙️ 일반</a></li>
+      </ul>
+      {% if not initialized %}
+      <div class="sidebar-notice">
+        <span>⚠️ 아직 초기화되지 않았습니다.</span>
+        <code>devfolio init</code>을 먼저 실행하거나 여기서 설정을 저장하세요.
+      </div>
+      {% endif %}
+    </nav>
+
+    <!-- Main content -->
+    <main class="content">
+
+      <!-- ── 프로필 탭 ── -->
+      <section class="tab-panel active" id="tab-profile">
+        <h2>사용자 프로필</h2>
+        <p class="desc">경력기술서와 포트폴리오에 표시될 기본 정보입니다.</p>
+        <form id="form-profile" class="settings-form">
+          <div class="field">
+            <label for="user-name">이름 <span class="required">*</span></label>
+            <input type="text" id="user-name" name="name" placeholder="홍길동"
+                   value="{{ config.user.name if config else '' }}" />
+          </div>
+          <div class="field">
+            <label for="user-email">이메일</label>
+            <input type="email" id="user-email" name="email" placeholder="you@example.com"
+                   value="{{ config.user.email if config else '' }}" />
+          </div>
+          <div class="field">
+            <label for="user-github">GitHub URL</label>
+            <input type="url" id="user-github" name="github" placeholder="https://github.com/username"
+                   value="{{ config.user.github if config else '' }}" />
+          </div>
+          <div class="field">
+            <label for="user-blog">블로그 URL</label>
+            <input type="url" id="user-blog" name="blog" placeholder="https://blog.example.com"
+                   value="{{ config.user.blog if config else '' }}" />
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">저장</button>
+          </div>
+        </form>
+      </section>
+
+      <!-- ── AI 설정 탭 ── -->
+      <section class="tab-panel" id="tab-ai">
+        <h2>AI 설정</h2>
+        <p class="desc">AI 문서 생성에 사용할 Provider를 등록합니다. Docker 환경에서는 환경변수를 사용하세요.</p>
+
+        <div class="docker-tip">
+          <strong>🐳 Docker 환경</strong>: API 키는 환경변수로 주입하세요.
+          <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>, <code>GEMINI_API_KEY</code>
+        </div>
+
+        <div id="provider-list" class="provider-list">
+          <!-- JS로 동적 렌더링 -->
+          <div class="loading">불러오는 중...</div>
+        </div>
+
+        <hr class="divider" />
+        <h3>Provider 추가 / 수정</h3>
+        <form id="form-ai" class="settings-form">
+          <div class="field-row">
+            <div class="field">
+              <label for="ai-name">Provider</label>
+              <select id="ai-name" name="name">
+                <option value="anthropic">Anthropic (Claude)</option>
+                <option value="openai">OpenAI (GPT)</option>
+                <option value="gemini">Google (Gemini)</option>
+                <option value="ollama">Ollama (로컬)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="ai-model">모델</label>
+              <input type="text" id="ai-model" name="model" placeholder="claude-sonnet-4-5" />
+            </div>
+          </div>
+          <div class="field" id="field-api-key">
+            <label for="ai-key">API 키</label>
+            <div class="input-with-toggle">
+              <input type="password" id="ai-key" name="api_key"
+                     placeholder="sk-ant-... (Docker에서는 환경변수 사용 권장)" />
+              <button type="button" class="btn-icon toggle-password" aria-label="비밀번호 표시/숨기기">👁</button>
+            </div>
+            <span class="hint">비워두면 기존 키를 유지합니다.</span>
+          </div>
+          <div class="field hidden" id="field-base-url">
+            <label for="ai-base-url">Base URL (Ollama)</label>
+            <input type="url" id="ai-base-url" name="base_url" placeholder="http://localhost:11434" />
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">저장</button>
+          </div>
+        </form>
+      </section>
+
+      <!-- ── 내보내기 탭 ── -->
+      <section class="tab-panel" id="tab-export">
+        <h2>내보내기 기본값</h2>
+        <p class="desc"><code>devfolio export</code> 명령어의 기본 설정입니다.</p>
+        <form id="form-export" class="settings-form">
+          <div class="field">
+            <label for="export-format">기본 포맷</label>
+            <select id="export-format" name="default_format">
+              <option value="md" {% if config and config.export.default_format == 'md' %}selected{% endif %}>Markdown (.md)</option>
+              <option value="html" {% if config and config.export.default_format == 'html' %}selected{% endif %}>HTML</option>
+              <option value="pdf" {% if config and config.export.default_format == 'pdf' %}selected{% endif %}>PDF</option>
+              <option value="docx" {% if config and config.export.default_format == 'docx' %}selected{% endif %}>Word (.docx)</option>
+              <option value="json" {% if config and config.export.default_format == 'json' %}selected{% endif %}>JSON</option>
+              <option value="csv" {% if config and config.export.default_format == 'csv' %}selected{% endif %}>CSV</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="export-template">기본 템플릿</label>
+            <select id="export-template" name="default_template">
+              <option value="default" {% if config and config.export.default_template == 'default' %}selected{% endif %}>default</option>
+              <option value="compact" {% if config and config.export.default_template == 'compact' %}selected{% endif %}>compact</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="export-output-dir">출력 디렉터리</label>
+            <input type="text" id="export-output-dir" name="output_dir"
+                   placeholder="비워두면 기본 경로 사용 (~/.local/share/devfolio/exports)"
+                   value="{{ config.export.output_dir if config else '' }}" />
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">저장</button>
+          </div>
+        </form>
+      </section>
+
+      <!-- ── GitHub Sync 탭 ── -->
+      <section class="tab-panel" id="tab-sync">
+        <h2>GitHub 동기화</h2>
+        <p class="desc">프로젝트 데이터와 내보낸 파일을 GitHub 저장소에 백업합니다.</p>
+        <form id="form-sync" class="settings-form">
+          <div class="field field-toggle">
+            <label class="toggle-label">
+              <input type="checkbox" id="sync-enabled" name="enabled"
+                     {% if config and config.sync.enabled %}checked{% endif %} />
+              <span class="toggle-slider"></span>
+              동기화 활성화
+            </label>
+          </div>
+          <div class="field">
+            <label for="sync-repo">저장소 URL</label>
+            <input type="text" id="sync-repo" name="repo_url"
+                   placeholder="https://github.com/username/devfolio-backup 또는 username/repo"
+                   value="{{ config.sync.repo_url if config else '' }}" />
+          </div>
+          <div class="field">
+            <label for="sync-branch">브랜치</label>
+            <input type="text" id="sync-branch" name="branch"
+                   placeholder="main"
+                   value="{{ config.sync.branch if config else 'main' }}" />
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">저장</button>
+          </div>
+        </form>
+      </section>
+
+      <!-- ── 일반 탭 ── -->
+      <section class="tab-panel" id="tab-general">
+        <h2>일반 설정</h2>
+        <p class="desc">언어, 타임존, 기본 AI Provider를 설정합니다.</p>
+        <form id="form-general" class="settings-form">
+          <div class="field">
+            <label for="general-lang">언어</label>
+            <select id="general-lang" name="default_language">
+              <option value="ko" {% if not config or config.default_language == 'ko' %}selected{% endif %}>한국어 (ko)</option>
+              <option value="en" {% if config and config.default_language == 'en' %}selected{% endif %}>English (en)</option>
+              <option value="both" {% if config and config.default_language == 'both' %}selected{% endif %}>Both (ko + en)</option>
+            </select>
+            <span class="hint">환경변수 <code>DEVFOLIO_LANG</code>으로도 설정 가능합니다.</span>
+          </div>
+          <div class="field">
+            <label for="general-tz">타임존</label>
+            <input type="text" id="general-tz" name="timezone"
+                   placeholder="Asia/Seoul"
+                   value="{{ config.timezone if config else 'Asia/Seoul' }}" />
+            <span class="hint">예: Asia/Seoul, UTC, America/New_York</span>
+          </div>
+          <div class="field">
+            <label for="general-provider">기본 AI Provider</label>
+            <input type="text" id="general-provider" name="default_ai_provider"
+                   placeholder="anthropic"
+                   value="{{ config.default_ai_provider if config else '' }}" />
+            <span class="hint">등록된 Provider 이름을 입력하세요.</span>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">저장</button>
+          </div>
+        </form>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Toast 알림 -->
+  <div id="toast" class="toast" role="alert" aria-live="polite"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
