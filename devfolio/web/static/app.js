@@ -25,7 +25,7 @@ const state = {
 const DEFAULT_MODELS = {
   anthropic: 'claude-sonnet-4-20250514',
   openai: 'gpt-4o',
-  gemini: 'gemini-2.0-flash',
+  gemini: 'gemini-2.5-flash-preview-04-17',
   ollama: 'llama3.2',
 };
 

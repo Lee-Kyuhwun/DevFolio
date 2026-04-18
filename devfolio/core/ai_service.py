@@ -156,6 +156,11 @@ class AIService:
                 err_str = str(e)
                 if "AuthenticationError" in err_class or "Unauthorized" in err_class:
                     raise DevfolioAIAuthError(provider.name) from e
+                if "NotFoundError" in err_class or ('"code": 404' in err_str and "NOT_FOUND" in err_str):
+                    raise DevfolioAIError(
+                        f"모델을 찾을 수 없습니다: {provider.model}",
+                        hint="설정 탭에서 모델 목록을 새로고침(↻)하고 다른 모델을 선택한 뒤 저장하세요.",
+                    ) from e
                 # quota 한도가 0인 경우 — 재시도 없이 즉시 안내
                 if "limit: 0" in err_str or "free_tier_requests" in err_str:
                     raise DevfolioAIError(
