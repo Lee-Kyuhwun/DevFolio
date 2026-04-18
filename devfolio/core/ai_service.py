@@ -153,9 +153,20 @@ class AIService:
                 return response.choices[0].message.content or ""
             except Exception as e:
                 err_class = type(e).__name__
+                err_str = str(e)
                 if "AuthenticationError" in err_class or "Unauthorized" in err_class:
                     raise DevfolioAIAuthError(provider.name) from e
-                if "RateLimitError" in err_class:
+                # quota 한도가 0인 경우 — 재시도 없이 즉시 안내
+                if "limit: 0" in err_str or "free_tier_requests" in err_str:
+                    raise DevfolioAIError(
+                        f"{provider.name} 무료 티어 할당량이 0입니다.",
+                        hint=(
+                            "Google AI Studio는 결제 수단을 등록해야 무료 quota가 활성화됩니다. "
+                            "https://aistudio.google.com 에서 결제 정보를 등록하거나 "
+                            "다른 AI 제공자(Anthropic 등)로 전환하세요."
+                        ),
+                    ) from e
+                if "RateLimitError" in err_class or "RESOURCE_EXHAUSTED" in err_str:
                     if attempt < _MAX_RETRIES:
                         logger.warning("Rate limit 발생, %0.1f초 후 재시도 (%d/%d)", _RETRY_DELAY * attempt, attempt, _MAX_RETRIES)
                         time.sleep(_RETRY_DELAY * attempt)
