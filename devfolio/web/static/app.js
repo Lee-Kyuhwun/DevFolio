@@ -22,6 +22,13 @@ const state = {
   },
 };
 
+const DEFAULT_MODELS = {
+  anthropic: 'claude-sonnet-4-20250514',
+  openai: 'gpt-4o',
+  gemini: 'gemini-2.0-flash',
+  ollama: 'llama3.2',
+};
+
 let toastTimer = null;
 
 document.addEventListener('DOMContentLoaded', () => {
