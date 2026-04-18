@@ -161,6 +161,7 @@ class ScanResult:
 # ---------------------------------------------------------------------------
 
 def _run_git(repo_path: Path, args: list[str]) -> str:
+    logger.debug("git 실행: repo=%s args=%s", repo_path, args)
     try:
         result = subprocess.run(
             ["git", "-C", str(repo_path)] + args,
@@ -168,10 +169,18 @@ def _run_git(repo_path: Path, args: list[str]) -> str:
         )
         return result.stdout
     except FileNotFoundError as e:
+        logger.error("git 실행 실패: git 바이너리가 없습니다. repo=%s", repo_path)
         raise DevfolioError(
-            "git 명령을 찾을 수 없습니다.", hint="git을 설치한 후 다시 시도하세요.",
+            "git 명령을 찾을 수 없습니다.",
+            hint="git을 설치한 후 다시 시도하세요. Docker 사용 중이면 이미지에 git 패키지가 포함되어야 합니다.",
         ) from e
     except subprocess.CalledProcessError as e:
+        logger.warning(
+            "git 명령 실패: repo=%s args=%s stderr=%s",
+            repo_path,
+            args,
+            (e.stderr or "").strip()[:200],
+        )
         raise DevfolioError(
             f"git 명령 실패: git {' '.join(args)}",
             hint=(e.stderr or "").strip()[:200],
@@ -546,12 +555,15 @@ def scan_repo(
         ScanResult — analyze=True 이면 project_context 포함.
     """
     repo_path = repo_path.resolve()
+    logger.info("Git 스캔 시작: path=%s author=%s analyze=%s", repo_path, author_email, analyze)
     if not _is_git_repo(repo_path):
+        logger.warning("Git 스캔 실패: .git 미발견 path=%s", repo_path)
         raise DevfolioError(
             f"git 저장소가 아닙니다: {repo_path}",
             hint=".git 이 있는 디렉터리를 지정하세요.",
         )
     if not author_email:
+        logger.warning("Git 스캔 실패: author email 누락 path=%s", repo_path)
         raise DevfolioError(
             "사용자 email 이 설정되어 있지 않습니다.",
             hint="`devfolio config user set --email ...` 로 이메일을 등록하세요.",
@@ -565,6 +577,7 @@ def scan_repo(
 
     commits, total_commits = _collect_author_commits(repo_path, author_email)
     if not commits:
+        logger.warning("Git 스캔 실패: author 커밋 없음 path=%s author=%s", repo_path, author_email)
         raise DevfolioError(
             f"'{author_email}' 로 작성된 커밋을 찾을 수 없습니다.",
             hint="이메일이 올바른지 확인하거나, git log --author=... 로 직접 확인해보세요.",
@@ -600,6 +613,13 @@ def scan_repo(
     if analyze:
         result.project_context = analyze_project_structure(repo_path, result.languages)
 
+    logger.info(
+        "Git 스캔 완료: repo=%s commits=%d total=%d head=%s",
+        result.repo_name,
+        len(result.commits),
+        result.total_commits_repo,
+        result.head_sha[:8],
+    )
     return result
 
 

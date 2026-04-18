@@ -271,7 +271,12 @@ devfolio scan . --dry-run                # preview without saving
 devfolio scan . --yes                    # skip confirmation prompt
 ```
 
-> **Note:** `devfolio scan` requires the pip install method (Method B). It cannot access local directories from inside Docker without extra volume mount configuration.
+> **Note:** `devfolio scan` works with pip install directly, and the web UI scan also works in Docker if the target repository is under `REPOS_DIR` (default: your home directory). In Docker, you can paste the host path as-is (`/Users/...` or `/home/...`) and DevFolio will map it to the container path automatically.
+>
+> To inspect scan logs in Docker:
+> ```bash
+> docker compose logs -f
+> ```
 
 ### 3. Open the web studio
 
@@ -735,8 +740,12 @@ devfolio scan . --dry-run                # 저장 없이 미리보기
 devfolio scan . --yes                    # 확인 없이 바로 저장
 ```
 
-> **참고:** `devfolio scan` 은 pip 설치 방법(방법 B)에서만 사용 가능합니다.
-> Docker 환경에서는 별도 볼륨 마운트 없이 로컬 디렉터리를 접근할 수 없습니다.
+> **참고:** `devfolio scan` 명령은 pip 설치 방식에서 바로 사용할 수 있고, 웹 UI의 Git 분석도 대상 저장소가 `REPOS_DIR` 아래에 있으면 Docker에서 사용할 수 있습니다. Docker에서는 `/Users/...` 또는 `/home/...` 같은 호스트 경로를 그대로 붙여넣으면 컨테이너 경로로 자동 매핑을 시도합니다.
+>
+> Docker에서 스캔 로그를 보려면:
+> ```bash
+> docker compose logs -f
+> ```
 
 ### 3. 웹 스튜디오 열기
 

@@ -1,11 +1,13 @@
 """Portfolio Studio API / UI smoke tests."""
 
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from devfolio.core import storage
 from devfolio.core.project_manager import ProjectManager
+from devfolio.exceptions import DevfolioError
 from devfolio.models.config import Config
 from devfolio.models.draft import ProjectDraft, TaskDraft
 
@@ -50,6 +52,15 @@ def client(web_store):
     from devfolio.web.app import create_app
 
     return TestClient(create_app())
+
+
+def test_scan_repo_path_candidates_translate_host_home_paths():
+    from devfolio.web.routes.api import _scan_repo_path_candidates
+
+    candidates = _scan_repo_path_candidates("/Users/alice/projects/demo")
+
+    assert candidates[0] == Path("/Users/alice/projects/demo")
+    assert Path("/home/user/projects/demo") in candidates
 
 
 def test_index_renders_portfolio_studio_shell(client):
@@ -229,3 +240,22 @@ def test_saved_project_ai_task_generation_updates_persisted_project(client):
     assert response.status_code == 200, response.text
     refreshed = manager.get_project_or_raise(project.id)
     assert refreshed.tasks[0].ai_generated_text == "- 개선된 bullet"
+
+
+def test_scan_git_returns_devfolio_error_detail(client, web_store):
+    with patch(
+        "devfolio.core.git_scanner.scan_repo",
+        side_effect=DevfolioError("스캔 실패", hint="git을 확인하세요."),
+    ):
+        response = client.post(
+            "/api/scan/git",
+            json={
+                "repo_path": str(web_store),
+                "author_email": "user@example.com",
+                "refresh": True,
+                "analyze": False,
+            },
+        )
+
+    assert response.status_code == 400
+    assert "스캔 실패" in response.json()["detail"]

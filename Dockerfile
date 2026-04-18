@@ -2,6 +2,7 @@ FROM python:3.12-slim
 
 # WeasyPrint 시스템 의존성
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
     libpango-1.0-0 \
     libpangoft2-1.0-0 \
     libharfbuzz0b \

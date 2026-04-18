@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -137,6 +138,45 @@ def _env_var_name(provider: str) -> str:
         "cohere": "COHERE_API_KEY",
     }
     return mapping.get(provider, f"{provider.upper()}_API_KEY")
+
+
+def _scan_repo_path_candidates(raw_path: str) -> list[Path]:
+    raw = (raw_path or "").strip()
+    if not raw:
+        return []
+
+    expanded = Path(raw).expanduser()
+    candidates: list[Path] = [expanded.resolve(strict=False)]
+    docker_repo_root = Path(os.environ.get("DEVFOLIO_DOCKER_REPO_ROOT", "/home/user"))
+    parts = expanded.parts
+
+    # Docker에서 호스트 홈 경로(/Users/<name>/..., /home/<name>/...)를 /home/user/...로 변환
+    if len(parts) >= 4 and parts[1] in {"Users", "home"}:
+        mapped = docker_repo_root.joinpath(*parts[3:]).resolve(strict=False)
+        candidates.append(mapped)
+
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(candidate)
+    return unique
+
+
+def _resolve_scan_repo_path(raw_path: str) -> tuple[Path, Optional[str]]:
+    candidates = _scan_repo_path_candidates(raw_path)
+    for index, candidate in enumerate(candidates):
+        if candidate.is_dir():
+            translated_from = raw_path if index > 0 else None
+            return candidate, translated_from
+
+    raise DevfolioError(
+        f"경로가 존재하지 않습니다: {raw_path}",
+        hint="Docker 사용 중이면 호스트 경로를 그대로 붙여넣어도 되지만, 해당 경로가 REPOS_DIR 아래에 마운트되어 있어야 합니다.",
+    )
 
 
 def _draft_payload(project) -> dict[str, Any]:
@@ -387,63 +427,74 @@ def test_ai_provider(name: str) -> dict[str, Any]:
 @router.post("/scan/git")
 def scan_git(body: GitScanRequest) -> dict[str, Any]:
     """Git 저장소를 스캔해 포트폴리오 payload를 반환한다. analyze=True 면 AI 딥 분석도 수행."""
-    from pathlib import Path
-
     from devfolio.core.git_scanner import build_project_payload, scan_repo
     from devfolio.log import get_logger
 
     logger = get_logger(__name__)
 
-    repo_path = Path(body.repo_path).expanduser().resolve()
-    if not repo_path.is_dir():
-        raise HTTPException(status_code=400, detail=f"경로가 존재하지 않습니다: {body.repo_path}")
-
-    cfg = load_config()
-    author_email = (body.author_email or cfg.user.email or "").strip()
-    if not author_email:
-        raise HTTPException(
-            status_code=400,
-            detail="author_email 이 필요합니다. 요청 body 또는 설정의 user.email을 확인하세요.",
-        )
-
-    # analyze=True 면 캐시를 건너뛰고 항상 재스캔
-    if not body.analyze and not body.refresh:
-        from devfolio.core.storage import list_projects
-        for project in list_projects():
-            if project.repo_url:
-                scan_check = scan_repo(repo_path, author_email=author_email, analyze=False)
-                if project.last_commit_sha == scan_check.head_sha:
-                    payload = build_project_payload(scan_check)
-                    return {"status": "ok", "cached": True, "analyzed": False, "payload": payload}
-                break  # 같은 레포 다른 sha → 재스캔
-
-    scan_result = scan_repo(repo_path, author_email=author_email, analyze=body.analyze)
-
-    ai_analysis: Optional[dict] = None
-    if body.analyze and scan_result.project_context:
-        try:
-            scan_metrics = {
-                "commits": scan_result.commit_count,
-                "period_months": 0,
-                "languages": {k: v for k, v in scan_result.languages.most_common(5)},
-            }
-            ai_analysis = AIService(cfg).analyze_project_from_code(
-                repo_name=repo_path.name,
-                project_context=scan_result.project_context,
-                scan_metrics=scan_metrics,
-                lang=body.lang,
-                provider_name=body.provider,
+    try:
+        repo_path, translated_from = _resolve_scan_repo_path(body.repo_path)
+        cfg = load_config()
+        author_email = (body.author_email or cfg.user.email or "").strip()
+        if not author_email:
+            raise DevfolioError(
+                "author_email 이 필요합니다.",
+                hint="요청 body 또는 설정의 user.email을 확인하세요.",
             )
-        except Exception as exc:
-            logger.warning("AI 딥 분석 실패 (기본 스캔 결과로 계속): %s", exc)
 
-    payload = build_project_payload(scan_result, ai_analysis=ai_analysis)
-    return {
-        "status": "ok",
-        "cached": False,
-        "analyzed": ai_analysis is not None,
-        "payload": payload,
-    }
+        logger.info(
+            "Git scan API 요청: input=%s resolved=%s author=%s refresh=%s analyze=%s",
+            body.repo_path,
+            repo_path,
+            author_email,
+            body.refresh,
+            body.analyze,
+        )
+        if translated_from:
+            logger.info("Docker 경로 변환 적용: %s -> %s", translated_from, repo_path)
+
+        # analyze=True 면 캐시를 건너뛰고 항상 재스캔
+        if not body.analyze and not body.refresh:
+            from devfolio.core.storage import list_projects
+            for project in list_projects():
+                if project.repo_url:
+                    scan_check = scan_repo(repo_path, author_email=author_email, analyze=False)
+                    if project.last_commit_sha == scan_check.head_sha:
+                        payload = build_project_payload(scan_check)
+                        logger.info("Git scan cache hit: repo=%s head=%s", repo_path, scan_check.head_sha[:8])
+                        return {"status": "ok", "cached": True, "analyzed": False, "payload": payload}
+                    break  # 같은 레포 다른 sha → 재스캔
+
+        scan_result = scan_repo(repo_path, author_email=author_email, analyze=body.analyze)
+
+        ai_analysis: Optional[dict] = None
+        if body.analyze and scan_result.project_context:
+            try:
+                scan_metrics = {
+                    "commits": scan_result.commit_count,
+                    "period_months": 0,
+                    "languages": {k: v for k, v in scan_result.languages.most_common(5)},
+                }
+                ai_analysis = AIService(cfg).analyze_project_from_code(
+                    repo_name=repo_path.name,
+                    project_context=scan_result.project_context,
+                    scan_metrics=scan_metrics,
+                    lang=body.lang,
+                    provider_name=body.provider,
+                )
+            except Exception as exc:
+                logger.warning("AI 딥 분석 실패 (기본 스캔 결과로 계속): %s", exc)
+
+        payload = build_project_payload(scan_result, ai_analysis=ai_analysis)
+        return {
+            "status": "ok",
+            "cached": False,
+            "analyzed": ai_analysis is not None,
+            "payload": payload,
+        }
+    except DevfolioError as exc:
+        logger.warning("Git scan API 실패: input=%s reason=%s", body.repo_path, exc.message)
+        _raise_from_devfolio(exc)
 
 
 # ---------------------------------------------------------------------------

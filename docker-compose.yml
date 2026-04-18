@@ -13,12 +13,14 @@ services:
       - ${REPOS_DIR:-~}:/home/user:ro
     environment:
       - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+      - DEVFOLIO_DOCKER_REPO_ROOT=/home/user
       # API 키는 환경변수로 주입 (keyring 불필요)
       # .env 파일을 만들거나 직접 설정하세요
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - DEVFOLIO_LOG_LEVEL=${DEVFOLIO_LOG_LEVEL:-WARNING}
+      - DEVFOLIO_LOG_LEVEL=${DEVFOLIO_LOG_LEVEL:-INFO}
       - DEVFOLIO_LANG=${DEVFOLIO_LANG:-ko}
     command: ["serve", "--host", "0.0.0.0", "--no-open", "--reload"]
     restart: unless-stopped
