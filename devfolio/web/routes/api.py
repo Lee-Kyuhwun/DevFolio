@@ -891,13 +891,21 @@ def open_folder(path: str = "") -> dict[str, str]:
         raise HTTPException(status_code=403, detail="홈 디렉터리 외부 경로는 열 수 없습니다.")
 
     system = platform.system()
+    cmd: list[str]
+    if system == "Darwin":
+        cmd = ["open", str(folder)]
+    elif system == "Windows":
+        cmd = ["explorer", str(folder)]
+    else:
+        cmd = ["xdg-open", str(folder)]
+
     try:
-        if system == "Darwin":
-            subprocess.Popen(["open", str(folder)])
-        elif system == "Windows":
-            subprocess.Popen(["explorer", str(folder)])
-        else:
-            subprocess.Popen(["xdg-open", str(folder)])
+        subprocess.Popen(cmd)
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=501,
+            detail=f"이 환경에서는 폴더 열기가 지원되지 않습니다 ({system}). 경로를 직접 탐색하세요: {folder}",
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"폴더를 열 수 없습니다: {exc}") from exc
 

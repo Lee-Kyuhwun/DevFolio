@@ -321,7 +321,9 @@ async function api(path, options = {}) {
   const response = await fetch(path, options);
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
-    throw new Error(payload.detail || payload.message || `HTTP ${response.status}`);
+    const err = new Error(payload.detail || payload.message || `HTTP ${response.status}`);
+    err.status = response.status;
+    throw err;
   }
   return response.json();
 }
@@ -1269,7 +1271,12 @@ async function exportPreview() {
       try {
         await apiPost(`/api/fs/open-folder?path=${encodeURIComponent(result.folder || result.path)}`);
       } catch (e) {
-        showToast(`폴더를 열 수 없습니다: ${e.message}`);
+        if (e.status === 501) {
+          await navigator.clipboard.writeText(result.folder || result.path).catch(() => {});
+          showToast(`이 환경에서는 자동으로 열 수 없습니다. 경로가 클립보드에 복사됐습니다: ${result.folder || result.path}`);
+        } else {
+          showToast(`폴더를 열 수 없습니다: ${e.message}`);
+        }
       }
     };
     meta.appendChild(openBtn);
