@@ -4,12 +4,15 @@ services:
     ports:
       - "8000:8000"
     volumes:
+      # 개발 중에는 로컬 소스를 바로 마운트해 코드 변경을 즉시 반영
+      - .:/app
       - devfolio-config:/root/.config/devfolio
       - devfolio-data:/root/.local/share/devfolio
       # Git Scan: 로컬 저장소를 컨테이너 안에서 접근 가능하게 마운트
       # REPOS_DIR 환경변수로 경로 지정 (기본: 홈 디렉터리)
       - ${REPOS_DIR:-~}:/home/user:ro
     environment:
+      - PYTHONDONTWRITEBYTECODE=1
       # API 키는 환경변수로 주입 (keyring 불필요)
       # .env 파일을 만들거나 직접 설정하세요
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
@@ -17,7 +20,7 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - DEVFOLIO_LOG_LEVEL=${DEVFOLIO_LOG_LEVEL:-WARNING}
       - DEVFOLIO_LANG=${DEVFOLIO_LANG:-ko}
-    command: ["serve", "--host", "0.0.0.0", "--no-open"]
+    command: ["serve", "--host", "0.0.0.0", "--no-open", "--reload"]
     restart: unless-stopped
 
 volumes:

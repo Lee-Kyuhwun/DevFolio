@@ -152,7 +152,7 @@ EOF
 docker compose up --build
 ```
 
-> The first build takes about 1–2 minutes. Subsequent starts are instant.
+> The first build takes about 1–2 minutes. After that, the container bind-mounts your local source tree and runs with auto-reload, so most code, template, and static-file edits show up without rebuilding the image.
 
 Open **http://localhost:8000** in your browser.
 
@@ -164,11 +164,19 @@ docker compose down
 
 Your data is saved in Docker named volumes (`devfolio-config`, `devfolio-data`) and survives restarts.
 
-> **If you see errors after pulling new code**, rebuild the image:
+> **When do you still need to rebuild?**
+> Rebuild only when the container image itself must change, such as:
+> - `pyproject.toml` dependencies changed
+> - `Dockerfile` changed
+> - system packages or Python extras changed
+>
+> In those cases:
 > ```bash
 > docker compose build --no-cache
 > docker compose up
 > ```
+
+> For normal Python, HTML template, CSS, or JS edits, `docker compose up` is enough and the server reloads automatically.
 
 ---
 

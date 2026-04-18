@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import typer
 from rich.console import Console
 
@@ -14,12 +16,13 @@ def serve(
     host: str = typer.Option("127.0.0.1", help="바인딩 호스트 (Docker: 0.0.0.0)"),
     port: int = typer.Option(8000, help="포트 번호"),
     open_browser: bool = typer.Option(True, "--open/--no-open", help="브라우저 자동 열기"),
+    reload: bool = typer.Option(False, "--reload/--no-reload", help="코드 변경 시 자동 재시작"),
 ) -> None:
     """웹 기반 Portfolio Studio를 시작합니다.
 
     브라우저에서 http://<host>:<port> 로 접속하세요.
 
-    Docker에서 실행할 때는 --host 0.0.0.0 --no-open 을 사용하세요.
+    Docker 개발 환경에서는 --host 0.0.0.0 --no-open --reload 를 권장합니다.
     """
     try:
         import uvicorn
@@ -47,5 +50,18 @@ def serve(
             webbrowser.open(url)
 
         threading.Thread(target=_open, daemon=True).start()
+
+    if reload:
+        project_dir = Path(__file__).resolve().parents[1]
+        uvicorn.run(
+            "devfolio.web.app:create_app",
+            host=host,
+            port=port,
+            log_level="warning",
+            reload=True,
+            reload_dirs=[str(project_dir)],
+            factory=True,
+        )
+        return
 
     uvicorn.run(create_app(), host=host, port=port, log_level="warning")

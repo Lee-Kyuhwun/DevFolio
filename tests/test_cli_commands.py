@@ -1,6 +1,7 @@
 """CLI 워크플로우 회귀 테스트."""
 
 import json
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -152,3 +153,23 @@ def test_ai_generate_project_can_save_summary(cli_store):
 
     assert result.exit_code == 0, result.stdout
     assert manager.get_project("AI 저장 테스트").summary == "저장된 AI 요약"
+
+
+def test_serve_reload_uses_uvicorn_factory_mode():
+    run_calls = []
+    fake_uvicorn = SimpleNamespace(run=lambda *args, **kwargs: run_calls.append((args, kwargs)))
+
+    with patch.dict("sys.modules", {"uvicorn": fake_uvicorn}):
+        result = runner.invoke(app, ["serve", "--host", "0.0.0.0", "--no-open", "--reload"])
+
+    assert result.exit_code == 0, result.stdout
+    assert len(run_calls) == 1
+
+    args, kwargs = run_calls[0]
+    assert args == ("devfolio.web.app:create_app",)
+    assert kwargs["host"] == "0.0.0.0"
+    assert kwargs["port"] == 8000
+    assert kwargs["log_level"] == "warning"
+    assert kwargs["reload"] is True
+    assert kwargs["factory"] is True
+    assert kwargs["reload_dirs"]
