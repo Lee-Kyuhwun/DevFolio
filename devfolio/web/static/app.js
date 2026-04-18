@@ -14,6 +14,12 @@ const state = {
   },
   lastPreview: null,
   lastScanPayload: null,
+  scanPicker: {
+    currentPath: '',
+    parentPath: '',
+    roots: [],
+    entries: [],
+  },
 };
 
 const DEFAULT_MODELS = {
@@ -28,6 +34,7 @@ let toastTimer = null;
 document.addEventListener('DOMContentLoaded', () => {
   bindTabs();
   bindErrorDialog();
+  bindDirectoryDialog();
   bindGlobalActions();
   bindDraftEditors();
   bindSettingsForms();
@@ -132,6 +139,25 @@ function bindErrorDialog() {
   });
 }
 
+function bindDirectoryDialog() {
+  document.getElementById('directory-dialog-close')?.addEventListener('click', closeDirectoryDialog);
+  document.querySelectorAll('[data-directory-dialog-close]').forEach(element => {
+    element.addEventListener('click', closeDirectoryDialog);
+  });
+  document.getElementById('btn-directory-parent')?.addEventListener('click', () => {
+    if (state.scanPicker.parentPath) {
+      loadDirectoryDialog(state.scanPicker.parentPath);
+    }
+  });
+  document.getElementById('btn-directory-select')?.addEventListener('click', () => {
+    const input = document.getElementById('scan-repo-path');
+    input.value = state.scanPicker.currentPath || '';
+    closeDirectoryDialog();
+    showToast('저장소 경로를 선택했습니다.');
+  });
+  document.getElementById('btn-scan-pick-dir')?.addEventListener('click', openDirectoryDialog);
+}
+
 function showErrorDialog(title, message) {
   const dialog = document.getElementById('error-dialog');
   document.getElementById('error-dialog-title').textContent = title || '오류';
@@ -144,6 +170,74 @@ function closeErrorDialog() {
   const dialog = document.getElementById('error-dialog');
   dialog.classList.remove('show');
   dialog.setAttribute('aria-hidden', 'true');
+}
+
+function openDirectoryDialog() {
+  const inputPath = document.getElementById('scan-repo-path')?.value.trim();
+  const dialog = document.getElementById('directory-dialog');
+  dialog.classList.add('show');
+  dialog.setAttribute('aria-hidden', 'false');
+  loadDirectoryDialog(inputPath || '');
+}
+
+function closeDirectoryDialog() {
+  const dialog = document.getElementById('directory-dialog');
+  dialog.classList.remove('show');
+  dialog.setAttribute('aria-hidden', 'true');
+}
+
+async function loadDirectoryDialog(path = '') {
+  try {
+    const query = path ? `?path=${encodeURIComponent(path)}` : '';
+    const result = await apiGet(`/api/fs/directories${query}`);
+    state.scanPicker.currentPath = result.current_path || '';
+    state.scanPicker.parentPath = result.parent_path || '';
+    state.scanPicker.roots = result.roots || [];
+    state.scanPicker.entries = result.entries || [];
+    renderDirectoryDialog();
+  } catch (error) {
+    closeDirectoryDialog();
+    showToast('폴더 목록을 불러오지 못했습니다.', 'error');
+    showErrorDialog('폴더 선택 실패', error?.message || '폴더 목록을 불러오지 못했습니다.');
+  }
+}
+
+function renderDirectoryDialog() {
+  const currentEl = document.getElementById('directory-dialog-current');
+  const rootsEl = document.getElementById('directory-dialog-roots');
+  const listEl = document.getElementById('directory-dialog-list');
+  const parentButton = document.getElementById('btn-directory-parent');
+
+  currentEl.textContent = state.scanPicker.currentPath || '-';
+  parentButton.disabled = !state.scanPicker.parentPath;
+
+  rootsEl.innerHTML = state.scanPicker.roots.map(root => {
+    const active = root === state.scanPicker.currentPath ? ' active' : '';
+    return `<button type="button" class="directory-root-chip${active}" data-directory-root="${escHtml(root)}">${escHtml(root)}</button>`;
+  }).join('');
+
+  rootsEl.querySelectorAll('[data-directory-root]').forEach(button => {
+    button.addEventListener('click', () => loadDirectoryDialog(button.dataset.directoryRoot));
+  });
+
+  if (!state.scanPicker.entries.length) {
+    listEl.innerHTML = '<div class="directory-empty">하위 폴더가 없습니다.</div>';
+    return;
+  }
+
+  listEl.innerHTML = state.scanPicker.entries.map(entry => `
+    <button type="button" class="directory-entry" data-directory-path="${escHtml(entry.path)}">
+      <span>
+        <span class="directory-entry-name">${escHtml(entry.name)}</span>
+        <span class="directory-entry-meta">${escHtml(entry.path)}</span>
+      </span>
+      ${entry.is_git_repo ? '<span class="directory-entry-badge">Git 저장소</span>' : ''}
+    </button>
+  `).join('');
+
+  listEl.querySelectorAll('[data-directory-path]').forEach(button => {
+    button.addEventListener('click', () => loadDirectoryDialog(button.dataset.directoryPath));
+  });
 }
 
 function isRemoteRepoInput(value) {

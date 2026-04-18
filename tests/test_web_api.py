@@ -63,6 +63,26 @@ def test_scan_repo_path_candidates_translate_host_home_paths():
     assert Path("/home/user/projects/demo") in candidates
 
 
+def test_list_directories_returns_child_directories_and_git_marker(client, web_store):
+    browse_root = web_store / "repos"
+    browse_root.mkdir()
+    repo_dir = browse_root / "sample-repo"
+    repo_dir.mkdir()
+    (repo_dir / ".git").mkdir()
+    nested_dir = browse_root / "notes"
+    nested_dir.mkdir()
+
+    with patch("devfolio.web.routes.api._directory_picker_roots", return_value=[browse_root]):
+        response = client.get("/api/fs/directories", params={"path": str(browse_root)})
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["current_path"] == str(browse_root)
+    assert payload["parent_path"] is None
+    assert any(entry["name"] == "sample-repo" and entry["is_git_repo"] for entry in payload["entries"])
+    assert any(entry["name"] == "notes" and not entry["is_git_repo"] for entry in payload["entries"])
+
+
 def test_index_renders_portfolio_studio_shell(client):
     response = client.get("/")
 

@@ -222,6 +222,10 @@
               <p class="field-hint">Docker에서는 호스트 경로를 그대로 붙여넣어도 됩니다. 컨테이너에서 자동으로 `/home/user/...` 경로로 매핑을 시도합니다.</p>
             </label>
 
+            <div class="action-row">
+              <button id="btn-scan-pick-dir" type="button" class="btn btn-secondary">폴더 선택</button>
+            </div>
+
             <label class="field">
               <span>Author Email</span>
               <input type="text" id="scan-author-email" placeholder="you@example.com" />
@@ -547,6 +551,35 @@
       </div>
       <div class="action-row action-row-end">
         <button type="button" class="btn btn-secondary" data-error-dialog-close>닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="directory-dialog" class="directory-dialog" role="dialog" aria-modal="true" aria-labelledby="directory-dialog-title" aria-hidden="true">
+    <div class="directory-dialog-backdrop" data-directory-dialog-close></div>
+    <div class="directory-dialog-panel">
+      <div class="directory-dialog-header">
+        <div>
+          <p class="eyebrow">Folder Picker</p>
+          <h3 id="directory-dialog-title">저장소 폴더 선택</h3>
+        </div>
+        <button type="button" class="icon-button" id="directory-dialog-close" aria-label="닫기">×</button>
+      </div>
+
+      <div class="directory-dialog-meta">
+        <div>
+          <span class="meta-label">현재 위치</span>
+          <code id="directory-dialog-current">-</code>
+        </div>
+        <button type="button" class="btn btn-secondary" id="btn-directory-parent">상위 폴더</button>
+      </div>
+
+      <div class="directory-dialog-roots" id="directory-dialog-roots"></div>
+      <div class="directory-dialog-list" id="directory-dialog-list"></div>
+
+      <div class="action-row action-row-end">
+        <button type="button" class="btn btn-secondary" data-directory-dialog-close>취소</button>
+        <button type="button" class="btn btn-primary" id="btn-directory-select">이 폴더 선택</button>
       </div>
     </div>
   </div>

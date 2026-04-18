@@ -167,6 +167,63 @@ def _scan_repo_path_candidates(raw_path: str) -> list[Path]:
     return unique
 
 
+def _directory_picker_roots() -> list[Path]:
+    candidates: list[Path] = []
+
+    docker_repo_root = (os.environ.get("DEVFOLIO_DOCKER_REPO_ROOT") or "").strip()
+    if docker_repo_root:
+        candidates.append(Path(docker_repo_root).resolve(strict=False))
+
+    cwd = Path.cwd().resolve(strict=False)
+    home = Path.home().resolve(strict=False)
+
+    candidates.append(cwd)
+    if str(home) != "/root" or not docker_repo_root:
+        candidates.append(home)
+
+    roots: list[Path] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        if not candidate.exists() or not candidate.is_dir():
+            continue
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        roots.append(candidate)
+    return roots
+
+
+def _is_within_root(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def _resolve_directory_browser_path(raw_path: Optional[str]) -> tuple[Path, list[Path]]:
+    roots = _directory_picker_roots()
+    if not roots:
+        raise DevfolioError("탐색 가능한 디렉터리가 없습니다.")
+
+    if not raw_path:
+        return roots[0], roots
+
+    current = Path(raw_path).expanduser().resolve(strict=False)
+    if not any(_is_within_root(current, root) or current == root for root in roots):
+        raise DevfolioError(
+            f"허용되지 않은 경로입니다: {raw_path}",
+            hint="폴더 선택기는 접근 가능한 루트 디렉터리 안에서만 탐색할 수 있습니다.",
+        )
+    if not current.exists() or not current.is_dir():
+        raise DevfolioError(
+            f"디렉터리가 존재하지 않습니다: {raw_path}",
+            hint="상위 폴더를 선택한 뒤 다시 탐색하세요.",
+        )
+    return current, roots
+
+
 def _looks_like_remote_repo_url(raw_path: str) -> bool:
     raw = (raw_path or "").strip()
     if not raw:
@@ -435,6 +492,55 @@ def test_ai_provider(name: str) -> dict[str, Any]:
         return {"status": "ok", "message": "연결 성공"}
     except Exception as exc:  # pragma: no cover - UI safety
         return {"status": "error", "message": str(exc)}
+
+
+# ---------------------------------------------------------------------------
+# Directory Browser
+# ---------------------------------------------------------------------------
+
+@router.get("/fs/directories")
+def list_directories(path: Optional[str] = None) -> dict[str, Any]:
+    try:
+        current, roots = _resolve_directory_browser_path(path)
+        root_for_current = next((root for root in roots if current == root or _is_within_root(current, root)), roots[0])
+        parent_path = None
+        if current != root_for_current:
+            parent_path = str(current.parent)
+
+        entries: list[dict[str, Any]] = []
+        try:
+            children: list[Path] = []
+            for child in current.iterdir():
+                try:
+                    if child.is_dir():
+                        children.append(child)
+                except OSError:
+                    continue
+            children = sorted(children, key=lambda child: child.name.lower())[:200]
+        except OSError as exc:
+            raise DevfolioError(
+                f"디렉터리를 읽을 수 없습니다: {current}",
+                hint=str(exc),
+            ) from exc
+
+        for child in children:
+            entries.append(
+                {
+                    "name": child.name,
+                    "path": str(child),
+                    "is_git_repo": (child / ".git").exists(),
+                }
+            )
+
+        return {
+            "status": "ok",
+            "current_path": str(current),
+            "parent_path": parent_path,
+            "roots": [str(root) for root in roots],
+            "entries": entries,
+        }
+    except DevfolioError as exc:
+        _raise_from_devfolio(exc)
 
 
 # ---------------------------------------------------------------------------

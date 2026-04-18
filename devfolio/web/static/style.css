@@ -612,6 +612,141 @@ code {
   cursor: pointer;
 }
 
+.directory-dialog {
+  position: fixed;
+  inset: 0;
+  display: none;
+  place-items: center;
+  z-index: 1200;
+}
+
+.directory-dialog.show {
+  display: grid;
+}
+
+.directory-dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(18, 16, 14, 0.5);
+  backdrop-filter: blur(4px);
+}
+
+.directory-dialog-panel {
+  position: relative;
+  width: min(720px, calc(100vw - 2rem));
+  max-height: min(80vh, 760px);
+  overflow: hidden;
+  display: grid;
+  gap: 1rem;
+  border-radius: 24px;
+  padding: 1.4rem;
+  background: #fffaf5;
+  box-shadow: 0 28px 80px rgba(34, 24, 18, 0.24);
+}
+
+.directory-dialog-header,
+.directory-dialog-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.directory-dialog-header h3 {
+  margin: 0.2rem 0 0;
+}
+
+.directory-dialog-meta {
+  align-items: flex-end;
+}
+
+.meta-label {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.directory-dialog-meta code {
+  display: inline-block;
+  max-width: 100%;
+  padding: 0.2rem 0.4rem;
+  border-radius: 8px;
+  background: rgba(36, 30, 25, 0.08);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.directory-dialog-roots {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.directory-root-chip {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.45rem 0.8rem;
+  background: rgba(36, 30, 25, 0.08);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.directory-root-chip.active {
+  background: rgba(184, 92, 48, 0.16);
+  color: #8d411f;
+}
+
+.directory-dialog-list {
+  min-height: 220px;
+  max-height: 44vh;
+  overflow: auto;
+  padding-right: 0.35rem;
+}
+
+.directory-entry,
+.directory-empty {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1rem;
+  border-radius: 18px;
+  border: 0;
+  background: rgba(36, 30, 25, 0.05);
+  color: var(--text);
+}
+
+.directory-entry {
+  margin-bottom: 0.55rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.directory-entry-name {
+  font-weight: 600;
+}
+
+.directory-entry-meta {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.directory-entry-badge {
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(48, 120, 80, 0.14);
+  color: #1d6b47;
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.directory-empty {
+  justify-content: center;
+  color: var(--muted);
+}
+
 .toast {
   position: fixed;
   right: 1.2rem;
@@ -752,6 +887,14 @@ code {
 .checkbox-field input[type="checkbox"] {
   width: auto;
   margin: 0;
+}
+
+@media (max-width: 900px) {
+  .directory-dialog-header,
+  .directory-dialog-meta {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 
 .guide-header {
