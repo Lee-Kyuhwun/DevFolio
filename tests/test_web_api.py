@@ -93,6 +93,24 @@ def test_index_renders_portfolio_studio_shell(client):
     assert "Settings" in response.text
 
 
+def test_upsert_ai_provider_uses_default_model_when_omitted(client):
+    response = client.post(
+        "/api/config/ai",
+        json={
+            "name": "anthropic",
+            "api_key": "test-key",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+
+    listed = client.get("/api/config")
+    assert listed.status_code == 200, listed.text
+    providers = listed.json()["ai_providers"]
+    assert providers[0]["name"] == "anthropic"
+    assert providers[0]["model"] == "claude-sonnet-4-20250514"
+
+
 def test_projects_crud_round_trip(client):
     create = client.post(
         "/api/projects",

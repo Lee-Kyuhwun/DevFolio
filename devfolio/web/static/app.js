@@ -22,13 +22,6 @@ const state = {
   },
 };
 
-const DEFAULT_MODELS = {
-  anthropic: 'claude-sonnet-4-20250514',
-  openai: 'gpt-4o',
-  gemini: 'gemini-1.5-flash',
-  ollama: 'llama3.2',
-};
-
 let toastTimer = null;
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -132,6 +125,47 @@ function showToast(message, type = 'success') {
   toastTimer = setTimeout(() => toast.classList.remove('show'), 3200);
 }
 
+function normalizeUiError(error, fallbackMessage = '요청 처리 중 오류가 발생했습니다.') {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  if (typeof error === 'string' && error.trim()) {
+    return error;
+  }
+  return fallbackMessage;
+}
+
+async function runUserAction(button, busyLabel, callback, options = {}) {
+  const {
+    title = '작업 실패',
+    toastMessage = '작업에 실패했습니다.',
+    fallbackMessage = '요청 처리 중 오류가 발생했습니다.',
+    messageBuilder = null,
+    onError = null,
+    skipDialog = false,
+  } = options;
+
+  try {
+    return await withButtonState(button, busyLabel, callback);
+  } catch (error) {
+    console.error(error);
+    const baseMessage = normalizeUiError(error, fallbackMessage);
+    const message = typeof messageBuilder === 'function'
+      ? messageBuilder(baseMessage, error)
+      : baseMessage;
+
+    if (typeof onError === 'function') {
+      onError(message, error);
+    }
+
+    showToast(toastMessage, 'error');
+    if (!skipDialog) {
+      showErrorDialog(title, message);
+    }
+    return null;
+  }
+}
+
 function bindErrorDialog() {
   document.getElementById('error-dialog-close')?.addEventListener('click', closeErrorDialog);
   document.querySelectorAll('[data-error-dialog-close]').forEach(element => {
@@ -187,7 +221,7 @@ function closeDirectoryDialog() {
 }
 
 async function loadDirectoryDialog(path = '') {
-  try {
+  await runUserAction(null, '', async () => {
     const query = path ? `?path=${encodeURIComponent(path)}` : '';
     const result = await apiGet(`/api/fs/directories${query}`);
     state.scanPicker.currentPath = result.current_path || '';
@@ -195,11 +229,12 @@ async function loadDirectoryDialog(path = '') {
     state.scanPicker.roots = result.roots || [];
     state.scanPicker.entries = result.entries || [];
     renderDirectoryDialog();
-  } catch (error) {
-    closeDirectoryDialog();
-    showToast('폴더 목록을 불러오지 못했습니다.', 'error');
-    showErrorDialog('폴더 선택 실패', error?.message || '폴더 목록을 불러오지 못했습니다.');
-  }
+  }, {
+    title: '폴더 선택 실패',
+    toastMessage: '폴더 목록을 불러오지 못했습니다.',
+    fallbackMessage: '폴더 목록을 불러오지 못했습니다.',
+    onError: () => closeDirectoryDialog(),
+  });
 }
 
 function renderDirectoryDialog() {
@@ -309,6 +344,9 @@ function apiDelete(path) {
 }
 
 async function withButtonState(button, busyLabel, callback) {
+  if (!button) {
+    return callback();
+  }
   const original = button.textContent;
   button.disabled = true;
   button.textContent = busyLabel;
@@ -475,7 +513,7 @@ function bindSettingsForms() {
     if (!data.api_key) delete data.api_key;
     if (!data.base_url) delete data.base_url;
 
-    await withButtonState(button, '저장 중...', async () => {
+    await runUserAction(button, '저장 중...', async () => {
       await apiPost('/api/config/ai', data);
       state.config = await apiGet('/api/config');
       populateProviders();
@@ -483,6 +521,10 @@ function bindSettingsForms() {
       form.reset();
       syncProviderForm();
       showToast('AI 제공자를 저장했습니다.');
+    }, {
+      title: 'AI 제공자 저장 실패',
+      toastMessage: 'AI 제공자 저장에 실패했습니다.',
+      fallbackMessage: 'AI 제공자를 저장하지 못했습니다.',
     });
   });
 }
@@ -493,7 +535,7 @@ function bindForm(formId, endpoint, method, onSuccess) {
   form.addEventListener('submit', async event => {
     event.preventDefault();
     const button = form.querySelector('[type="submit"]');
-    await withButtonState(button, '저장 중...', async () => {
+    await runUserAction(button, '저장 중...', async () => {
       const payload = formToJson(form);
       if (method === 'PUT') {
         await apiPut(endpoint, payload);
@@ -502,6 +544,10 @@ function bindForm(formId, endpoint, method, onSuccess) {
       }
       if (onSuccess) await onSuccess();
       showToast('저장되었습니다.');
+    }, {
+      title: '설정 저장 실패',
+      toastMessage: '저장에 실패했습니다.',
+      fallbackMessage: '설정을 저장하지 못했습니다.',
     });
   });
 }
@@ -636,22 +682,32 @@ function populateProviders() {
       const action = button.dataset.providerAction;
       if (!name) return;
       if (action === 'test') {
-        await withButtonState(button, '테스트 중...', async () => {
+        await runUserAction(button, '테스트 중...', async () => {
           const result = await apiPost(`/api/config/ai/${encodeURIComponent(name)}/test`, {});
           if (result.status === 'ok') {
             showToast(`${name} 연결이 확인되었습니다.`);
           } else {
             throw new Error(result.message || '연결 확인 실패');
           }
+        }, {
+          title: 'AI 연결 테스트 실패',
+          toastMessage: '연결 확인에 실패했습니다.',
+          fallbackMessage: 'AI 연결을 확인하지 못했습니다.',
         });
       }
       if (action === 'remove') {
         if (!window.confirm(`'${name}'을(를) 삭제하시겠습니까?`)) return;
-        await apiDelete(`/api/config/ai/${encodeURIComponent(name)}`);
-        state.config = await apiGet('/api/config');
-        populateProviders();
-        applyConfigToForms();
-        showToast(`${name}을(를) 삭제했습니다.`);
+        await runUserAction(button, '삭제 중...', async () => {
+          await apiDelete(`/api/config/ai/${encodeURIComponent(name)}`);
+          state.config = await apiGet('/api/config');
+          populateProviders();
+          applyConfigToForms();
+          showToast(`${name}을(를) 삭제했습니다.`);
+        }, {
+          title: 'AI 제공자 삭제 실패',
+          toastMessage: '삭제에 실패했습니다.',
+          fallbackMessage: 'AI 제공자를 삭제하지 못했습니다.',
+        });
       }
     });
   });
@@ -659,17 +715,13 @@ function populateProviders() {
 
 function syncProviderForm() {
   const select = document.getElementById('ai-name');
-  const modelInput = document.getElementById('ai-model');
   const apiField = document.getElementById('field-api-key');
   const baseUrlField = document.getElementById('field-base-url');
-  if (!select || !modelInput) return;
+  if (!select) return;
 
   const isOllama = select.value === 'ollama';
   apiField.classList.toggle('hidden', isOllama);
   baseUrlField.classList.toggle('hidden', !isOllama);
-  if (!modelInput.value) {
-    modelInput.value = DEFAULT_MODELS[select.value] || '';
-  }
 }
 
 function renderDraft() {
@@ -951,7 +1003,7 @@ async function handleIntakeGenerate() {
     showToast('원본 텍스트를 먼저 붙여넣으세요.', 'error');
     return;
   }
-  await withButtonState(button, '초안 생성 중...', async () => {
+  await runUserAction(button, '초안 생성 중...', async () => {
     const result = await apiPost('/api/intake/project-draft', {
       raw_text: rawText,
       lang: document.getElementById('intake-lang').value,
@@ -961,12 +1013,16 @@ async function handleIntakeGenerate() {
     state.loadedProjectId = '';
     renderDraft();
     showToast('AI 초안이 생성되었습니다. 내용을 검토한 뒤 저장하세요.');
+  }, {
+    title: 'AI 초안 생성 실패',
+    toastMessage: '초안 생성에 실패했습니다.',
+    fallbackMessage: 'AI 초안을 생성하지 못했습니다.',
   });
 }
 
 async function handleDraftSummary() {
   const button = document.getElementById('btn-draft-summary');
-  await withButtonState(button, '생성 중...', async () => {
+  await runUserAction(button, '생성 중...', async () => {
     const result = await apiPost('/api/draft/generate-summary', {
       draft: normalizeDraft(state.currentDraft),
       lang: document.getElementById('intake-lang').value,
@@ -975,12 +1031,16 @@ async function handleDraftSummary() {
     state.currentDraft = normalizeDraft(result.draft);
     renderDraft();
     showToast('프로젝트 요약을 다시 생성했습니다.');
+  }, {
+    title: '프로젝트 요약 생성 실패',
+    toastMessage: '요약 생성에 실패했습니다.',
+    fallbackMessage: '프로젝트 요약을 생성하지 못했습니다.',
   });
 }
 
 async function handleDraftTaskBullets() {
   const button = document.getElementById('btn-draft-tasks');
-  await withButtonState(button, '생성 중...', async () => {
+  await runUserAction(button, '생성 중...', async () => {
     const result = await apiPost('/api/draft/generate-task-bullets', {
       draft: normalizeDraft(state.currentDraft),
       lang: document.getElementById('intake-lang').value,
@@ -989,12 +1049,16 @@ async function handleDraftTaskBullets() {
     state.currentDraft = normalizeDraft(result.draft);
     renderDraftTasks();
     showToast('작업 항목을 생성했습니다.');
+  }, {
+    title: '작업 항목 생성 실패',
+    toastMessage: '작업 항목 생성에 실패했습니다.',
+    fallbackMessage: '작업 항목을 생성하지 못했습니다.',
   });
 }
 
 async function handleDraftSave() {
   const button = document.getElementById('btn-draft-save');
-  await withButtonState(button, '저장 중...', async () => {
+  await runUserAction(button, '저장 중...', async () => {
     const draft = normalizeDraft(state.currentDraft);
     const result = state.loadedProjectId
       ? await apiPut(`/api/projects/${encodeURIComponent(state.loadedProjectId)}`, draft)
@@ -1007,6 +1071,10 @@ async function handleDraftSave() {
     renderProjects();
     renderPreviewControls();
     showToast('프로젝트를 저장했습니다.');
+  }, {
+    title: '프로젝트 저장 실패',
+    toastMessage: '저장에 실패했습니다.',
+    fallbackMessage: '프로젝트를 저장하지 못했습니다.',
   });
 }
 
@@ -1042,7 +1110,7 @@ async function handleProjectLibraryClick(event) {
 
   if (action === 'delete') {
     if (!window.confirm(`'${project.name}' 프로젝트를 삭제하시겠습니까?`)) return;
-    await withButtonState(button, '삭제 중...', async () => {
+    await runUserAction(button, '삭제 중...', async () => {
       await apiDelete(`/api/projects/${encodeURIComponent(project.id)}`);
       state.projects = state.projects.filter(item => item.id !== project.id);
       state.preview.projectIds = state.preview.projectIds.filter(id => id !== project.id);
@@ -1052,6 +1120,10 @@ async function handleProjectLibraryClick(event) {
       renderProjects();
       renderPreviewControls();
       showToast('프로젝트를 삭제했습니다.');
+    }, {
+      title: '프로젝트 삭제 실패',
+      toastMessage: '삭제에 실패했습니다.',
+      fallbackMessage: '프로젝트를 삭제하지 못했습니다.',
     });
     return;
   }
@@ -1062,7 +1134,7 @@ async function handleProjectLibraryClick(event) {
       : `/api/projects/${encodeURIComponent(project.id)}/generate-task-bullets`;
     const busyLabel = action === 'summary' ? '요약 생성 중...' : '항목 생성 중...';
 
-    await withButtonState(button, busyLabel, async () => {
+    await runUserAction(button, busyLabel, async () => {
       const result = await apiPost(endpoint, {
         lang: document.getElementById('intake-lang').value,
         provider: document.getElementById('intake-provider').value || null,
@@ -1075,6 +1147,10 @@ async function handleProjectLibraryClick(event) {
       }
       renderProjects();
       showToast(action === 'summary' ? '프로젝트 요약을 갱신했습니다.' : '작업 항목을 갱신했습니다.');
+    }, {
+      title: action === 'summary' ? '프로젝트 요약 갱신 실패' : '작업 항목 갱신 실패',
+      toastMessage: action === 'summary' ? '요약 갱신에 실패했습니다.' : '작업 항목 갱신에 실패했습니다.',
+      fallbackMessage: action === 'summary' ? '프로젝트 요약을 갱신하지 못했습니다.' : '작업 항목을 갱신하지 못했습니다.',
     });
   }
 }
@@ -1091,23 +1167,31 @@ function handlePreviewProjectSelection(event) {
 async function renderPreview() {
   syncPreviewState();
   const button = document.getElementById('btn-preview-render');
-  await withButtonState(button, '렌더링 중...', async () => {
+  await runUserAction(button, '렌더링 중...', async () => {
     const payload = buildPreviewPayload();
     const result = await apiPost(`/api/preview/${state.preview.docType}`, payload);
     state.lastPreview = result;
     renderPreviewOutput();
     showToast('미리보기를 갱신했습니다.');
+  }, {
+    title: '미리보기 생성 실패',
+    toastMessage: '미리보기 생성에 실패했습니다.',
+    fallbackMessage: '미리보기를 생성하지 못했습니다.',
   });
 }
 
 async function exportPreview() {
   syncPreviewState();
   const button = document.getElementById('btn-preview-export');
-  await withButtonState(button, '내보내는 중...', async () => {
+  await runUserAction(button, '내보내는 중...', async () => {
     const payload = buildPreviewPayload();
     const result = await apiPost(`/api/export/${state.preview.docType}`, payload);
     showToast(`내보내기 완료: ${result.path}`);
     document.getElementById('preview-meta').textContent = `내보내기 완료 · ${result.format} · ${result.path}`;
+  }, {
+    title: '내보내기 실패',
+    toastMessage: '내보내기에 실패했습니다.',
+    fallbackMessage: '문서를 내보내지 못했습니다.',
   });
 }
 
@@ -1134,50 +1218,49 @@ async function handleGitScan() {
   }
 
   const busyLabel = analyze ? 'AI 분석 중...' : '분석 중...';
-  try {
-    await withButtonState(button, busyLabel, async () => {
-      const result = await apiPost('/api/scan/git', {
-        repo_path: repoPath,
-        author_email: authorEmail,
-        refresh,
-        analyze,
-        lang,
-        provider: provider || null,
-      });
-
-      state.lastScanPayload = result.payload;
-
-      const resultEl = document.getElementById('scan-result');
-      const actionsEl = document.getElementById('scan-load-actions');
-      const p = result.payload;
-      const metrics = p.scan_metrics || {};
-      const cacheNote = result.cached ? ' (이전 결과 재사용)' : '';
-      const analyzeNote = result.analyzed ? ' · AI 상세 분석 완료' : '';
-
-      resultEl.innerHTML = `
-        <dl class="scan-summary">
-          <dt>프로젝트명</dt><dd>${escHtml(p.name || '-')}</dd>
-          <dt>기간</dt><dd>${escHtml(p.period_start || '-')} ~ ${escHtml(p.period_end || '현재')}</dd>
-          <dt>커밋</dt><dd>${metrics.commit_count ?? '-'}건 / 내 커밋 ${((metrics.authorship_ratio ?? 0) * 100).toFixed(0)}%</dd>
-          <dt>변경</dt><dd>+${metrics.insertions ?? 0} / -${metrics.deletions ?? 0} LOC, ${metrics.files_touched ?? 0}파일</dd>
-          <dt>언어</dt><dd>${escHtml(Object.keys(metrics.languages || {}).join(', ') || '-')}</dd>
-          <dt>요약</dt><dd>${escHtml(p.summary || '-')}</dd>
-          <dt>작업 수</dt><dd>${(p.tasks || []).length}개${cacheNote}${analyzeNote}</dd>
-        </dl>
-      `;
-      if (actionsEl) actionsEl.style.display = '';
-
-      const toastMsg = result.analyzed
-        ? `AI 분석 완료: ${p.name || '프로젝트'}`
-        : `분석 완료: ${p.name || '프로젝트'}${cacheNote}`;
-      showToast(toastMsg);
+  await runUserAction(button, busyLabel, async () => {
+    const result = await apiPost('/api/scan/git', {
+      repo_path: repoPath,
+      author_email: authorEmail,
+      refresh,
+      analyze,
+      lang,
+      provider: provider || null,
     });
-  } catch (error) {
-    const message = buildScanErrorMessage(repoPath, error?.message);
-    renderScanError(message);
-    showToast('Git 분석에 실패했습니다.', 'error');
-    showErrorDialog('Git 분석 실패', message);
-  }
+
+    state.lastScanPayload = result.payload;
+
+    const resultEl = document.getElementById('scan-result');
+    const actionsEl = document.getElementById('scan-load-actions');
+    const p = result.payload;
+    const metrics = p.scan_metrics || {};
+    const cacheNote = result.cached ? ' (이전 결과 재사용)' : '';
+    const analyzeNote = result.analyzed ? ' · AI 상세 분석 완료' : '';
+
+    resultEl.innerHTML = `
+      <dl class="scan-summary">
+        <dt>프로젝트명</dt><dd>${escHtml(p.name || '-')}</dd>
+        <dt>기간</dt><dd>${escHtml(p.period_start || '-')} ~ ${escHtml(p.period_end || '현재')}</dd>
+        <dt>커밋</dt><dd>${metrics.commit_count ?? '-'}건 / 내 커밋 ${((metrics.authorship_ratio ?? 0) * 100).toFixed(0)}%</dd>
+        <dt>변경</dt><dd>+${metrics.insertions ?? 0} / -${metrics.deletions ?? 0} LOC, ${metrics.files_touched ?? 0}파일</dd>
+        <dt>언어</dt><dd>${escHtml(Object.keys(metrics.languages || {}).join(', ') || '-')}</dd>
+        <dt>요약</dt><dd>${escHtml(p.summary || '-')}</dd>
+        <dt>작업 수</dt><dd>${(p.tasks || []).length}개${cacheNote}${analyzeNote}</dd>
+      </dl>
+    `;
+    if (actionsEl) actionsEl.style.display = '';
+
+    const toastMsg = result.analyzed
+      ? `AI 분석 완료: ${p.name || '프로젝트'}`
+      : `분석 완료: ${p.name || '프로젝트'}${cacheNote}`;
+    showToast(toastMsg);
+  }, {
+    title: 'Git 분석 실패',
+    toastMessage: 'Git 분석에 실패했습니다.',
+    fallbackMessage: 'Git 분석 중 오류가 발생했습니다.',
+    messageBuilder: baseMessage => buildScanErrorMessage(repoPath, baseMessage),
+    onError: message => renderScanError(message),
+  });
 }
 
 function handleScanLoadDraft() {

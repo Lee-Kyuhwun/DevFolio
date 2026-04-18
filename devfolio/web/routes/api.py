@@ -61,7 +61,7 @@ class GeneralConfigUpdate(BaseModel):
 
 class AIProviderCreate(BaseModel):
     name: str
-    model: str
+    model: str = ""
     api_key: Optional[str] = None
     base_url: Optional[str] = None
 
@@ -139,6 +139,16 @@ def _env_var_name(provider: str) -> str:
         "cohere": "COHERE_API_KEY",
     }
     return mapping.get(provider, f"{provider.upper()}_API_KEY")
+
+
+def _default_model_name(provider: str) -> str:
+    mapping = {
+        "anthropic": "claude-sonnet-4-20250514",
+        "openai": "gpt-4o",
+        "gemini": "gemini-1.5-flash",
+        "ollama": "llama3.2",
+    }
+    return mapping.get(provider, "")
 
 
 def _scan_repo_path_candidates(raw_path: str) -> list[Path]:
@@ -445,7 +455,7 @@ def upsert_ai_provider(body: AIProviderCreate) -> dict[str, str]:
 
     provider = AIProviderConfig(
         name=body.name,
-        model=body.model,
+        model=(body.model or _default_model_name(body.name)).strip(),
         key_stored=key_stored,
         base_url=body.base_url or None,
     )
