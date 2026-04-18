@@ -803,75 +803,64 @@ def list_ai_models(
     base_url: Optional[str] = None,
 ) -> dict[str, Any]:
     """각 AI 제공자로부터 사용 가능한 모델 목록을 조회합니다."""
-    import httpx
+    import urllib.error
+    import urllib.request
+
+    def _fetch(url: str, headers: dict | None = None) -> dict:
+        req = urllib.request.Request(url, headers=headers or {})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode(errors="replace")[:300]
+            raise HTTPException(status_code=exc.code, detail=f"모델 목록 조회 실패: {body}") from exc
+        except urllib.error.URLError as exc:
+            raise HTTPException(status_code=502, detail=f"제공자 서버에 연결할 수 없습니다: {exc.reason}") from exc
 
     key = api_key or get_api_key(provider)
     models: list[str] = []
 
-    try:
-        if provider == "anthropic":
-            if not key:
-                raise HTTPException(status_code=400, detail="API 키가 필요합니다.")
-            resp = httpx.get(
-                "https://api.anthropic.com/v1/models",
-                headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
-                timeout=10,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            models = [m["id"] for m in data.get("data", [])]
+    if provider == "anthropic":
+        if not key:
+            raise HTTPException(status_code=400, detail="API 키가 필요합니다.")
+        data = _fetch(
+            "https://api.anthropic.com/v1/models",
+            {"x-api-key": key, "anthropic-version": "2023-06-01"},
+        )
+        models = [m["id"] for m in data.get("data", [])]
 
-        elif provider == "openai":
-            if not key:
-                raise HTTPException(status_code=400, detail="API 키가 필요합니다.")
-            resp = httpx.get(
-                "https://api.openai.com/v1/models",
-                headers={"Authorization": f"Bearer {key}"},
-                timeout=10,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            all_ids = [m["id"] for m in data.get("data", [])]
-            models = sorted(
-                [m for m in all_ids if m.startswith(("gpt-", "o1", "o3", "o4"))],
-                reverse=True,
-            )
+    elif provider == "openai":
+        if not key:
+            raise HTTPException(status_code=400, detail="API 키가 필요합니다.")
+        data = _fetch(
+            "https://api.openai.com/v1/models",
+            {"Authorization": f"Bearer {key}"},
+        )
+        all_ids = [m["id"] for m in data.get("data", [])]
+        models = sorted(
+            [m for m in all_ids if m.startswith(("gpt-", "o1", "o3", "o4"))],
+            reverse=True,
+        )
 
-        elif provider == "gemini":
-            if not key:
-                raise HTTPException(status_code=400, detail="API 키가 필요합니다.")
-            resp = httpx.get(
-                f"https://generativelanguage.googleapis.com/v1beta/models?key={key}&pageSize=100",
-                timeout=10,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            models = [
-                m["name"].removeprefix("models/")
-                for m in data.get("models", [])
-                if "generateContent" in m.get("supportedGenerationMethods", [])
-            ]
+    elif provider == "gemini":
+        if not key:
+            raise HTTPException(status_code=400, detail="API 키가 필요합니다.")
+        data = _fetch(
+            f"https://generativelanguage.googleapis.com/v1beta/models?key={key}&pageSize=100",
+        )
+        models = [
+            m["name"].removeprefix("models/")
+            for m in data.get("models", [])
+            if "generateContent" in m.get("supportedGenerationMethods", [])
+        ]
 
-        elif provider == "ollama":
-            url = (base_url or "http://localhost:11434").rstrip("/")
-            resp = httpx.get(f"{url}/api/tags", timeout=5)
-            resp.raise_for_status()
-            data = resp.json()
-            models = [m.get("name", m.get("model", "")) for m in data.get("models", [])]
-            models = [m for m in models if m]
+    elif provider == "ollama":
+        url = (base_url or "http://localhost:11434").rstrip("/")
+        data = _fetch(f"{url}/api/tags")
+        models = [m.get("name", m.get("model", "")) for m in data.get("models", [])]
+        models = [m for m in models if m]
 
-        else:
-            raise HTTPException(status_code=400, detail=f"알 수 없는 제공자: {provider}")
-
-    except httpx.HTTPStatusError as exc:
-        raise HTTPException(
-            status_code=exc.response.status_code,
-            detail=f"모델 목록 조회 실패: {exc.response.text[:200]}",
-        ) from exc
-    except httpx.RequestError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=f"제공자 서버에 연결할 수 없습니다: {exc}",
-        ) from exc
+    else:
+        raise HTTPException(status_code=400, detail=f"알 수 없는 제공자: {provider}")
 
     return {"provider": provider, "models": models}
