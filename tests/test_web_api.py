@@ -259,3 +259,18 @@ def test_scan_git_returns_devfolio_error_detail(client, web_store):
 
     assert response.status_code == 400
     assert "스캔 실패" in response.json()["detail"]
+
+
+def test_scan_git_rejects_remote_repository_url(client):
+    response = client.post(
+        "/api/scan/git",
+        json={
+            "repo_path": "https://github.com/openai/devfolio.git",
+            "author_email": "user@example.com",
+            "refresh": True,
+            "analyze": False,
+        },
+    )
+
+    assert response.status_code == 400
+    assert "원격 Git URL은 바로 스캔할 수 없습니다" in response.json()["detail"]

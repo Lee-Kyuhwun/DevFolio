@@ -550,6 +550,68 @@ code {
   display: none;
 }
 
+.error-dialog {
+  position: fixed;
+  inset: 0;
+  display: none;
+  place-items: center;
+  z-index: 1200;
+}
+
+.error-dialog.show {
+  display: grid;
+}
+
+.error-dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(18, 16, 14, 0.5);
+  backdrop-filter: blur(4px);
+}
+
+.error-dialog-panel {
+  position: relative;
+  width: min(560px, calc(100vw - 2rem));
+  border-radius: 24px;
+  padding: 1.4rem;
+  background: #fffaf5;
+  border: 1px solid rgba(181, 53, 42, 0.18);
+  box-shadow: 0 28px 80px rgba(34, 24, 18, 0.24);
+}
+
+.error-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.9rem;
+}
+
+.error-dialog-header h3 {
+  margin: 0.2rem 0 0;
+}
+
+.error-dialog-body {
+  color: var(--text);
+  line-height: 1.65;
+  white-space: pre-line;
+}
+
+.error-dialog-body p {
+  margin: 0;
+}
+
+.icon-button {
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(36, 30, 25, 0.08);
+  color: var(--text);
+  font-size: 1.3rem;
+  cursor: pointer;
+}
+
 .toast {
   position: fixed;
   right: 1.2rem;
@@ -640,6 +702,26 @@ code {
   color: var(--muted);
   font-size: 0.9rem;
   padding: 1.5rem 0;
+}
+
+.scan-result-error {
+  padding: 1rem 1.1rem;
+  border-radius: 18px;
+  background: rgba(181, 53, 42, 0.08);
+  border: 1px solid rgba(181, 53, 42, 0.16);
+}
+
+.scan-result-error strong {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: var(--error);
+}
+
+.scan-result-error p {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.6;
+  white-space: pre-line;
 }
 
 .scan-summary {

@@ -27,6 +27,7 @@ let toastTimer = null;
 
 document.addEventListener('DOMContentLoaded', () => {
   bindTabs();
+  bindErrorDialog();
   bindGlobalActions();
   bindDraftEditors();
   bindSettingsForms();
@@ -122,6 +123,62 @@ function showToast(message, type = 'success') {
   toast.className = `toast show ${type}`;
   if (toastTimer) clearTimeout(toastTimer);
   toastTimer = setTimeout(() => toast.classList.remove('show'), 3200);
+}
+
+function bindErrorDialog() {
+  document.getElementById('error-dialog-close')?.addEventListener('click', closeErrorDialog);
+  document.querySelectorAll('[data-error-dialog-close]').forEach(element => {
+    element.addEventListener('click', closeErrorDialog);
+  });
+}
+
+function showErrorDialog(title, message) {
+  const dialog = document.getElementById('error-dialog');
+  document.getElementById('error-dialog-title').textContent = title || '오류';
+  document.getElementById('error-dialog-message').textContent = message || '요청 처리 중 오류가 발생했습니다.';
+  dialog.classList.add('show');
+  dialog.setAttribute('aria-hidden', 'false');
+}
+
+function closeErrorDialog() {
+  const dialog = document.getElementById('error-dialog');
+  dialog.classList.remove('show');
+  dialog.setAttribute('aria-hidden', 'true');
+}
+
+function isRemoteRepoInput(value) {
+  const raw = String(value || '').trim();
+  return raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('git@') || raw.startsWith('ssh://');
+}
+
+function renderScanError(message) {
+  const resultEl = document.getElementById('scan-result');
+  const actionsEl = document.getElementById('scan-load-actions');
+  if (resultEl) {
+    resultEl.innerHTML = `
+      <div class="scan-result-error">
+        <strong>Git 분석 실패</strong>
+        <p>${escHtml(message)}</p>
+      </div>
+    `;
+  }
+  if (actionsEl) actionsEl.style.display = 'none';
+  state.lastScanPayload = null;
+}
+
+function buildScanErrorMessage(repoPath, errorMessage) {
+  if (isRemoteRepoInput(repoPath)) {
+    return [
+      '입력한 값은 로컬 저장소 경로가 아니라 GitHub URL입니다.',
+      'DevFolio의 Git 분석은 원격 URL을 직접 읽지 않고, 현재 PC에 clone된 Git 저장소 폴더를 스캔합니다.',
+      '',
+      '해결 방법',
+      `- 잘못 입력한 값: ${repoPath}`,
+      '- 예시 경로: /Users/yourname/projects/DevFolio',
+      '- Docker에서는 위처럼 호스트 경로를 그대로 넣어도 됩니다.',
+    ].join('\n');
+  }
+  return errorMessage || 'Git 분석 중 오류가 발생했습니다.';
 }
 
 async function api(path, options = {}) {
@@ -970,48 +1027,63 @@ async function handleGitScan() {
   const provider = document.getElementById('scan-provider')?.value || null;
 
   if (!repoPath) {
-    showToast('저장소 경로를 입력하세요.');
+    showToast('저장소 경로를 입력하세요.', 'error');
+    return;
+  }
+
+  if (isRemoteRepoInput(repoPath)) {
+    const message = buildScanErrorMessage(repoPath);
+    renderScanError(message);
+    showToast('GitHub URL은 바로 분석할 수 없습니다.', 'error');
+    showErrorDialog('Git 분석 실패', message);
     return;
   }
 
   const busyLabel = analyze ? 'AI 분석 중...' : '분석 중...';
-  await withButtonState(button, busyLabel, async () => {
-    const result = await apiPost('/api/scan/git', {
-      repo_path: repoPath,
-      author_email: authorEmail,
-      refresh,
-      analyze,
-      lang,
-      provider: provider || null,
+  try {
+    await withButtonState(button, busyLabel, async () => {
+      const result = await apiPost('/api/scan/git', {
+        repo_path: repoPath,
+        author_email: authorEmail,
+        refresh,
+        analyze,
+        lang,
+        provider: provider || null,
+      });
+
+      state.lastScanPayload = result.payload;
+
+      const resultEl = document.getElementById('scan-result');
+      const actionsEl = document.getElementById('scan-load-actions');
+      const p = result.payload;
+      const metrics = p.scan_metrics || {};
+      const cacheNote = result.cached ? ' (이전 결과 재사용)' : '';
+      const analyzeNote = result.analyzed ? ' · AI 상세 분석 완료' : '';
+
+      resultEl.innerHTML = `
+        <dl class="scan-summary">
+          <dt>프로젝트명</dt><dd>${escHtml(p.name || '-')}</dd>
+          <dt>기간</dt><dd>${escHtml(p.period_start || '-')} ~ ${escHtml(p.period_end || '현재')}</dd>
+          <dt>커밋</dt><dd>${metrics.commit_count ?? '-'}건 / 내 커밋 ${((metrics.authorship_ratio ?? 0) * 100).toFixed(0)}%</dd>
+          <dt>변경</dt><dd>+${metrics.insertions ?? 0} / -${metrics.deletions ?? 0} LOC, ${metrics.files_touched ?? 0}파일</dd>
+          <dt>언어</dt><dd>${escHtml(Object.keys(metrics.languages || {}).join(', ') || '-')}</dd>
+          <dt>요약</dt><dd>${escHtml(p.summary || '-')}</dd>
+          <dt>작업 수</dt><dd>${(p.tasks || []).length}개${cacheNote}${analyzeNote}</dd>
+        </dl>
+      `;
+      if (actionsEl) actionsEl.style.display = '';
+
+      const toastMsg = result.analyzed
+        ? `AI 분석 완료: ${p.name || '프로젝트'}`
+        : `분석 완료: ${p.name || '프로젝트'}${cacheNote}`;
+      showToast(toastMsg);
     });
-
-    state.lastScanPayload = result.payload;
-
-    const resultEl = document.getElementById('scan-result');
-    const actionsEl = document.getElementById('scan-load-actions');
-    const p = result.payload;
-    const metrics = p.scan_metrics || {};
-    const cacheNote = result.cached ? ' (이전 결과 재사용)' : '';
-    const analyzeNote = result.analyzed ? ' · AI 상세 분석 완료' : '';
-
-    resultEl.innerHTML = `
-      <dl class="scan-summary">
-        <dt>프로젝트명</dt><dd>${escHtml(p.name || '-')}</dd>
-        <dt>기간</dt><dd>${escHtml(p.period_start || '-')} ~ ${escHtml(p.period_end || '현재')}</dd>
-        <dt>커밋</dt><dd>${metrics.commit_count ?? '-'}건 / 내 커밋 ${((metrics.authorship_ratio ?? 0) * 100).toFixed(0)}%</dd>
-        <dt>변경</dt><dd>+${metrics.insertions ?? 0} / -${metrics.deletions ?? 0} LOC, ${metrics.files_touched ?? 0}파일</dd>
-        <dt>언어</dt><dd>${escHtml(Object.keys(metrics.languages || {}).join(', ') || '-')}</dd>
-        <dt>요약</dt><dd>${escHtml(p.summary || '-')}</dd>
-        <dt>작업 수</dt><dd>${(p.tasks || []).length}개${cacheNote}${analyzeNote}</dd>
-      </dl>
-    `;
-    if (actionsEl) actionsEl.style.display = '';
-
-    const toastMsg = result.analyzed
-      ? `AI 분석 완료: ${p.name || '프로젝트'}`
-      : `분석 완료: ${p.name || '프로젝트'}${cacheNote}`;
-    showToast(toastMsg);
-  });
+  } catch (error) {
+    const message = buildScanErrorMessage(repoPath, error?.message);
+    renderScanError(message);
+    showToast('Git 분석에 실패했습니다.', 'error');
+    showErrorDialog('Git 분석 실패', message);
+  }
 }
 
 function handleScanLoadDraft() {

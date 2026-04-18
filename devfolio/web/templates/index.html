@@ -532,6 +532,25 @@
     </main>
   </div>
 
+  <div id="error-dialog" class="error-dialog" role="dialog" aria-modal="true" aria-labelledby="error-dialog-title" aria-hidden="true">
+    <div class="error-dialog-backdrop" data-error-dialog-close></div>
+    <div class="error-dialog-panel">
+      <div class="error-dialog-header">
+        <div>
+          <p class="eyebrow">Error</p>
+          <h3 id="error-dialog-title">오류</h3>
+        </div>
+        <button type="button" class="icon-button" id="error-dialog-close" aria-label="닫기">×</button>
+      </div>
+      <div class="error-dialog-body">
+        <p id="error-dialog-message"></p>
+      </div>
+      <div class="action-row action-row-end">
+        <button type="button" class="btn btn-secondary" data-error-dialog-close>닫기</button>
+      </div>
+    </div>
+  </div>
+
   <div id="toast" class="toast" role="alert" aria-live="polite"></div>
   <script src="/static/app.js"></script>
 </body>

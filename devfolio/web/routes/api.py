@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ValidationError
@@ -166,7 +167,23 @@ def _scan_repo_path_candidates(raw_path: str) -> list[Path]:
     return unique
 
 
+def _looks_like_remote_repo_url(raw_path: str) -> bool:
+    raw = (raw_path or "").strip()
+    if not raw:
+        return False
+    if raw.startswith("git@"):
+        return True
+    parsed = urlparse(raw)
+    return parsed.scheme in {"http", "https", "ssh"} and bool(parsed.netloc)
+
+
 def _resolve_scan_repo_path(raw_path: str) -> tuple[Path, Optional[str]]:
+    if _looks_like_remote_repo_url(raw_path):
+        raise DevfolioError(
+            f"원격 Git URL은 바로 스캔할 수 없습니다: {raw_path}",
+            hint="GitHub URL 대신 로컬에 clone된 저장소 폴더 경로를 입력하세요. 예: /Users/you/projects/my-app",
+        )
+
     candidates = _scan_repo_path_candidates(raw_path)
     for index, candidate in enumerate(candidates):
         if candidate.is_dir():
