@@ -431,7 +431,10 @@ function bindGlobalActions() {
 
   document.getElementById('ai-name')?.addEventListener('change', () => {
     syncProviderForm();
-    loadModelsForProvider();
+    const provider = document.getElementById('ai-name')?.value;
+    const alreadySaved = state.config?.ai_providers?.some(p => p.name === provider);
+    if (alreadySaved) loadModelsForProvider();
+    else resetModelSelect();
   });
   document.getElementById('ai-key')?.addEventListener('change', loadModelsForProvider);
   document.getElementById('ai-base-url')?.addEventListener('change', loadModelsForProvider);
@@ -446,6 +449,11 @@ function bindGlobalActions() {
   });
 }
 
+function resetModelSelect() {
+  const modelSelect = document.getElementById('ai-model');
+  if (modelSelect) modelSelect.innerHTML = '<option value="">-- API 키 입력 후 목록 불러오기 --</option>';
+}
+
 async function loadModelsForProvider() {
   const provider = document.getElementById('ai-name')?.value;
   const apiKey = document.getElementById('ai-key')?.value?.trim();
@@ -453,6 +461,14 @@ async function loadModelsForProvider() {
   const modelSelect = document.getElementById('ai-model');
   const loadBtn = document.getElementById('btn-load-models');
   if (!modelSelect || !provider) return;
+
+  const isOllama = provider === 'ollama';
+  const hasSavedKey = state.config?.ai_providers?.some(p => p.name === provider);
+  if (!apiKey && !hasSavedKey && !isOllama) {
+    resetModelSelect();
+    showToast('API 키를 먼저 입력하세요.', 'error');
+    return;
+  }
 
   const params = new URLSearchParams({ provider });
   if (apiKey) params.set('api_key', apiKey);
