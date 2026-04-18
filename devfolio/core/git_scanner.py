@@ -1,35 +1,22 @@
-"""Git 저장소 스캐너 — 본인 커밋 탐지, 지표 산출, 프로젝트 자동 생성.
+"""Git 저장소 스캐너 — 본인 커밋 탐지, 코드 구조 분석, 프로젝트 자동 생성.
 
 [Spring 비교]
   외부 프로세스(git)를 실행해 데이터를 수집하고 가공하는 배치 서비스.
   Spring 에서는 ProcessBuilder + @Scheduled 를 사용하는 것과 유사하다.
 
   주요 흐름:
-    scan_repo() → 커밋 수집(_collect_author_commits) + 파일/언어 분석(_collect_file_stats)
-                → ScanResult (데이터 컨테이너)
-    build_project_payload() → ScanResult → Project 생성 dict
+    scan_repo(analyze=False) → 커밋 수집 + 파일/언어 통계 → ScanResult
+    scan_repo(analyze=True)  → 위 + 코드 구조 분석(README/의존성/소스 파일 읽기)
+    build_project_payload()  → ScanResult (+ AI 분석 결과) → Project 생성 dict
 """
 
 from __future__ import annotations
 
+import json
 import re
-
-# subprocess : 외부 프로세스를 실행하고 stdout/stderr 를 읽는 표준 라이브러리.
-# [Spring] ProcessBuilder + Process.waitFor() 와 동일.
 import subprocess
-
-# Counter : 요소 개수를 자동으로 세는 dict 서브클래스. Counter("aab") → {'a':2, 'b':1}.
-#   [Spring] Map<String, Integer> + computeIfAbsent(k, v->0) + map.merge(k, 1, Integer::sum).
-# defaultdict : 키가 없을 때 자동으로 기본값을 만들어주는 dict.
-#   defaultdict(list) → 키가 없으면 빈 리스트를 자동 생성.
-#   [Spring] map.computeIfAbsent(key, k -> new ArrayList<>()) 와 동일.
+import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
-
-# dataclass : __init__, __repr__, __eq__ 를 자동 생성해주는 데코레이터.
-# [Spring] Lombok @Data (단, 상속, 검증 없는 순수 데이터 컨테이너용).
-# field : dataclass 필드에 메타데이터를 붙이는 함수.
-#   default_factory=list : 각 인스턴스마다 새 리스트를 생성.
-#   [Spring] 필드에 = new ArrayList<>() 로 초기화하는 것과 동일.
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -44,7 +31,6 @@ logger = get_logger(__name__)
 # 분류 키워드 / 언어 매핑
 # ---------------------------------------------------------------------------
 
-# dict literal : Java Map.of(...) 와 동일. 커밋 메시지를 카테고리로 분류할 키워드 목록.
 IMPROVE_KEYWORDS = {
     "perf": ["perf", "performance", "optimize", "optimization", "speed", "faster",
              "성능", "최적화", "속도", "개선"],
@@ -55,7 +41,6 @@ IMPROVE_KEYWORDS = {
     "security": ["security", "secure", "auth", "vuln", "보안", "취약"],
 }
 
-# 확장자 → 언어 이름 매핑. [Spring] Map<String, String> 상수.
 LANG_BY_EXT = {
     ".py": "Python", ".js": "JavaScript", ".ts": "TypeScript", ".tsx": "TypeScript",
     ".jsx": "JavaScript", ".java": "Java", ".kt": "Kotlin", ".go": "Go",
@@ -67,30 +52,60 @@ LANG_BY_EXT = {
     ".dockerfile": "Docker",
 }
 
+# ---------------------------------------------------------------------------
+# 코드 구조 분석용 상수
+# ---------------------------------------------------------------------------
+
+_README_CANDIDATES = [
+    "README.md", "README.rst", "README.txt", "README",
+    "Readme.md", "readme.md", "readme.rst",
+]
+_README_MAX_CHARS = 4000
+_FILE_MAX_CHARS = 2000
+_TOTAL_MAX_CHARS = 6000
+
+# 이진 파일 확장자 — 읽지 않는다.
+_BINARY_EXTENSIONS = {
+    ".pyc", ".class", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".bmp",
+    ".jar", ".exe", ".so", ".dll", ".wasm", ".zip", ".tar", ".gz",
+    ".pdf", ".docx", ".xlsx", ".mp3", ".mp4", ".bin",
+}
+
+# entry point 파일 탐지 순서 (glob 패턴 포함).
+# 언어 상관없이 순서대로 검색하고 먼저 발견된 파일부터 읽는다.
+_ENTRY_POINTS = [
+    # Python
+    "main.py", "app.py", "server.py", "index.py", "run.py", "manage.py",
+    "src/main.py", "src/app.py",
+    # JavaScript / TypeScript
+    "index.js", "index.ts", "src/index.js", "src/index.ts",
+    "app.js", "app.ts", "server.js", "server.ts",
+    # Java / Kotlin
+    "src/main/java/**/Application.java", "src/main/java/**/Main.java",
+    "src/main/kotlin/**/Application.kt",
+    # Go
+    "main.go", "cmd/main.go",
+    # Rust
+    "src/main.rs", "src/lib.rs",
+    # Ruby
+    "app.rb", "config/application.rb",
+    # 구조 파악용 설정 파일
+    "docker-compose.yml", "docker-compose.yaml", "Makefile",
+]
+
 
 # ---------------------------------------------------------------------------
 # 데이터 컨테이너 (dataclass)
 # ---------------------------------------------------------------------------
 
-# @dataclass : __init__, __repr__, __eq__ 를 자동 생성.
-# [Spring] Lombok @Data — @Getter + @Setter + @ToString + @EqualsAndHashCode.
-# 단, @dataclass 는 검증(validation)은 포함하지 않는다 (Pydantic BaseModel 과 다름).
 @dataclass
 class CommitInfo:
-    """커밋 한 건의 정보.
-
-    [Spring 비교]
-      DB Entity 없이 메모리에서만 사용하는 VO(Value Object).
-      git log 출력 한 줄을 파싱해 담는다.
-    """
-    sha: str           # 커밋 해시 40자리
+    """커밋 한 건의 정보 (git log 파싱 결과)."""
+    sha: str
     author_name: str
     author_email: str
-    date: str          # YYYY-MM-DD 형식
-    subject: str       # 커밋 메시지 첫 줄
-
-    # int = 0 : 기본값. @dataclass 에서 기본값이 있는 필드는 뒤에 와야 한다.
-    # [Spring] 기본값 있는 생성자 매개변수와 동일.
+    date: str       # YYYY-MM-DD
+    subject: str    # 커밋 메시지 첫 줄
     insertions: int = 0
     deletions: int = 0
     files_changed: int = 0
@@ -98,53 +113,31 @@ class CommitInfo:
 
 @dataclass
 class ScanResult:
-    """저장소 스캔 결과 전체를 담는 컨테이너.
-
-    [Spring 비교]
-      @Service 메서드의 반환 DTO. 여러 데이터를 한 번에 묶어 반환.
-    """
+    """저장소 스캔 결과 전체를 담는 컨테이너."""
     repo_path: Path
     repo_url: str
     repo_name: str
     head_sha: str
     author_email: str
-
-    # field(default_factory=list) : 인스턴스마다 새 빈 리스트 생성.
-    # default=[] 로 쓰면 모든 인스턴스가 같은 리스트를 공유하는 버그 발생 (Python 함정).
-    # [Spring] 필드 초기화 시 = new ArrayList<>() 를 쓰는 것과 동일한 이유.
     commits: list[CommitInfo] = field(default_factory=list)
     total_insertions: int = 0
     total_deletions: int = 0
-
-    # set[str] : 중복 없는 파일 경로 집합. [Spring] Set<String>.
     files_touched: set[str] = field(default_factory=set)
-
-    # Counter : dict 서브클래스, 언어별 파일 수를 자동 집계.
     languages: Counter = field(default_factory=Counter)
     category_counts: Counter = field(default_factory=Counter)
-
-    # Optional[str] = None : 없으면 None.
     first_date: Optional[str] = None
     last_date: Optional[str] = None
     total_commits_repo: int = 0
+    # analyze=True 일 때만 채워진다 — README/의존성/소스 파일 내용.
+    project_context: dict = field(default_factory=dict)
 
-    # @property : getter 메서드를 속성처럼 접근하게 해주는 데코레이터.
-    #   result.authorship_ratio 처럼 ()없이 접근.
-    #   [Spring] Lombok @Getter — getAuthorshipRatio() 를 authorship_ratio 로 읽는 것과 유사.
     @property
     def authorship_ratio(self) -> float:
-        """본인 커밋 비율 (0.0 ~ 1.0)."""
         if self.total_commits_repo == 0:
             return 0.0
-        # len(list) : 리스트 원소 수. [Spring] list.size().
         return len(self.commits) / self.total_commits_repo
 
     def to_dict(self) -> dict:
-        """스캔 지표를 dict 로 직렬화한다. scan_metrics 캐시에 저장된다.
-
-        [Spring 비교]
-          Jackson @JsonSerialize 또는 ObjectMapper.convertValue(this, Map.class).
-        """
         return {
             "repo_url": self.repo_url,
             "repo_name": self.repo_name,
@@ -152,13 +145,10 @@ class ScanResult:
             "author_email": self.author_email,
             "commit_count": len(self.commits),
             "total_commits_repo": self.total_commits_repo,
-            # round(value, digits) : 반올림. [Spring] Math.round() 와 동일.
             "authorship_ratio": round(self.authorship_ratio, 3),
             "insertions": self.total_insertions,
             "deletions": self.total_deletions,
             "files_touched": len(self.files_touched),
-            # Counter.most_common(n) : 빈도 높은 순으로 n개를 (값, 횟수) 튜플 리스트로 반환.
-            # dict(...) 으로 감싸 일반 dict 로 변환.
             "languages": dict(self.languages.most_common(10)),
             "categories": dict(self.category_counts),
             "first_date": self.first_date,
@@ -171,34 +161,17 @@ class ScanResult:
 # ---------------------------------------------------------------------------
 
 def _run_git(repo_path: Path, args: list[str]) -> str:
-    """git 명령을 실행하고 stdout 을 문자열로 반환한다.
-
-    [Spring 비교]
-      ProcessBuilder.command("git", "-C", repoPath, ...args).start() +
-      process.inputStream 읽기 + waitFor() 와 동일.
-    """
     try:
-        # subprocess.run(cmd_list, ...) : 외부 명령 실행.
-        #   capture_output=True : stdout/stderr 를 캡처 (콘솔 출력 안 됨).
-        #   text=True : stdout/stderr 를 bytes 대신 str 로 반환.
-        #   check=True : 비정상 종료(returncode != 0) 시 CalledProcessError 발생.
-        # [Spring] ProcessBuilder.inheritIO() 대신 redirectOutput(PIPE) 사용하는 것과 유사.
         result = subprocess.run(
             ["git", "-C", str(repo_path)] + args,
-            capture_output=True,
-            text=True,
-            check=True,
+            capture_output=True, text=True, check=True,
         )
         return result.stdout
     except FileNotFoundError as e:
-        # git 실행 파일을 찾지 못할 때 발생.
         raise DevfolioError(
-            "git 명령을 찾을 수 없습니다.",
-            hint="git을 설치한 후 다시 시도하세요.",
+            "git 명령을 찾을 수 없습니다.", hint="git을 설치한 후 다시 시도하세요.",
         ) from e
     except subprocess.CalledProcessError as e:
-        # git 명령이 비정상 종료(exit code != 0) 됐을 때.
-        # e.stderr : stderr 출력 내용.
         raise DevfolioError(
             f"git 명령 실패: git {' '.join(args)}",
             hint=(e.stderr or "").strip()[:200],
@@ -206,38 +179,271 @@ def _run_git(repo_path: Path, args: list[str]) -> str:
 
 
 def _is_git_repo(path: Path) -> bool:
-    """.git 디렉터리가 있으면 git 저장소로 간주한다."""
-    # (path / ".git").exists() : 해당 경로에 .git 이 있는지 확인.
-    if not (path / ".git").exists():
-        return False
-    return True
+    return (path / ".git").exists()
 
 
 def _detect_repo_url(repo_path: Path) -> str:
-    """remote.origin.url 설정값을 읽어 반환한다. 없으면 빈 문자열."""
     try:
-        out = _run_git(repo_path, ["config", "--get", "remote.origin.url"]).strip()
-        return out
+        return _run_git(repo_path, ["config", "--get", "remote.origin.url"]).strip()
     except Exception:
         return ""
 
 
 def _categorize(subject: str) -> list[str]:
-    """커밋 메시지(subject)를 분석해 카테고리 목록을 반환한다.
-
-    예: "feat: add login" → ["feat"]
-    예: "fix: bug and refactor" → ["fix", "refactor"]
-    """
-    # str.lower() : 소문자 변환. [Spring] subject.toLowerCase().
     lowered = subject.lower()
-    hits: list[str] = []
-    # dict.items() : (key, value) 쌍을 순회. [Spring] Map.entrySet() 순회.
-    for category, keywords in IMPROVE_KEYWORDS.items():
-        # any(kw in lowered for kw in keywords) : keywords 중 하나라도 포함되면 True.
-        # [Spring] keywords.stream().anyMatch(kw -> lowered.contains(kw)).
-        if any(kw in lowered for kw in keywords):
-            hits.append(category)
-    return hits
+    return [
+        cat for cat, keywords in IMPROVE_KEYWORDS.items()
+        if any(kw in lowered for kw in keywords)
+    ]
+
+
+# ---------------------------------------------------------------------------
+# 코드 구조 분석 함수들 (딥 분석)
+# ---------------------------------------------------------------------------
+
+def _read_readme(repo_path: Path) -> str:
+    """README 파일을 읽어 최대 4000자 반환한다. 없으면 빈 문자열."""
+    for name in _README_CANDIDATES:
+        p = repo_path / name
+        if p.exists() and p.is_file():
+            try:
+                text = p.read_text(encoding="utf-8", errors="replace")
+                if len(text) > _README_MAX_CHARS:
+                    return text[:_README_MAX_CHARS] + "\n...[truncated]"
+                return text
+            except OSError:
+                return ""
+    return ""
+
+
+def _parse_toml_safe(path: Path) -> dict:
+    """TOML 파일을 파싱한다. tomllib(3.11+) → tomli 순서로 폴백."""
+    try:
+        import tomllib  # Python 3.11+
+    except ImportError:
+        try:
+            import tomli as tomllib  # type: ignore[no-redef]
+        except ImportError:
+            tomllib = None  # type: ignore[assignment]
+
+    if tomllib is not None:
+        try:
+            return tomllib.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    # 폴백: 정규식으로 패키지명만 추출
+    result: dict = {}
+    try:
+        text = path.read_text(encoding="utf-8")
+        # 값 없이 키만 있는 라인 (name = "...") 패턴으로 대략적 추출
+        result["_raw"] = re.findall(r'^\s*(\w[\w.-]*)\s*[=\[]', text, re.MULTILINE)
+    except OSError:
+        pass
+    return result
+
+
+def _parse_dependencies(repo_path: Path) -> dict:
+    """의존성 파일에서 패키지 목록을 추출한다.
+
+    지원 형식: package.json, pyproject.toml, requirements.txt, pom.xml, go.mod, Cargo.toml
+    반환: {"package.json": ["react", "axios", ...], ...}
+    """
+    deps: dict = {}
+    _MAX_PKGS = 20  # 각 파일에서 최대 20개만
+
+    # package.json (Node.js / Bun / Deno)
+    pkg_json = repo_path / "package.json"
+    if pkg_json.exists():
+        try:
+            data = json.loads(pkg_json.read_text(encoding="utf-8"))
+            pkgs: list[str] = []
+            pkgs += list((data.get("dependencies") or {}).keys())
+            pkgs += list((data.get("devDependencies") or {}).keys())
+            # name/description 도 포함 (프로젝트 파악용)
+            meta: dict = {}
+            if data.get("name"):
+                meta["name"] = data["name"]
+            if data.get("description"):
+                meta["description"] = data["description"]
+            deps["package.json"] = pkgs[:_MAX_PKGS]
+            if meta:
+                deps["package.json.meta"] = meta
+        except Exception:
+            pass
+
+    # pyproject.toml (Python — Poetry, Hatch, PDM, setuptools)
+    pyproject = repo_path / "pyproject.toml"
+    if pyproject.exists():
+        try:
+            data = _parse_toml_safe(pyproject)
+            pkgs = []
+            # PEP 517 / setuptools
+            pkgs += list(data.get("project", {}).get("dependencies", []))
+            # Poetry
+            pkgs += list(data.get("tool", {}).get("poetry", {}).get("dependencies", {}).keys())
+            # _raw 폴백
+            pkgs += data.get("_raw", [])
+            # "python" 제거
+            pkgs = [p for p in pkgs if p.lower() != "python"]
+            deps["pyproject.toml"] = pkgs[:_MAX_PKGS]
+        except Exception:
+            pass
+
+    # requirements.txt (Python — pip)
+    req_txt = repo_path / "requirements.txt"
+    if req_txt.exists():
+        try:
+            lines = req_txt.read_text(encoding="utf-8", errors="replace").splitlines()
+            pkgs = []
+            for line in lines:
+                line = line.strip()
+                if not line or line.startswith("#") or line.startswith("-"):
+                    continue
+                # "requests>=2.0.0" → "requests"
+                pkg_name = re.split(r"[>=<!;\s]", line)[0].strip()
+                if pkg_name:
+                    pkgs.append(pkg_name)
+            deps["requirements.txt"] = pkgs[:_MAX_PKGS]
+        except Exception:
+            pass
+
+    # pom.xml (Java — Maven)
+    pom = repo_path / "pom.xml"
+    if pom.exists():
+        try:
+            tree = ET.parse(pom)
+            root = tree.getroot()
+            ns = re.match(r'\{.*\}', root.tag)
+            ns_prefix = ns.group(0) if ns else ""
+            pkgs = []
+            for dep in root.iter(f"{ns_prefix}dependency"):
+                artifact = dep.find(f"{ns_prefix}artifactId")
+                if artifact is not None and artifact.text:
+                    pkgs.append(artifact.text)
+            deps["pom.xml"] = pkgs[:_MAX_PKGS]
+        except Exception:
+            pass
+
+    # go.mod (Go)
+    go_mod = repo_path / "go.mod"
+    if go_mod.exists():
+        try:
+            text = go_mod.read_text(encoding="utf-8", errors="replace")
+            pkgs = []
+            in_require = False
+            for line in text.splitlines():
+                line = line.strip()
+                if line.startswith("require ("):
+                    in_require = True
+                    continue
+                if in_require:
+                    if line == ")":
+                        in_require = False
+                        continue
+                    parts = line.split()
+                    if parts:
+                        # 마지막 세그먼트만 (github.com/gin-gonic/gin → gin)
+                        pkgs.append(parts[0].split("/")[-1])
+                elif line.startswith("require "):
+                    pkgs.append(line.split()[1].split("/")[-1])
+            deps["go.mod"] = pkgs[:_MAX_PKGS]
+        except Exception:
+            pass
+
+    # Cargo.toml (Rust)
+    cargo = repo_path / "Cargo.toml"
+    if cargo.exists():
+        try:
+            data = _parse_toml_safe(cargo)
+            pkgs = list(data.get("dependencies", {}).keys())
+            pkgs += list(data.get("dev-dependencies", {}).keys())
+            # _raw 폴백
+            if not pkgs:
+                pkgs = data.get("_raw", [])
+            deps["Cargo.toml"] = pkgs[:_MAX_PKGS]
+        except Exception:
+            pass
+
+    return deps
+
+
+def _find_and_read_key_files(repo_path: Path, languages: Counter) -> dict[str, str]:
+    """entry point 파일을 자동 탐지해 내용을 읽는다.
+
+    - 파일당 최대 2000자, 전체 합산 최대 6000자
+    - 이진 파일(.pyc, .png 등) 제외
+    - glob 패턴(**) 포함 경로는 첫 번째 결과만 사용
+    """
+    results: dict[str, str] = {}
+    total_chars = 0
+
+    # 언어 상위 순으로 entry point 재정렬 — 주 언어 관련 파일을 먼저 읽는다.
+    top_lang = languages.most_common(1)[0][0] if languages else ""
+    lang_priority = {
+        "Python": ["main.py", "app.py", "server.py", "manage.py"],
+        "JavaScript": ["index.js", "app.js", "server.js"],
+        "TypeScript": ["index.ts", "app.ts", "src/index.ts"],
+        "Java": ["src/main/java/**/Application.java", "src/main/java/**/Main.java"],
+        "Go": ["main.go", "cmd/main.go"],
+        "Rust": ["src/main.rs", "src/lib.rs"],
+        "Kotlin": ["src/main/kotlin/**/Application.kt"],
+    }
+    priority_first = lang_priority.get(top_lang, [])
+    rest = [p for p in _ENTRY_POINTS if p not in priority_first]
+    ordered = priority_first + rest
+
+    for pattern in ordered:
+        if total_chars >= _TOTAL_MAX_CHARS:
+            break
+
+        # glob 패턴 여부에 따라 경로 탐색 방식 분기
+        if "**" in pattern or (pattern.count("*") > 0):
+            found = list(repo_path.glob(pattern))[:1]
+            paths = found
+        else:
+            p = repo_path / pattern
+            paths = [p] if p.exists() and p.is_file() else []
+
+        for p in paths:
+            if total_chars >= _TOTAL_MAX_CHARS:
+                break
+            # 이진 파일 제외
+            if p.suffix.lower() in _BINARY_EXTENSIONS:
+                continue
+            try:
+                text = p.read_text(encoding="utf-8", errors="replace")
+                truncated = text[:_FILE_MAX_CHARS]
+                if len(text) > _FILE_MAX_CHARS:
+                    truncated += "\n...[truncated]"
+                rel = str(p.relative_to(repo_path))
+                results[rel] = truncated
+                total_chars += len(truncated)
+            except OSError:
+                continue
+
+    return results
+
+
+def analyze_project_structure(repo_path: Path, languages: Counter) -> dict:
+    """README, 의존성, 주요 소스 파일을 읽어 project_context dict 를 반환한다.
+
+    이 결과를 AIService.analyze_project_from_code() 에 넘기면
+    AI 가 "어떤 프로젝트인지" 분석해 problem/solution/summary 를 생성한다.
+    """
+    logger.debug("프로젝트 구조 분석 시작: %s", repo_path)
+    context = {
+        "readme": _read_readme(repo_path),
+        "dependencies": _parse_dependencies(repo_path),
+        "key_files": _find_and_read_key_files(repo_path, languages),
+        "languages": dict(languages.most_common(10)),
+    }
+    logger.debug(
+        "구조 분석 완료 — readme=%d자, deps=%s, key_files=%s",
+        len(context["readme"]),
+        list(context["dependencies"].keys()),
+        list(context["key_files"].keys()),
+    )
+    return context
 
 
 # ---------------------------------------------------------------------------
@@ -247,43 +453,22 @@ def _categorize(subject: str) -> list[str]:
 def _collect_author_commits(
     repo_path: Path, author_email: str
 ) -> tuple[list[CommitInfo], int]:
-    """저장소 전체에서 author_email 과 일치하는 커밋을 수집한다.
-
-    반환값: (본인 커밋 목록, 저장소 전체 커밋 수)
-    tuple[A, B] : 두 값을 하나로 묶어 반환. [Spring] Pair<List<CommitInfo>, Integer>.
-    """
-    # 전체 커밋 수 — 기여율(authorship_ratio) 계산에 사용.
     try:
         total_out = _run_git(repo_path, ["rev-list", "--count", "HEAD"]).strip()
-        # int("123") : 문자열을 정수로 변환. [Spring] Integer.parseInt("123").
         total_commits = int(total_out) if total_out else 0
     except Exception:
         total_commits = 0
 
-    # git log --author=EMAIL --numstat --pretty=format:...
-    #   --numstat : 각 커밋에서 변경된 파일의 삽입/삭제 라인 수 출력.
-    #   --pretty=format: : 커밋 정보를 커스텀 포맷으로 출력.
-    #   %H=커밋해시, %an=작성자이름, %ae=이메일, %ad=날짜, %s=제목.
-    #   \x00 : null 바이트를 구분자로 사용 (제목에 공백이 있어도 안전).
     fmt = "--pretty=format:@@COMMIT@@%H%x00%an%x00%ae%x00%ad%x00%s"
     out = _run_git(
         repo_path,
-        [
-            "log",
-            f"--author={author_email}",
-            "--date=short",    # 날짜를 YYYY-MM-DD 형식으로 출력.
-            "--numstat",
-            fmt,
-        ],
+        ["log", f"--author={author_email}", "--date=short", "--numstat", fmt],
     )
 
     commits: list[CommitInfo] = []
-    # Optional[CommitInfo] = None : 현재 파싱 중인 커밋. 없으면 None.
     current: Optional[CommitInfo] = None
-    # out.split("\n") : 줄 단위로 분할. [Spring] out.split("\\n") (Java 에서는 \\ 필요).
     for line in out.split("\n"):
         if not line:
-            # 빈 줄 = 커밋 블록 구분자. current 가 있으면 수집 완료.
             if current is not None:
                 commits.append(current)
                 current = None
@@ -291,61 +476,39 @@ def _collect_author_commits(
         if line.startswith("@@COMMIT@@"):
             if current is not None:
                 commits.append(current)
-            # line[len("@@COMMIT@@"):] : "@@COMMIT@@" 이후 문자열 추출 (슬라이싱).
-            # .split("\x00") : null 바이트로 분할.
             parts = line[len("@@COMMIT@@"):].split("\x00")
             if len(parts) >= 5:
                 current = CommitInfo(
-                    sha=parts[0],
-                    author_name=parts[1],
-                    author_email=parts[2],
-                    date=parts[3],
-                    subject=parts[4],
+                    sha=parts[0], author_name=parts[1], author_email=parts[2],
+                    date=parts[3], subject=parts[4],
                 )
         else:
-            # numstat 줄: "<삽입>\t<삭제>\t<파일경로>"
             if current is None:
                 continue
-            # re.match(pattern, line) : 패턴이 줄 처음부터 매칭되는지 확인.
-            # \S+ = 공백 아닌 하나 이상, \t = 탭.
             m = re.match(r"^(\S+)\t(\S+)\t(.+)$", line)
             if not m:
                 continue
-            # m.groups() : 괄호로 묶인 캡처 그룹 값들을 튜플로 반환.
-            # [Spring] Matcher.group(1), group(2), group(3).
             ins_s, del_s, _path = m.groups()
             try:
-                # "-" 는 이진 파일(binary file)의 경우 출력되는 값 → 0 으로 처리.
                 ins = int(ins_s) if ins_s != "-" else 0
                 dele = int(del_s) if del_s != "-" else 0
             except ValueError:
                 ins, dele = 0, 0
-            # += : [Spring] current.setInsertions(current.getInsertions() + ins).
             current.insertions += ins
             current.deletions += dele
             current.files_changed += 1
-
-    # 마지막 커밋 블록 처리 (빈 줄로 끝나지 않는 경우).
     if current is not None:
         commits.append(current)
-
     return commits, total_commits
 
 
 def _collect_file_stats(
     repo_path: Path, commits: list[CommitInfo]
 ) -> tuple[set[str], Counter]:
-    """본인 커밋들에서 변경된 파일과 언어를 집계한다.
-
-    반환값: (변경된 파일 경로 집합, 언어별 카운터)
-    """
-    # set() : 중복 없는 컬렉션. [Spring] Set<String>.
     files: set[str] = set()
-    # Counter() : 빈 카운터. 언어명 → 등장 횟수.
     langs: Counter = Counter()
     for commit in commits:
         try:
-            # git show --name-only --pretty=format: SHA : 해당 커밋에서 변경된 파일명만 출력.
             out = _run_git(
                 repo_path,
                 ["show", "--no-renames", "--name-only", "--pretty=format:", commit.sha],
@@ -357,12 +520,8 @@ def _collect_file_stats(
             if not path:
                 continue
             files.add(path)
-            # Path(path).suffix : 파일 확장자. [Spring] FilenameUtils.getExtension(path).
-            # .lower() : 대소문자 통일 (".PY" → ".py").
             ext = Path(path).suffix.lower()
             if ext in LANG_BY_EXT:
-                # Counter[key] += 1 : 해당 키의 카운트를 1 증가.
-                # [Spring] langs.merge(lang, 1, Integer::sum).
                 langs[LANG_BY_EXT[ext]] += 1
     return files, langs
 
@@ -371,24 +530,21 @@ def _collect_file_stats(
 # 메인 스캔 함수
 # ---------------------------------------------------------------------------
 
-def scan_repo(repo_path: Path, author_email: str) -> ScanResult:
-    """주어진 git 저장소에서 author_email 로 본인 커밋/지표를 수집한다.
-
-    [Spring 비교]
-      @Service 메서드 — 여러 내부 함수를 조합해 하나의 결과 DTO 를 만드는 파사드.
+def scan_repo(
+    repo_path: Path,
+    author_email: str,
+    analyze: bool = False,
+) -> ScanResult:
+    """git 저장소에서 본인 커밋/지표를 수집한다.
 
     Args:
         repo_path: git 저장소 루트 경로
         author_email: 본인 커밋 작성자 이메일
+        analyze: True 이면 README/의존성/소스 파일까지 읽어 project_context 를 채운다.
 
     Returns:
-        ScanResult: 커밋 목록, 지표, 언어 분포 등을 담은 결과 객체
-
-    Raises:
-        DevfolioError: git 저장소 아님, 이메일 없음, 커밋 없음 등
+        ScanResult — analyze=True 이면 project_context 포함.
     """
-    # Path.resolve() : 상대 경로를 절대 경로로 변환.
-    # [Spring] path.toAbsolutePath().normalize() 와 동일.
     repo_path = repo_path.resolve()
     if not _is_git_repo(repo_path):
         raise DevfolioError(
@@ -401,37 +557,26 @@ def scan_repo(repo_path: Path, author_email: str) -> ScanResult:
             hint="`devfolio config user set --email ...` 로 이메일을 등록하세요.",
         )
 
-    # HEAD 커밋 SHA 를 캐시 키로 사용 (이미 스캔한 버전인지 확인용).
     head_sha = _run_git(repo_path, ["rev-parse", "HEAD"]).strip()
     repo_url = _detect_repo_url(repo_path)
-
-    # Path.rstrip("/").split("/")[-1] : URL 마지막 세그먼트 추출.
-    # Path(...).stem : .git 확장자 제거.
-    # 예: "https://github.com/user/my-project.git" → "my-project"
     repo_name = (
-        Path(repo_url.rstrip("/").split("/")[-1]).stem
-        if repo_url
-        else repo_path.name
+        Path(repo_url.rstrip("/").split("/")[-1]).stem if repo_url else repo_path.name
     )
 
     commits, total_commits = _collect_author_commits(repo_path, author_email)
     if not commits:
         raise DevfolioError(
             f"'{author_email}' 로 작성된 커밋을 찾을 수 없습니다.",
-            hint=(
-                "이메일이 올바른지 확인하거나, git log --author=... 로 직접 확인해보세요."
-            ),
+            hint="이메일이 올바른지 확인하거나, git log --author=... 로 직접 확인해보세요.",
         )
 
     files_touched, languages = _collect_file_stats(repo_path, commits)
 
-    # Counter() : 카테고리별 커밋 수 집계.
     category_counts: Counter = Counter()
     for c in commits:
         for cat in _categorize(c.subject):
             category_counts[cat] += 1
 
-    # sorted(...) : 날짜 오름차순 정렬. [Spring] list.stream().sorted().collect(toList()).
     dates = sorted(c.date for c in commits if c.date)
 
     result = ScanResult(
@@ -441,19 +586,20 @@ def scan_repo(repo_path: Path, author_email: str) -> ScanResult:
         head_sha=head_sha,
         author_email=author_email,
         commits=commits,
-        # sum(c.insertions for c in commits) : 전체 삽입 라인 합계.
-        # [Spring] commits.stream().mapToInt(CommitInfo::getInsertions).sum().
         total_insertions=sum(c.insertions for c in commits),
         total_deletions=sum(c.deletions for c in commits),
         files_touched=files_touched,
         languages=languages,
         category_counts=category_counts,
-        # dates[0] : 가장 오래된 날짜, dates[-1] : 가장 최근 날짜.
-        # [Spring] dates.get(0), dates.get(dates.size()-1).
         first_date=dates[0] if dates else None,
         last_date=dates[-1] if dates else None,
         total_commits_repo=total_commits,
     )
+
+    # 딥 분석: README / 의존성 / 소스 파일 읽기
+    if analyze:
+        result.project_context = analyze_project_structure(repo_path, result.languages)
+
     return result
 
 
@@ -462,134 +608,162 @@ def scan_repo(repo_path: Path, author_email: str) -> ScanResult:
 # ---------------------------------------------------------------------------
 
 def _to_yyyymm(date_str: Optional[str]) -> Optional[str]:
-    """YYYY-MM-DD 날짜 문자열에서 YYYY-MM 만 추출한다."""
     if not date_str:
         return None
-    # re.match(r"^(\d{4})-(\d{2})", ...) : YYYY-MM 패턴 매칭.
     m = re.match(r"^(\d{4})-(\d{2})", date_str)
-    # m.group(1), m.group(2) : 첫 번째, 두 번째 캡처 그룹.
-    # [Spring] Matcher.group(1), Matcher.group(2).
     return f"{m.group(1)}-{m.group(2)}" if m else None
 
 
 def _group_commits_into_tasks(
     commits: list[CommitInfo], max_tasks: int = 6
 ) -> list[dict]:
-    """커밋을 카테고리 + 연월로 묶어 Task 후보 dict 목록을 만든다.
-
-    [Spring 비교]
-      stream().collect(Collectors.groupingBy(...)) — 그룹화 후 집계.
-    """
-    # defaultdict(list) : 키가 없으면 빈 리스트를 자동 생성.
-    # key = (category, month) tuple : [Spring] Pair<String, String> 으로 그룹화.
+    """커밋을 카테고리 + 연월로 묶어 Task 후보 dict 목록을 만든다."""
     buckets: dict[tuple[str, str], list[CommitInfo]] = defaultdict(list)
     for c in commits:
-        # _categorize 결과가 없으면 기본값 "feat" 사용.
         cats = _categorize(c.subject) or ["feat"]
         month = _to_yyyymm(c.date) or "unknown"
-        # 주 카테고리(첫 번째)만 사용해 그룹 키를 만든다.
         buckets[(cats[0], month)].append(c)
 
-    # buckets.items() : dict 의 (키, 값) 쌍을 순회.
-    # sorted(..., key=lambda kv: (...), reverse=True) : 변경량 큰 순으로 정렬.
-    # [Spring] .stream().sorted(Comparator.comparingInt(...).reversed()).
     ranked = sorted(
         buckets.items(),
         key=lambda kv: (
-            # 각 버킷의 총 변경 라인 수 (삽입+삭제) + 커밋 수 순으로 정렬.
             sum(x.insertions + x.deletions for x in kv[1]),
             len(kv[1]),
         ),
         reverse=True,
-    )[:max_tasks]  # 상위 max_tasks 개만 유지.
+    )[:max_tasks]
 
-    tasks: list[dict] = []
-    # 카테고리 코드 → 한국어 레이블.
     cat_label = {
-        "feat": "기능 개발",
-        "fix": "버그 수정 및 안정화",
-        "perf": "성능 최적화",
-        "refactor": "리팩터링",
-        "test": "테스트 보강",
-        "security": "보안 강화",
+        "feat": "기능 개발", "fix": "버그 수정 및 안정화",
+        "perf": "성능 최적화", "refactor": "리팩터링",
+        "test": "테스트 보강", "security": "보안 강화",
     }
+    tasks: list[dict] = []
     for (category, month), bucket in ranked:
-        # set comprehension : 버킷 내 커밋의 연월 집합.
         months = sorted({_to_yyyymm(c.date) for c in bucket if _to_yyyymm(c.date)})
         ins = sum(c.insertions for c in bucket)
         dels = sum(c.deletions for c in bucket)
         files_n = sum(c.files_changed for c in bucket)
-        name = f"{cat_label.get(category, category)} ({month})"
-        # 대표 커밋 제목 3개 — bucket 은 list 이므로 [:3] 으로 앞 3개 슬라이싱.
         top_subjects = [c.subject for c in bucket[:3]]
-        problem = ""
-        # "\n".join(iterable) : 요소를 줄바꿈으로 이음. [Spring] String.join("\n", list).
-        solution = "\n".join(f"- {s}" for s in top_subjects)
-        result = (
-            f"커밋 {len(bucket)}건 / +{ins} -{dels} LOC / {files_n}개 파일 변경"
-        )
-        tasks.append(
-            {
-                "name": name,
-                "period_start": months[0] if months else None,
-                "period_end": months[-1] if months else None,
-                "problem": problem,
-                "solution": solution,
-                "result": result,
-                "keywords": [category],
-            }
-        )
+        tasks.append({
+            "name": f"{cat_label.get(category, category)} ({month})",
+            "period_start": months[0] if months else None,
+            "period_end": months[-1] if months else None,
+            "problem": "",
+            "solution": "\n".join(f"- {s}" for s in top_subjects),
+            "result": f"커밋 {len(bucket)}건 / +{ins} -{dels} LOC / {files_n}개 파일 변경",
+            "keywords": [category],
+        })
     return tasks
 
 
-def build_project_payload(scan: ScanResult) -> dict:
-    """ScanResult 를 Project 생성에 필요한 dict 로 변환한다.
+def _merge_ai_tasks(
+    git_tasks: list[dict],
+    ai_tasks: list[dict],
+) -> list[dict]:
+    """git 통계 기반 tasks 에 AI 분석 tasks 의 problem/solution/tech_used 를 주입한다.
 
-    [Spring 비교]
-      @Mapper / ModelMapper — VO(ScanResult) → DTO(create dict) 변환.
-      이 dict 는 ProjectManager.create_project() 또는 scan_git API 에서 사용된다.
+    AI tasks 가 더 많으면 AI 것을 우선 사용하고,
+    git tasks 가 더 많으면 남은 것은 원본 유지.
+    매칭은 인덱스 순서 기반.
+    """
+    merged: list[dict] = []
+    for i, git_task in enumerate(git_tasks):
+        if i < len(ai_tasks):
+            ai_task = ai_tasks[i]
+            merged.append({
+                **git_task,
+                # AI 가 생성한 필드를 우선 적용 (빈 값이면 기존 유지)
+                "name": ai_task.get("name") or git_task["name"],
+                "problem": ai_task.get("problem") or git_task["problem"],
+                "solution": ai_task.get("solution") or git_task["solution"],
+                "tech_used": ai_task.get("tech_used") or [],
+            })
+        else:
+            merged.append(git_task)
+    # AI tasks 가 git tasks 보다 많으면 나머지 추가
+    for i in range(len(git_tasks), len(ai_tasks)):
+        ai_t = ai_tasks[i]
+        merged.append({
+            "name": ai_t.get("name", f"작업 {i+1}"),
+            "period_start": None,
+            "period_end": None,
+            "problem": ai_t.get("problem", ""),
+            "solution": ai_t.get("solution", ""),
+            "result": "",
+            "keywords": [],
+            "tech_used": ai_t.get("tech_used", []),
+        })
+    return merged
+
+
+def build_project_payload(
+    scan: ScanResult,
+    ai_analysis: Optional[dict] = None,
+) -> dict:
+    """ScanResult (+ AI 분석 결과) 를 Project 생성에 필요한 dict 로 변환한다.
+
+    ai_analysis 가 있으면:
+      - summary: AI 생성 요약 우선
+      - tech_stack: AI 감지 + git 통계 언어 합산 (AI 우선, 최대 10개)
+      - tasks: problem/solution/tech_used 에 AI 결과 주입
     """
     period_start = _to_yyyymm(scan.first_date)
     period_end = _to_yyyymm(scan.last_date)
-
-    # most_common(6) : 상위 6개 언어만 추출. [Spring] stream().limit(6).collect(toList()).
     top_langs = [lang for lang, _ in scan.languages.most_common(6)]
 
+    # 기본 summary (통계 기반)
     summary_lines = [
         f"{scan.repo_name} — 본인 커밋 {len(scan.commits)}건"
         f" ({scan.authorship_ratio*100:.0f}% 기여)",
-        # :.0f : 소수점 없이 반올림해서 포맷. [Spring] String.format("%.0f%%", ratio*100).
         f"+{scan.total_insertions} / -{scan.total_deletions} LOC,"
         f" {len(scan.files_touched)} 파일 변경",
     ]
     if scan.category_counts:
-        # category_counts.most_common() : 모든 항목을 빈도 높은 순으로 반환.
-        cats = ", ".join(
-            f"{k}:{v}" for k, v in scan.category_counts.most_common()
-        )
+        cats = ", ".join(f"{k}:{v}" for k, v in scan.category_counts.most_common())
         summary_lines.append(f"커밋 분류: {cats}")
-    # " · ".join(list) : " · " 구분자로 이음.
     summary = " · ".join(summary_lines)
 
-    tasks = _group_commits_into_tasks(scan.commits)
+    git_tasks = _group_commits_into_tasks(scan.commits)
+
+    # AI 분석 결과 반영
+    if ai_analysis:
+        ai_tech = ai_analysis.get("tech_stack") or []
+        # dict.fromkeys 로 중복 제거하면서 AI 기술 스택 우선 순서 유지
+        merged_tech = list(dict.fromkeys(ai_tech + top_langs))[:10]
+
+        ai_summary = ai_analysis.get("summary") or ""
+        final_summary = ai_summary if ai_summary else summary
+
+        ai_tasks = ai_analysis.get("tasks") or []
+        final_tasks = _merge_ai_tasks(git_tasks, ai_tasks) if ai_tasks else git_tasks
+
+        # 전체 프로젝트 problem 이 있고 첫 task 에 problem 이 없으면 주입
+        project_problem = ai_analysis.get("problem") or ""
+        if final_tasks and project_problem and not final_tasks[0].get("problem"):
+            final_tasks[0]["problem"] = project_problem
+    else:
+        merged_tech = top_langs
+        final_summary = summary
+        final_tasks = git_tasks
 
     return {
         "name": scan.repo_name,
         "type": "side",
-        # 마지막 커밋이 있으면 in_progress, 없으면 done.
         "status": "in_progress" if scan.last_date else "done",
         "organization": "",
         "period_start": period_start or "",
         "period_end": period_end,
         "role": "개발자",
         "team_size": 1,
-        "tech_stack": top_langs,
-        "summary": summary,
-        # dict.keys() : 카테고리 이름 목록을 태그로 사용.
+        "tech_stack": merged_tech,
+        "summary": final_summary,
         "tags": list(scan.category_counts.keys()),
-        "tasks": tasks,
-        # 캐시용 필드: 다음 스캔 시 HEAD SHA 비교로 재분석 여부 판단.
+        "tasks": final_tasks,
         "repo_url": scan.repo_url,
         "last_commit_sha": scan.head_sha,
-        "scan_metrics": scan.to_dict(),
+        "scan_metrics": {
+            **scan.to_dict(),
+            "ai_analysis": ai_analysis or {},
+        },
     }

@@ -50,7 +50,7 @@
 
       <nav class="studio-nav" aria-label="sections">
         <button class="nav-item active" data-tab="intake" type="button">Intake</button>
-        <button class="nav-item" data-tab="scan" type="button">Git Scan ✦</button>
+        <button class="nav-item" data-tab="scan" type="button">Git Scan</button>
         <button class="nav-item" data-tab="projects" type="button">Projects</button>
         <button class="nav-item" data-tab="preview" type="button">Preview</button>
         <button class="nav-item" data-tab="settings" type="button">Settings</button>
@@ -79,62 +79,6 @@
           <button id="btn-go-preview" type="button" class="btn btn-primary">현재 초안 미리보기</button>
         </div>
       </header>
-
-      <!-- ── Git Scan 탭 ── -->
-      <section class="tab-panel" id="tab-scan">
-        <div class="two-column">
-          <section class="studio-panel">
-            <div class="section-header">
-              <p class="eyebrow">Git 저장소 자동 분석</p>
-              <h3>Git Scan</h3>
-              <p>로컬 git 저장소 경로를 입력하면 본인 커밋을 분석해 포트폴리오 프로젝트를 자동으로 생성합니다.</p>
-            </div>
-
-            <label class="field">
-              <span>저장소 경로</span>
-              <input type="text" id="scan-repo-path" placeholder="/home/user/projects/my-app 또는 /repos/my-app" />
-            </label>
-
-            <label class="field">
-              <span>Author 이메일 <em>(비워두면 설정의 이메일 사용)</em></span>
-              <input type="email" id="scan-author-email" placeholder="you@example.com" />
-            </label>
-
-            <div class="field-grid compact">
-              <label class="field checkbox-field">
-                <input type="checkbox" id="scan-refresh" />
-                <span>강제 재스캔 (캐시 무시)</span>
-              </label>
-            </div>
-
-            <div class="action-row">
-              <button id="btn-scan-run" type="button" class="btn btn-primary">스캔 시작</button>
-              <button id="btn-scan-clear" type="button" class="btn btn-ghost">초기화</button>
-            </div>
-
-            <div id="scan-hint" class="inline-note">
-              <strong>Docker 사용 시:</strong> 홈 디렉터리가 컨테이너 내 <code>/home/user</code>로 자동 마운트됩니다.<br/>
-              예: 로컬 경로가 <code>~/projects/my-app</code>이면 → <code>/home/user/projects/my-app</code> 입력<br/>
-              다른 경로를 사용하려면 <code>.env</code>에 <code>REPOS_DIR=/원하는/경로</code>를 추가하세요.
-            </div>
-          </section>
-
-          <section class="studio-panel" id="scan-result-panel" style="display:none">
-            <div class="section-header">
-              <p class="eyebrow" id="scan-result-status"></p>
-              <h3 id="scan-result-name">스캔 결과</h3>
-            </div>
-
-            <div id="scan-metrics-block"></div>
-
-            <div id="scan-tasks-block"></div>
-
-            <div class="action-row" id="scan-action-row" style="display:none">
-              <button id="btn-scan-go-projects" type="button" class="btn btn-primary">Projects 탭에서 확인</button>
-            </div>
-          </section>
-        </div>
-      </section>
 
       <section class="tab-panel active" id="tab-intake">
         <div class="two-column">
@@ -202,6 +146,74 @@
         </div>
       </section>
 
+      <section class="tab-panel" id="tab-scan">
+        <div class="two-column">
+          <section class="studio-panel">
+            <div class="section-header">
+              <p class="eyebrow">Git Scan</p>
+              <h3>저장소 자동 분석</h3>
+              <p>로컬 Git 저장소를 스캔해 내 커밋 기반으로 포트폴리오 프로젝트를 자동 생성합니다.</p>
+            </div>
+
+            <label class="field">
+              <span>저장소 경로</span>
+              <input type="text" id="scan-repo-path" placeholder="/Users/yourname/projects/my-app 또는 ." />
+            </label>
+
+            <label class="field">
+              <span>Author Email (미입력 시 설정의 user.email 사용)</span>
+              <input type="text" id="scan-author-email" placeholder="you@example.com" />
+            </label>
+
+            <div class="field-grid compact">
+              <label class="field checkbox-field">
+                <input type="checkbox" id="scan-refresh" />
+                <span>이미 등록된 프로젝트도 다시 스캔</span>
+              </label>
+              <label class="field checkbox-field">
+                <input type="checkbox" id="scan-analyze" />
+                <span>딥 분석 (AI) — README·소스를 읽어 프로젝트를 파악합니다</span>
+              </label>
+            </div>
+
+            <div id="scan-lang-field" class="field-grid compact" style="display:none">
+              <label class="field">
+                <span>AI 출력 언어</span>
+                <select id="scan-lang">
+                  <option value="ko">한국어</option>
+                  <option value="en">English</option>
+                  <option value="both">한국어 + 영어</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>AI Provider</span>
+                <select id="scan-provider">
+                  <option value="">기본 Provider 사용</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="action-row">
+              <button id="btn-scan-run" type="button" class="btn btn-primary">스캔 실행</button>
+            </div>
+          </section>
+
+          <section class="studio-panel">
+            <div class="section-header">
+              <p class="eyebrow">결과</p>
+              <h3>스캔 결과</h3>
+              <p>스캔이 완료되면 초안을 Intake 탭으로 불러와 검토 후 저장하세요.</p>
+            </div>
+            <div id="scan-result" class="scan-result-placeholder">
+              스캔 결과가 여기에 표시됩니다.
+            </div>
+            <div class="action-row action-row-end" id="scan-load-actions" style="display:none">
+              <button id="btn-scan-load-draft" type="button" class="btn btn-primary">초안으로 불러오기</button>
+            </div>
+          </section>
+        </div>
+      </section>
+
       <section class="tab-panel" id="tab-projects">
         <div class="two-column projects-layout">
           <section class="studio-panel">
@@ -238,7 +250,7 @@
               <span>문서 종류</span>
               <select id="preview-doc-type">
                 <option value="portfolio">Portfolio</option>
-                <option value="resume">Resume / 경력기술서</option>
+                <option value="resume">Resume</option>
               </select>
             </label>
             <label class="field">
@@ -251,13 +263,8 @@
             <label class="field">
               <span>템플릿</span>
               <select id="preview-template">
-                <!-- portfolio -->
-                <option value="default" data-doctype="portfolio">default</option>
-                <option value="dev"     data-doctype="portfolio">dev — 개발자 스타일</option>
-                <!-- resume -->
-                <option value="default"     data-doctype="resume">default</option>
-                <option value="compact"     data-doctype="resume">compact — 단축형</option>
-                <option value="achievement" data-doctype="resume">achievement — 사내 성과 정리</option>
+                <option value="default">default</option>
+                <option value="compact">compact</option>
               </select>
             </label>
             <label class="field">

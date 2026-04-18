@@ -13,6 +13,7 @@ const state = {
     projectIds: [],
   },
   lastPreview: null,
+  lastScanPayload: null,
 };
 
 const DEFAULT_MODELS = {
@@ -231,6 +232,14 @@ function bindGlobalActions() {
   document.getElementById('btn-preview-render')?.addEventListener('click', renderPreview);
   document.getElementById('btn-preview-export')?.addEventListener('click', exportPreview);
 
+  document.getElementById('btn-scan-run')?.addEventListener('click', handleGitScan);
+  document.getElementById('btn-scan-load-draft')?.addEventListener('click', handleScanLoadDraft);
+  document.getElementById('scan-analyze')?.addEventListener('change', event => {
+    const visible = event.target.checked;
+    const langField = document.getElementById('scan-lang-field');
+    if (langField) langField.style.display = visible ? '' : 'none';
+  });
+
   document.getElementById('ai-name')?.addEventListener('change', syncProviderForm);
   document.addEventListener('click', event => {
     const button = event.target.closest('.toggle-password');
@@ -240,15 +249,6 @@ function bindGlobalActions() {
     input.type = input.type === 'password' ? 'text' : 'password';
     button.textContent = input.type === 'password' ? 'show' : 'hide';
   });
-
-  document.getElementById('btn-scan-run')?.addEventListener('click', handleGitScan);
-  document.getElementById('btn-scan-clear')?.addEventListener('click', () => {
-    document.getElementById('scan-repo-path').value = '';
-    document.getElementById('scan-author-email').value = '';
-    document.getElementById('scan-refresh').checked = false;
-    hideScanResult();
-  });
-  document.getElementById('btn-scan-go-projects')?.addEventListener('click', () => switchTab('projects'));
 }
 
 function bindDraftEditors() {
@@ -359,25 +359,6 @@ function bindPreviewControls() {
   ['preview-doc-type', 'preview-source', 'preview-template', 'preview-format'].forEach(id => {
     document.getElementById(id)?.addEventListener('change', syncPreviewState);
   });
-  document.getElementById('preview-doc-type')?.addEventListener('change', filterTemplateOptions);
-  filterTemplateOptions();
-}
-
-function filterTemplateOptions() {
-  const docType = document.getElementById('preview-doc-type')?.value || 'portfolio';
-  const sel = document.getElementById('preview-template');
-  if (!sel) return;
-  const current = sel.value;
-  Array.from(sel.options).forEach(opt => {
-    const allowed = opt.dataset.doctype;
-    opt.hidden = allowed ? allowed !== docType : false;
-  });
-  // 현재 선택이 숨겨졌으면 첫 번째 visible로 이동
-  if (sel.options[sel.selectedIndex]?.hidden) {
-    const first = Array.from(sel.options).find(o => !o.hidden);
-    if (first) sel.value = first.value;
-  }
-  syncPreviewState();
 }
 
 function formToJson(form) {
@@ -443,6 +424,13 @@ function populateProviders() {
   const intakeProvider = document.getElementById('intake-provider');
   if (intakeProvider) {
     intakeProvider.innerHTML = '<option value="">기본 Provider 사용</option>' + providers
+      .map(provider => `<option value="${escHtml(provider.name)}">${escHtml(provider.name)} · ${escHtml(provider.model)}</option>`)
+      .join('');
+  }
+
+  const scanProvider = document.getElementById('scan-provider');
+  if (scanProvider) {
+    scanProvider.innerHTML = '<option value="">기본 Provider 사용</option>' + providers
       .map(provider => `<option value="${escHtml(provider.name)}">${escHtml(provider.name)} · ${escHtml(provider.model)}</option>`)
       .join('');
   }
@@ -951,85 +939,92 @@ async function exportPreview() {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Git Scan
-// ---------------------------------------------------------------------------
-
-function hideScanResult() {
-  const panel = document.getElementById('scan-result-panel');
-  if (panel) panel.style.display = 'none';
-}
-
-function renderScanResult(data) {
-  const panel = document.getElementById('scan-result-panel');
-  panel.style.display = '';
-
-  const statusLabel = { created: '✓ 신규 등록', updated: '✓ 갱신 완료', cached: '✓ 캐시 히트' };
-  document.getElementById('scan-result-status').textContent = statusLabel[data.status] || data.status;
-  document.getElementById('scan-result-name').textContent = data.project_name || '결과';
-
-  const metrics = data.metrics || {};
-  const metricsBlock = document.getElementById('scan-metrics-block');
-  if (Object.keys(metrics).length) {
-    const langs = Object.entries(metrics.languages || {}).map(([k]) => k).join(', ') || '-';
-    const cats = Object.entries(metrics.categories || {}).map(([k, v]) => `${k}:${v}`).join(', ') || '-';
-    metricsBlock.innerHTML = `
-      <table class="scan-metrics-table">
-        <tr><th>커밋</th><td>${metrics.commit_count || 0}건 (전체 대비 ${((metrics.authorship_ratio || 0) * 100).toFixed(0)}%)</td></tr>
-        <tr><th>변경 LOC</th><td>+${metrics.insertions || 0} / -${metrics.deletions || 0}</td></tr>
-        <tr><th>변경 파일</th><td>${metrics.files_touched || 0}개</td></tr>
-        <tr><th>기간</th><td>${metrics.first_date || '?'} ~ ${metrics.last_date || '?'}</td></tr>
-        <tr><th>언어</th><td>${langs}</td></tr>
-        <tr><th>커밋 분류</th><td>${cats}</td></tr>
-      </table>`;
-  } else {
-    metricsBlock.innerHTML = '';
-  }
-
-  const tasksBlock = document.getElementById('scan-tasks-block');
-  const tasks = data.tasks || [];
-  if (tasks.length) {
-    const rows = tasks.map(t =>
-      `<li><strong>${t.name}</strong><br/><span class="scan-task-result">${t.result}</span></li>`
-    ).join('');
-    tasksBlock.innerHTML = `<ul class="scan-task-list">${rows}</ul>`;
-  } else {
-    tasksBlock.innerHTML = '';
-  }
-
-  document.getElementById('scan-action-row').style.display = '';
-}
-
 async function handleGitScan() {
-  const repoPath = document.getElementById('scan-repo-path').value.trim();
+  const button = document.getElementById('btn-scan-run');
+  const repoPath = document.getElementById('scan-repo-path')?.value.trim();
+  const authorEmail = document.getElementById('scan-author-email')?.value.trim() || null;
+  const refresh = document.getElementById('scan-refresh')?.checked || false;
+  const analyze = document.getElementById('scan-analyze')?.checked || false;
+  const lang = document.getElementById('scan-lang')?.value || 'ko';
+  const provider = document.getElementById('scan-provider')?.value || null;
+
   if (!repoPath) {
-    showToast('저장소 경로를 입력하세요.', 'error');
+    showToast('저장소 경로를 입력하세요.');
     return;
   }
 
-  const button = document.getElementById('btn-scan-run');
-  hideScanResult();
-
-  await withButtonState(button, '스캔 중...', async () => {
-    const payload = {
+  const busyLabel = analyze ? 'AI 분석 중...' : '스캔 중...';
+  await withButtonState(button, busyLabel, async () => {
+    const result = await apiPost('/api/scan/git', {
       repo_path: repoPath,
-      author_email: document.getElementById('scan-author-email').value.trim() || null,
-      refresh: document.getElementById('scan-refresh').checked,
-    };
-    try {
-      const result = await apiPost('/api/scan/git', payload);
-      renderScanResult(result);
-      state.projects = await apiGet('/api/projects');
-      renderProjectsList();
-      if (result.status === 'cached') {
-        showToast(result.message || '이미 최신 상태입니다.', 'success');
-      } else if (result.status === 'created') {
-        showToast(`포트폴리오 등록 완료: ${result.project_name}`);
-      } else {
-        showToast(`포트폴리오 갱신 완료: ${result.project_name}`);
-      }
-    } catch (err) {
-      showToast(err.message || '스캔 중 오류가 발생했습니다.', 'error');
-    }
+      author_email: authorEmail,
+      refresh,
+      analyze,
+      lang,
+      provider: provider || null,
+    });
+
+    state.lastScanPayload = result.payload;
+
+    const resultEl = document.getElementById('scan-result');
+    const actionsEl = document.getElementById('scan-load-actions');
+    const p = result.payload;
+    const metrics = p.scan_metrics || {};
+    const cacheNote = result.cached ? ' (캐시 히트)' : '';
+    const analyzeNote = result.analyzed ? ' · AI 딥 분석 완료' : '';
+
+    resultEl.innerHTML = `
+      <dl class="scan-summary">
+        <dt>프로젝트명</dt><dd>${escHtml(p.name || '-')}</dd>
+        <dt>기간</dt><dd>${escHtml(p.period_start || '?')} ~ ${escHtml(p.period_end || '현재')}</dd>
+        <dt>커밋</dt><dd>${metrics.commit_count ?? '-'}건 / 비율 ${((metrics.authorship_ratio ?? 0) * 100).toFixed(0)}%</dd>
+        <dt>변경</dt><dd>+${metrics.insertions ?? 0} / -${metrics.deletions ?? 0} LOC, ${metrics.files_touched ?? 0}파일</dd>
+        <dt>언어</dt><dd>${escHtml(Object.keys(metrics.languages || {}).join(', ') || '-')}</dd>
+        <dt>요약</dt><dd>${escHtml(p.summary || '-')}</dd>
+        <dt>작업 수</dt><dd>${(p.tasks || []).length}개${cacheNote}${analyzeNote}</dd>
+      </dl>
+    `;
+    if (actionsEl) actionsEl.style.display = '';
+
+    const toastMsg = result.analyzed
+      ? `AI 딥 분석 완료: ${p.name || '프로젝트'}`
+      : `스캔 완료: ${p.name || '프로젝트'}${cacheNote}`;
+    showToast(toastMsg);
   });
+}
+
+function handleScanLoadDraft() {
+  if (!state.lastScanPayload) return;
+  const p = state.lastScanPayload;
+
+  const tasks = (p.tasks || []).map((t, i) => ({
+    id: `scan_task_${i + 1}`,
+    name: t.name || '',
+    period: { start: t.period_start || '', end: t.period_end || '' },
+    problem: t.problem || '',
+    solution: t.solution || '',
+    result: t.result || '',
+    tech_used: t.tech_used || [],
+    keywords: t.keywords || [],
+    ai_generated_text: t.ai_generated_text || '',
+  }));
+
+  state.currentDraft = normalizeDraft({
+    name: p.name || '',
+    type: p.type || 'company',
+    status: p.status || 'done',
+    organization: p.organization || '',
+    period: { start: p.period_start || null, end: p.period_end || null },
+    role: p.role || '',
+    team_size: p.team_size || 1,
+    tech_stack: p.tech_stack || [],
+    summary: p.summary || '',
+    tags: p.tags || [],
+    tasks: tasks.length ? tasks : [emptyTask()],
+  });
+  state.loadedProjectId = '';
+
+  renderDraft();
+  switchTab('intake');
+  showToast('스캔 결과를 초안으로 불러왔습니다. 검토 후 저장하세요.');
 }

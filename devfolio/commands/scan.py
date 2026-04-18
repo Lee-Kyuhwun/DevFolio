@@ -116,6 +116,18 @@ def scan(
         False, "--refresh",
         help="이미 등록된 프로젝트가 있어도 다시 스캔해서 갱신",
     ),
+    analyze: bool = typer.Option(
+        False, "--analyze", "-A",
+        help="소스 코드·README를 읽어 AI로 프로젝트를 심층 분석합니다 (AI 설정 필요).",
+    ),
+    lang: str = typer.Option(
+        "ko", "--lang", "-l",
+        help="AI 출력 언어 (ko / en / both)",
+    ),
+    provider: Optional[str] = typer.Option(
+        None, "--provider", "-p",
+        help="사용할 AI provider 이름 (미지정 시 기본 provider 사용)",
+    ),
     dry_run: bool = typer.Option(
         False, "--dry-run",
         help="저장하지 않고 분석 결과만 출력",
@@ -139,12 +151,12 @@ def scan(
         )
 
     console.print(f"[dim]scanning {path} (author={author_email})...[/dim]")
-    scan_result = scan_repo(path, author_email=author_email)
+    scan_result = scan_repo(path, author_email=author_email, analyze=analyze)
 
     existing = _find_existing_project_by_repo(scan_result.repo_url)
 
-    # 캐시 히트: 동일 HEAD SHA 면 재분석 없이 바로 사용
-    if existing and existing.last_commit_sha == scan_result.head_sha and not refresh:
+    # 캐시 히트: 동일 HEAD SHA 면 재분석 없이 바로 사용 (analyze 모드는 캐시 건너뜀)
+    if existing and existing.last_commit_sha == scan_result.head_sha and not refresh and not analyze:
         console.print(
             f"[green]✓[/green] 이미 최신 상태입니다: [bold]{existing.name}[/bold] "
             f"(sha={existing.last_commit_sha[:8]})"
@@ -167,7 +179,28 @@ def scan(
         _print_scan_summary(payload, cached=True)
         return
 
-    payload = build_project_payload(scan_result)
+    ai_analysis = None
+    if analyze and scan_result.project_context:
+        from devfolio.core.ai_service import AIService
+        console.print("[dim]AI 딥 분석 중...[/dim]")
+        try:
+            scan_metrics = {
+                "commits": scan_result.commit_count,
+                "period_months": 0,
+                "languages": {k: v for k, v in scan_result.languages.most_common(5)},
+            }
+            ai_analysis = AIService(cfg).analyze_project_from_code(
+                repo_name=path.resolve().name,
+                project_context=scan_result.project_context,
+                scan_metrics=scan_metrics,
+                lang=lang,
+                provider_name=provider,
+            )
+            console.print("[green]✓[/green] AI 딥 분석 완료")
+        except DevfolioError as exc:
+            console.print(f"[yellow]⚠ AI 분석 실패 (기본 스캔 결과 사용): {exc.message}[/yellow]")
+
+    payload = build_project_payload(scan_result, ai_analysis=ai_analysis)
     _print_scan_summary(payload, cached=False)
 
     if dry_run:
