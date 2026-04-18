@@ -532,6 +532,37 @@ code {
   align-items: center;
 }
 
+.input-with-model-select {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.input-with-model-select select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--text);
+  padding: 0.9rem 1rem;
+  outline: none;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.input-with-model-select select:focus {
+  border-color: rgba(200, 77, 47, 0.65);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+.btn-load-models {
+  padding: 0.5rem 0.75rem;
+  min-height: auto;
+  font-size: 1.1rem;
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+
 .input-with-toggle {
   display: grid;
   grid-template-columns: 1fr auto;

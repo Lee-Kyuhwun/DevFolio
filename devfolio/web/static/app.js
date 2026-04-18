@@ -429,7 +429,13 @@ function bindGlobalActions() {
     if (langField) langField.style.display = visible ? '' : 'none';
   });
 
-  document.getElementById('ai-name')?.addEventListener('change', syncProviderForm);
+  document.getElementById('ai-name')?.addEventListener('change', () => {
+    syncProviderForm();
+    loadModelsForProvider();
+  });
+  document.getElementById('ai-key')?.addEventListener('change', loadModelsForProvider);
+  document.getElementById('ai-base-url')?.addEventListener('change', loadModelsForProvider);
+  document.getElementById('btn-load-models')?.addEventListener('click', loadModelsForProvider);
   document.addEventListener('click', event => {
     const button = event.target.closest('.toggle-password');
     if (!button) return;
@@ -438,6 +444,41 @@ function bindGlobalActions() {
     input.type = input.type === 'password' ? 'text' : 'password';
     button.textContent = input.type === 'password' ? '보기' : '숨기기';
   });
+}
+
+async function loadModelsForProvider() {
+  const provider = document.getElementById('ai-name')?.value;
+  const apiKey = document.getElementById('ai-key')?.value?.trim();
+  const baseUrl = document.getElementById('ai-base-url')?.value?.trim();
+  const modelSelect = document.getElementById('ai-model');
+  const loadBtn = document.getElementById('btn-load-models');
+  if (!modelSelect || !provider) return;
+
+  const params = new URLSearchParams({ provider });
+  if (apiKey) params.set('api_key', apiKey);
+  if (baseUrl) params.set('base_url', baseUrl);
+
+  const prevLabel = loadBtn?.textContent;
+  if (loadBtn) { loadBtn.textContent = '...'; loadBtn.disabled = true; }
+  modelSelect.innerHTML = '<option value="">불러오는 중...</option>';
+
+  try {
+    const data = await apiGet(`/api/models?${params}`);
+    const models = data.models || [];
+    if (!models.length) {
+      modelSelect.innerHTML = '<option value="">사용 가능한 모델 없음</option>';
+      return;
+    }
+    const defaultModel = DEFAULT_MODELS[provider] || '';
+    modelSelect.innerHTML = models.map(m =>
+      `<option value="${escHtml(m)}"${m === defaultModel ? ' selected' : ''}>${escHtml(m)}</option>`
+    ).join('');
+  } catch {
+    modelSelect.innerHTML = '<option value="">목록 불러오기 실패 — 직접 입력</option>';
+    showToast('모델 목록을 불러오지 못했습니다.', 'error');
+  } finally {
+    if (loadBtn) { loadBtn.textContent = prevLabel; loadBtn.disabled = false; }
+  }
 }
 
 function bindDraftEditors() {

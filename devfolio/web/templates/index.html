@@ -429,8 +429,16 @@
                     <option value="ollama">Ollama</option>
                   </select>
                 </label>
+                <label class="field">
+                  <span>모델</span>
+                  <div class="input-with-model-select">
+                    <select id="ai-model" name="model">
+                      <option value="">-- API 키 입력 후 목록 불러오기 --</option>
+                    </select>
+                    <button type="button" id="btn-load-models" class="btn btn-ghost btn-load-models" title="모델 목록 새로고침">↻</button>
+                  </div>
+                </label>
               </div>
-              <p class="field-hint">모델은 제공자별 기본값으로 자동 설정됩니다. Claude는 Anthropic, Gemini는 Gemini 제공자를 선택하세요.</p>
               <label class="field" id="field-api-key">
                 <span>API 키</span>
                 <div class="input-with-toggle">
