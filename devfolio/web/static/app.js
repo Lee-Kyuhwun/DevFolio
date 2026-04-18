@@ -247,7 +247,7 @@ function bindGlobalActions() {
     const input = button.parentElement?.querySelector('input');
     if (!input) return;
     input.type = input.type === 'password' ? 'text' : 'password';
-    button.textContent = input.type === 'password' ? 'show' : 'hide';
+    button.textContent = input.type === 'password' ? '보기' : '숨기기';
   });
 }
 
@@ -331,7 +331,7 @@ function bindSettingsForms() {
       applyConfigToForms();
       form.reset();
       syncProviderForm();
-      showToast('AI Provider를 저장했습니다.');
+      showToast('AI 제공자를 저장했습니다.');
     });
   });
 }
@@ -423,14 +423,14 @@ function populateProviders() {
   const providers = state.config?.ai_providers || [];
   const intakeProvider = document.getElementById('intake-provider');
   if (intakeProvider) {
-    intakeProvider.innerHTML = '<option value="">기본 Provider 사용</option>' + providers
+    intakeProvider.innerHTML = '<option value="">자동 선택</option>' + providers
       .map(provider => `<option value="${escHtml(provider.name)}">${escHtml(provider.name)} · ${escHtml(provider.model)}</option>`)
       .join('');
   }
 
   const scanProvider = document.getElementById('scan-provider');
   if (scanProvider) {
-    scanProvider.innerHTML = '<option value="">기본 Provider 사용</option>' + providers
+    scanProvider.innerHTML = '<option value="">자동 선택</option>' + providers
       .map(provider => `<option value="${escHtml(provider.name)}">${escHtml(provider.name)} · ${escHtml(provider.model)}</option>`)
       .join('');
   }
@@ -438,7 +438,7 @@ function populateProviders() {
   const providerList = document.getElementById('provider-list');
   if (providerList) {
     if (!providers.length) {
-      providerList.innerHTML = '<div class="empty-surface">등록된 AI Provider가 없습니다. 수동 입력과 preview는 계속 사용할 수 있습니다.</div>';
+      providerList.innerHTML = '<div class="empty-surface">등록된 AI가 없습니다. 수동으로 작성하고 미리보기는 계속 이용할 수 있습니다.</div>';
     } else {
       providerList.innerHTML = providers
         .map(provider => `
@@ -446,7 +446,7 @@ function populateProviders() {
             <div>
               <strong>${escHtml(provider.name)}</strong>
               <p>${escHtml(provider.model)}</p>
-              <small>${escHtml(provider.key_masked)}${provider.is_default ? ' · 기본 provider' : ''}</small>
+              <small>${escHtml(provider.key_masked)}${provider.is_default ? ' · 기본 제공자' : ''}</small>
             </div>
             <div class="inline-actions">
               <button type="button" class="btn btn-ghost" data-provider-action="test" data-provider-name="${escHtml(provider.name)}">테스트</button>
@@ -474,12 +474,12 @@ function populateProviders() {
         });
       }
       if (action === 'remove') {
-        if (!window.confirm(`'${name}' Provider를 삭제하시겠습니까?`)) return;
+        if (!window.confirm(`'${name}'을(를) 삭제하시겠습니까?`)) return;
         await apiDelete(`/api/config/ai/${encodeURIComponent(name)}`);
         state.config = await apiGet('/api/config');
         populateProviders();
         applyConfigToForms();
-        showToast(`${name} Provider를 삭제했습니다.`);
+        showToast(`${name}을(를) 삭제했습니다.`);
       }
     });
   });
@@ -527,17 +527,17 @@ function renderDraftMeta() {
       <label class="field">
         <span>유형</span>
         <select data-field="type">
-          <option value="company" ${draft.type === 'company' ? 'selected' : ''}>company</option>
-          <option value="side" ${draft.type === 'side' ? 'selected' : ''}>side</option>
-          <option value="course" ${draft.type === 'course' ? 'selected' : ''}>course</option>
+          <option value="company" ${draft.type === 'company' ? 'selected' : ''}>정규 프로젝트</option>
+          <option value="side" ${draft.type === 'side' ? 'selected' : ''}>사이드 프로젝트</option>
+          <option value="course" ${draft.type === 'course' ? 'selected' : ''}>교육/과정</option>
         </select>
       </label>
       <label class="field">
         <span>상태</span>
         <select data-field="status">
-          <option value="done" ${draft.status === 'done' ? 'selected' : ''}>done</option>
-          <option value="in_progress" ${draft.status === 'in_progress' ? 'selected' : ''}>in_progress</option>
-          <option value="planned" ${draft.status === 'planned' ? 'selected' : ''}>planned</option>
+          <option value="done" ${draft.status === 'done' ? 'selected' : ''}>완료</option>
+          <option value="in_progress" ${draft.status === 'in_progress' ? 'selected' : ''}>진행 중</option>
+          <option value="planned" ${draft.status === 'planned' ? 'selected' : ''}>계획 중</option>
         </select>
       </label>
       <label class="field">
@@ -589,7 +589,7 @@ function renderDraftTasks() {
       <article class="task-item">
         <div class="task-head">
           <div>
-            <p class="eyebrow">Task ${index + 1}</p>
+            <p class="eyebrow">작업 ${index + 1}</p>
             <h4>${escHtml(task.name || '새 작업')}</h4>
           </div>
           <button type="button" class="btn btn-ghost danger" data-action="remove-task" data-index="${index}">삭제</button>
@@ -633,8 +633,8 @@ function renderDraftTasks() {
           </label>
         </div>
         <label class="field">
-          <span>AI bullet 초안</span>
-          <textarea rows="5" data-task-index="${index}" data-task-field="ai_generated_text" placeholder="AI bullet을 생성하면 여기에 들어옵니다.">${escHtml(task.ai_generated_text)}</textarea>
+          <span>포트폴리오 문구</span>
+          <textarea rows="5" data-task-index="${index}" data-task-field="ai_generated_text" placeholder="작업 항목을 생성하면 여기에 표시됩니다.">${escHtml(task.ai_generated_text)}</textarea>
         </label>
       </article>
     `)
@@ -660,8 +660,8 @@ function renderProjects() {
         </div>
         <div class="inline-actions">
           <button type="button" class="btn btn-ghost" data-project-action="load" data-project-id="${escHtml(project.id)}">에디터로</button>
-          <button type="button" class="btn btn-ghost" data-project-action="summary" data-project-id="${escHtml(project.id)}">요약 AI</button>
-          <button type="button" class="btn btn-ghost" data-project-action="tasks" data-project-id="${escHtml(project.id)}">bullet AI</button>
+          <button type="button" class="btn btn-ghost" data-project-action="summary" data-project-id="${escHtml(project.id)}">요약 재생성</button>
+          <button type="button" class="btn btn-ghost" data-project-action="tasks" data-project-id="${escHtml(project.id)}">항목 생성</button>
           <button type="button" class="btn btn-ghost danger" data-project-action="delete" data-project-id="${escHtml(project.id)}">삭제</button>
         </div>
       </article>
@@ -683,7 +683,7 @@ function renderProjectsDetail(project = null) {
     <h4>${escHtml(current.name)}</h4>
     <p>${escHtml(current.summary || '아직 요약이 없습니다.')}</p>
     <p>작업 수: ${current.tasks?.length || 0} · 역할: ${escHtml(current.role || '미입력')}</p>
-    <p>다음 단계: 에디터로 불러와 수정하거나, Preview 탭에서 saved source로 바로 렌더링할 수 있습니다.</p>
+    <p>에디터로 불러와 수정하거나, 미리보기 탭에서 문서로 바로 렌더링할 수 있습니다.</p>
   `;
 }
 
@@ -740,7 +740,7 @@ function renderPreviewOutput() {
     return;
   }
   output.innerHTML = state.lastPreview.html;
-  meta.textContent = `${state.lastPreview.doc_type} · ${state.lastPreview.project_count}개 프로젝트 · template: ${state.lastPreview.template}`;
+  meta.textContent = `${state.lastPreview.doc_type} · ${state.lastPreview.project_count}개 프로젝트 · 템플릿: ${state.lastPreview.template}`;
 }
 
 function syncPreviewState() {
@@ -816,7 +816,7 @@ async function handleDraftTaskBullets() {
     });
     state.currentDraft = normalizeDraft(result.draft);
     renderDraftTasks();
-    showToast('작업 bullet 초안을 생성했습니다.');
+    showToast('작업 항목을 생성했습니다.');
   });
 }
 
@@ -864,7 +864,7 @@ async function handleProjectLibraryClick(event) {
     renderDraft();
     renderProjects();
     switchTab('intake');
-    showToast(`${project.name}을(를) 에디터로 불러왔습니다.`);
+    showToast(`${project.name} 프로젝트를 열었습니다.`);
     return;
   }
 
@@ -888,7 +888,7 @@ async function handleProjectLibraryClick(event) {
     const endpoint = action === 'summary'
       ? `/api/projects/${encodeURIComponent(project.id)}/generate-summary`
       : `/api/projects/${encodeURIComponent(project.id)}/generate-task-bullets`;
-    const busyLabel = action === 'summary' ? '요약 생성 중...' : 'bullet 생성 중...';
+    const busyLabel = action === 'summary' ? '요약 생성 중...' : '항목 생성 중...';
 
     await withButtonState(button, busyLabel, async () => {
       const result = await apiPost(endpoint, {
@@ -902,7 +902,7 @@ async function handleProjectLibraryClick(event) {
         renderDraft();
       }
       renderProjects();
-      showToast(action === 'summary' ? '저장된 프로젝트 요약을 갱신했습니다.' : '저장된 프로젝트 bullet을 갱신했습니다.');
+      showToast(action === 'summary' ? '프로젝트 요약을 갱신했습니다.' : '작업 항목을 갱신했습니다.');
     });
   }
 }
@@ -953,7 +953,7 @@ async function handleGitScan() {
     return;
   }
 
-  const busyLabel = analyze ? 'AI 분석 중...' : '스캔 중...';
+  const busyLabel = analyze ? 'AI 분석 중...' : '분석 중...';
   await withButtonState(button, busyLabel, async () => {
     const result = await apiPost('/api/scan/git', {
       repo_path: repoPath,
@@ -970,14 +970,14 @@ async function handleGitScan() {
     const actionsEl = document.getElementById('scan-load-actions');
     const p = result.payload;
     const metrics = p.scan_metrics || {};
-    const cacheNote = result.cached ? ' (캐시 히트)' : '';
-    const analyzeNote = result.analyzed ? ' · AI 딥 분석 완료' : '';
+    const cacheNote = result.cached ? ' (이전 결과 재사용)' : '';
+    const analyzeNote = result.analyzed ? ' · AI 상세 분석 완료' : '';
 
     resultEl.innerHTML = `
       <dl class="scan-summary">
         <dt>프로젝트명</dt><dd>${escHtml(p.name || '-')}</dd>
-        <dt>기간</dt><dd>${escHtml(p.period_start || '?')} ~ ${escHtml(p.period_end || '현재')}</dd>
-        <dt>커밋</dt><dd>${metrics.commit_count ?? '-'}건 / 비율 ${((metrics.authorship_ratio ?? 0) * 100).toFixed(0)}%</dd>
+        <dt>기간</dt><dd>${escHtml(p.period_start || '-')} ~ ${escHtml(p.period_end || '현재')}</dd>
+        <dt>커밋</dt><dd>${metrics.commit_count ?? '-'}건 / 내 커밋 ${((metrics.authorship_ratio ?? 0) * 100).toFixed(0)}%</dd>
         <dt>변경</dt><dd>+${metrics.insertions ?? 0} / -${metrics.deletions ?? 0} LOC, ${metrics.files_touched ?? 0}파일</dd>
         <dt>언어</dt><dd>${escHtml(Object.keys(metrics.languages || {}).join(', ') || '-')}</dd>
         <dt>요약</dt><dd>${escHtml(p.summary || '-')}</dd>
@@ -987,8 +987,8 @@ async function handleGitScan() {
     if (actionsEl) actionsEl.style.display = '';
 
     const toastMsg = result.analyzed
-      ? `AI 딥 분석 완료: ${p.name || '프로젝트'}`
-      : `스캔 완료: ${p.name || '프로젝트'}${cacheNote}`;
+      ? `AI 분석 완료: ${p.name || '프로젝트'}`
+      : `분석 완료: ${p.name || '프로젝트'}${cacheNote}`;
     showToast(toastMsg);
   });
 }

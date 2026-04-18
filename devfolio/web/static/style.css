@@ -630,6 +630,12 @@ code {
   }
 }
 
+.field-hint {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: -0.3rem 0 0.4rem;
+}
+
 .scan-result-placeholder {
   color: var(--muted);
   font-size: 0.9rem;

@@ -21,29 +21,29 @@
         <div class="flow-step">
           <span class="step-index">01</span>
           <div>
-            <strong>Intake</strong>
-            <p>자유 텍스트 또는 수동 입력</p>
+            <strong>입력</strong>
+            <p>자유롭게 붙여넣거나 직접 입력</p>
           </div>
         </div>
         <div class="flow-step">
           <span class="step-index">02</span>
           <div>
-            <strong>AI Draft</strong>
-            <p>프로젝트와 작업을 구조화</p>
+            <strong>AI 초안</strong>
+            <p>AI가 구조화된 초안 자동 생성</p>
           </div>
         </div>
         <div class="flow-step">
           <span class="step-index">03</span>
           <div>
-            <strong>Review</strong>
-            <p>요약과 bullet을 직접 수정</p>
+            <strong>검토</strong>
+            <p>초안 내용 직접 수정·보완</p>
           </div>
         </div>
         <div class="flow-step">
           <span class="step-index">04</span>
           <div>
-            <strong>Preview & Export</strong>
-            <p>저장 전 미리보기, 저장 후 재사용</p>
+            <strong>내보내기</strong>
+            <p>최종 검토 후 다양한 형식으로 내보내기</p>
           </div>
         </div>
       </div>
@@ -56,27 +56,20 @@
         <button class="nav-item" data-tab="settings" type="button">Settings</button>
       </nav>
 
-      <div class="advanced-note">
-        <p class="eyebrow">Advanced Import</p>
-        <p>
-          YAML/JSON은 일반 입력 방식이 아니라 기존 데이터 이관용입니다.
-          필요하면 <code>devfolio data import examples/connected_car_gateway.yaml</code> 를 사용하세요.
-        </p>
-      </div>
     </aside>
 
     <main class="workspace">
       <header class="workspace-header">
         <div>
-          <p class="eyebrow">Serve-First Workflow</p>
+          <p class="eyebrow">처음부터 끝까지, 한 화면에서</p>
           <h2 id="workspace-title">붙여넣기에서 문서 생성까지 한 흐름으로</h2>
           <p class="workspace-copy">
-            CLI CRUD는 그대로 남겨두고, 일반 사용자 경로는 이 화면 안에서 끝나도록 정리했습니다.
+            텍스트를 붙여넣는 것부터 문서 내보내기까지 이 화면에서 완료할 수 있습니다.
           </p>
         </div>
         <div class="header-actions">
           <button id="btn-new-draft" type="button" class="btn btn-secondary">새 초안</button>
-          <button id="btn-go-preview" type="button" class="btn btn-primary">현재 초안 미리보기</button>
+          <button id="btn-go-preview" type="button" class="btn btn-primary">초안 미리보기</button>
         </div>
       </header>
 
@@ -104,20 +97,16 @@
                 </select>
               </label>
               <label class="field">
-                <span>AI Provider</span>
+                <span>AI 모델</span>
                 <select id="intake-provider">
-                  <option value="">기본 Provider 사용</option>
+                  <option value="">자동 선택</option>
                 </select>
               </label>
             </div>
 
             <div class="action-row">
               <button id="btn-intake-generate" type="button" class="btn btn-primary">AI로 초안 만들기</button>
-              <button id="btn-intake-manual" type="button" class="btn btn-secondary">빈 초안으로 시작</button>
-            </div>
-
-            <div class="inline-note">
-              저장 포맷은 내부적으로 YAML이지만, 이 화면에서는 YAML을 직접 작성할 필요가 없습니다.
+              <button id="btn-intake-manual" type="button" class="btn btn-secondary">수동으로 직접 작성</button>
             </div>
           </section>
 
@@ -132,7 +121,7 @@
 
             <div class="editor-toolbar">
               <button id="btn-draft-summary" type="button" class="btn btn-secondary">요약 다시 생성</button>
-              <button id="btn-draft-tasks" type="button" class="btn btn-secondary">작업 bullet 생성</button>
+              <button id="btn-draft-tasks" type="button" class="btn btn-secondary">작업 항목 생성</button>
               <button id="btn-draft-add-task" type="button" class="btn btn-ghost">작업 추가</button>
             </div>
 
@@ -161,18 +150,19 @@
             </label>
 
             <label class="field">
-              <span>Author Email (미입력 시 설정의 user.email 사용)</span>
+              <span>Author Email</span>
               <input type="text" id="scan-author-email" placeholder="you@example.com" />
+              <p class="field-hint">비워두면 Git 설정의 이메일을 사용합니다.</p>
             </label>
 
             <div class="field-grid compact">
               <label class="field checkbox-field">
                 <input type="checkbox" id="scan-refresh" />
-                <span>이미 등록된 프로젝트도 다시 스캔</span>
+                <span>이미 등록된 프로젝트 다시 분석</span>
               </label>
               <label class="field checkbox-field">
                 <input type="checkbox" id="scan-analyze" />
-                <span>딥 분석 (AI) — README·소스를 읽어 프로젝트를 파악합니다</span>
+                <span>AI 상세 분석 — README와 소스 코드를 읽어 설명을 자동 생성합니다</span>
               </label>
             </div>
 
@@ -186,26 +176,26 @@
                 </select>
               </label>
               <label class="field">
-                <span>AI Provider</span>
+                <span>AI 모델</span>
                 <select id="scan-provider">
-                  <option value="">기본 Provider 사용</option>
+                  <option value="">자동 선택</option>
                 </select>
               </label>
             </div>
 
             <div class="action-row">
-              <button id="btn-scan-run" type="button" class="btn btn-primary">스캔 실행</button>
+              <button id="btn-scan-run" type="button" class="btn btn-primary">분석 시작</button>
             </div>
           </section>
 
           <section class="studio-panel">
             <div class="section-header">
               <p class="eyebrow">결과</p>
-              <h3>스캔 결과</h3>
-              <p>스캔이 완료되면 초안을 Intake 탭으로 불러와 검토 후 저장하세요.</p>
+              <h3>분석 결과</h3>
+              <p>분석이 완료되면 아래 버튼으로 초안에 바로 불러올 수 있습니다.</p>
             </div>
             <div id="scan-result" class="scan-result-placeholder">
-              스캔 결과가 여기에 표시됩니다.
+              분석 결과가 여기에 표시됩니다.
             </div>
             <div class="action-row action-row-end" id="scan-load-actions" style="display:none">
               <button id="btn-scan-load-draft" type="button" class="btn btn-primary">초안으로 불러오기</button>
@@ -228,8 +218,8 @@
           <section class="studio-panel">
             <div class="section-header">
               <p class="eyebrow">Selected</p>
-              <h3>다음 단계</h3>
-              <p>프로젝트를 에디터로 불러오거나, 저장된 데이터 기준으로 바로 요약과 bullet을 재생성할 수 있습니다.</p>
+              <h3>프로젝트 관리</h3>
+              <p>에디터로 불러와 수정하거나, AI로 요약·작업 항목을 다시 생성할 수 있습니다.</p>
             </div>
             <div id="projects-detail" class="detail-copy">
               저장된 프로젝트가 아직 없습니다. Intake 탭에서 초안을 저장하세요.
@@ -242,29 +232,29 @@
         <div class="preview-topline">
           <div class="section-header">
             <p class="eyebrow">Step 4</p>
-            <h3>Preview & Export</h3>
-            <p>저장 전 draft 또는 저장된 프로젝트 기준으로 resume/portfolio를 확인하고 내보낼 수 있습니다.</p>
+            <h3>미리보기 및 내보내기</h3>
+            <p>현재 초안이나 저장된 프로젝트를 이력서 또는 포트폴리오 문서로 미리보고 내보낼 수 있습니다.</p>
           </div>
           <div class="field-grid compact preview-controls">
             <label class="field">
               <span>문서 종류</span>
               <select id="preview-doc-type">
-                <option value="portfolio">Portfolio</option>
-                <option value="resume">Resume</option>
+                <option value="portfolio">포트폴리오</option>
+                <option value="resume">이력서</option>
               </select>
             </label>
             <label class="field">
               <span>소스</span>
               <select id="preview-source">
-                <option value="draft">현재 draft</option>
+                <option value="draft">현재 초안</option>
                 <option value="saved">저장된 프로젝트</option>
               </select>
             </label>
             <label class="field">
               <span>템플릿</span>
               <select id="preview-template">
-                <option value="default">default</option>
-                <option value="compact">compact</option>
+                <option value="default">기본</option>
+                <option value="compact">간단</option>
               </select>
             </label>
             <label class="field">
@@ -286,7 +276,7 @@
             <div class="section-header">
               <p class="eyebrow">Selection</p>
               <h3>저장된 프로젝트 선택</h3>
-              <p>Saved source를 선택한 경우 어떤 프로젝트를 문서에 포함할지 지정합니다.</p>
+              <p>저장된 프로젝트를 소스로 선택하면 어떤 프로젝트를 문서에 포함할지 지정합니다.</p>
             </div>
             <div id="preview-saved-projects" class="selection-list"></div>
             <div class="action-row">
@@ -300,7 +290,7 @@
             <div class="section-header">
               <p class="eyebrow">Rendered</p>
               <h3>문서 미리보기</h3>
-              <p>이 화면은 저장 전 draft도 그대로 렌더링합니다.</p>
+              <p>저장 전 초안도 이 화면에서 바로 미리볼 수 있습니다.</p>
             </div>
             <div id="preview-output" class="preview-output">
               <div class="empty-surface">Preview 버튼을 눌러 문서를 생성하세요.</div>
@@ -347,14 +337,14 @@
           <section class="studio-panel">
             <div class="section-header">
               <p class="eyebrow">AI</p>
-              <h3>AI Provider</h3>
-              <p>현재 프로젝트는 설정 후에만 AI intake와 문구 생성을 실행합니다. 수동 편집만으로도 저장과 preview는 가능합니다.</p>
+              <h3>AI 모델 설정</h3>
+              <p>AI를 설정하면 초안 자동 생성과 문구 작성 기능을 사용할 수 있습니다. 수동 작성만으로도 저장과 미리보기는 가능합니다.</p>
             </div>
             <div id="provider-list" class="provider-list"></div>
             <form id="form-ai" class="settings-form">
               <div class="field-grid">
                 <label class="field">
-                  <span>Provider</span>
+                  <span>제공자</span>
                   <select id="ai-name" name="name">
                     <option value="anthropic">Anthropic</option>
                     <option value="openai">OpenAI</option>
@@ -375,11 +365,11 @@
                 </div>
               </label>
               <label class="field hidden" id="field-base-url">
-                <span>Base URL</span>
+                <span>서버 주소 (Ollama 전용)</span>
                 <input type="url" id="ai-base-url" name="base_url" placeholder="http://localhost:11434" />
               </label>
               <div class="action-row action-row-end">
-                <button type="submit" class="btn btn-primary">Provider 저장</button>
+                <button type="submit" class="btn btn-primary">저장</button>
               </div>
             </form>
           </section>
@@ -387,13 +377,13 @@
           <section class="studio-panel">
             <div class="section-header">
               <p class="eyebrow">Output</p>
-              <h3>Export / Sync / General</h3>
+              <h3>내보내기 · 백업 · 일반</h3>
               <p>문서 기본 포맷과 GitHub 백업 설정을 한 곳에서 관리합니다.</p>
             </div>
 
             <div class="settings-grid">
               <form id="form-export" class="settings-form">
-                <h4>Export 기본값</h4>
+                <h4>내보내기 기본값</h4>
                 <label class="field">
                   <span>기본 포맷</span>
                   <select id="export-format" name="default_format">
@@ -408,8 +398,8 @@
                 <label class="field">
                   <span>기본 템플릿</span>
                   <select id="export-template" name="default_template">
-                    <option value="default">default</option>
-                    <option value="compact">compact</option>
+                    <option value="default">기본</option>
+                    <option value="compact">간단</option>
                   </select>
                 </label>
                 <label class="field">
@@ -417,12 +407,12 @@
                   <input type="text" id="export-output-dir" name="output_dir" placeholder="비워두면 기본 경로 사용" />
                 </label>
                 <div class="action-row action-row-end">
-                  <button type="submit" class="btn btn-secondary">Export 저장</button>
+                  <button type="submit" class="btn btn-secondary">내보내기 저장</button>
                 </div>
               </form>
 
               <form id="form-sync" class="settings-form">
-                <h4>GitHub Sync</h4>
+                <h4>GitHub 백업</h4>
                 <label class="field toggle-field">
                   <span>동기화 활성화</span>
                   <input type="checkbox" id="sync-enabled" name="enabled" />
@@ -436,7 +426,7 @@
                   <input type="text" id="sync-branch" name="branch" placeholder="main" />
                 </label>
                 <div class="action-row action-row-end">
-                  <button type="submit" class="btn btn-secondary">Sync 저장</button>
+                  <button type="submit" class="btn btn-secondary">백업 저장</button>
                 </div>
               </form>
 
@@ -455,7 +445,7 @@
                   <input type="text" id="general-tz" name="timezone" placeholder="Asia/Seoul" />
                 </label>
                 <label class="field">
-                  <span>기본 AI Provider</span>
+                  <span>기본 AI 제공자</span>
                   <input type="text" id="general-provider" name="default_ai_provider" placeholder="anthropic" />
                 </label>
                 <div class="action-row action-row-end">
