@@ -671,3 +671,135 @@ code {
   width: auto;
   margin: 0;
 }
+
+.guide-header {
+  margin-bottom: 2rem;
+}
+
+.guide-header h2 {
+  font-family: 'Space Grotesk', sans-serif;
+  letter-spacing: -0.04em;
+  font-size: clamp(1.8rem, 3.5vw, 2.6rem);
+  margin: 0.3rem 0 0.5rem;
+}
+
+.guide-steps {
+  display: grid;
+  gap: 1rem;
+  max-width: 760px;
+}
+
+.guide-step {
+  display: flex;
+  gap: 1.2rem;
+  align-items: flex-start;
+  padding: 1.4rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(14px);
+  transition: border-color 200ms ease;
+}
+
+.guide-step.done {
+  border-color: rgba(21, 115, 71, 0.35);
+  background: rgba(21, 115, 71, 0.04);
+}
+
+.guide-step-left {
+  flex-shrink: 0;
+}
+
+.step-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.guide-step.done .step-badge {
+  background: rgba(21, 115, 71, 0.14);
+  color: var(--success);
+}
+
+.guide-step-body {
+  flex: 1;
+}
+
+.guide-step-body h4 {
+  font-family: 'Space Grotesk', sans-serif;
+  letter-spacing: -0.03em;
+  margin: 0 0 0.4rem;
+  font-size: 1.2rem;
+}
+
+.guide-step-body p {
+  margin: 0 0 0.8rem;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.guide-step-body code {
+  display: inline-block;
+  margin-bottom: 0.8rem;
+}
+
+.guide-step-status {
+  font-size: 1.3rem;
+  flex-shrink: 0;
+  min-width: 1.6rem;
+  text-align: right;
+}
+
+.guide-step.done .guide-step-status::after {
+  content: '✓';
+  color: var(--success);
+  font-weight: 700;
+}
+
+.guide-provider-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.guide-link {
+  font-size: 0.9rem;
+  padding: 0.5rem 0.9rem;
+  min-height: auto;
+  text-decoration: none;
+}
+
+.guide-note {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: 0.3rem 0 0 !important;
+}
+
+.guide-complete {
+  margin-top: 1.4rem;
+  max-width: 760px;
+  padding: 1.2rem 1.4rem;
+  border-radius: var(--radius);
+  border: 1px solid rgba(21, 115, 71, 0.35);
+  background: rgba(21, 115, 71, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.guide-complete p {
+  margin: 0;
+  color: var(--success);
+  font-weight: 500;
+}

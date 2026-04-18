@@ -388,9 +388,30 @@ async function loadInitialData() {
     renderPreviewControls();
     renderPreviewOutput();
     syncProviderForm();
+    updateGuideSteps();
+    const initialized = document.body.dataset.initialized === 'true';
+    if (!initialized) switchTab('guide');
   } catch (error) {
     showToast(error.message || '초기 데이터를 불러오지 못했습니다.', 'error');
   }
+}
+
+function updateGuideSteps() {
+  const initialized = document.body.dataset.initialized === 'true';
+  const hasAI = state.config && state.config.ai_providers && state.config.ai_providers.length > 0;
+  const hasProjects = state.projects.length > 0;
+
+  const step1 = document.getElementById('guide-step-1');
+  const step3 = document.getElementById('guide-step-3');
+  const step4 = document.getElementById('guide-step-4');
+  const complete = document.getElementById('guide-complete');
+
+  if (step1) step1.classList.toggle('done', initialized);
+  if (step3) step3.classList.toggle('done', hasAI);
+  if (step4) step4.classList.toggle('done', hasProjects);
+
+  const allDone = initialized && hasAI && hasProjects;
+  if (complete) complete.classList.toggle('hidden', !allDone);
 }
 
 function applyConfigToForms() {
