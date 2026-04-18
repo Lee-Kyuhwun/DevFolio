@@ -608,7 +608,7 @@ def scan_git(body: GitScanRequest) -> dict[str, Any]:
         if body.analyze and scan_result.project_context:
             try:
                 scan_metrics = {
-                    "commits": scan_result.commit_count,
+                    "commits": len(scan_result.commits),
                     "period_months": 0,
                     "languages": {k: v for k, v in scan_result.languages.most_common(5)},
                 }
