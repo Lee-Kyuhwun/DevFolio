@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import platform
+import subprocess
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlparse
@@ -325,6 +327,10 @@ def _export_document(request: DraftPreviewRequest) -> dict[str, Any]:
     markdown, projects, template_name = _render_document(request)
     engine = ExportEngine()
 
+    output_dir: Path | None = None
+    if cfg.export.output_dir:
+        output_dir = Path(cfg.export.output_dir).expanduser().resolve()
+
     supported_formats = {
         "resume": {"md", "html", "pdf", "docx", "json", "csv"},
         "portfolio": {"md", "html", "pdf", "csv"},
@@ -339,13 +345,15 @@ def _export_document(request: DraftPreviewRequest) -> dict[str, Any]:
 
     filename = f"{request.doc_type}_{template_name}"
     if fmt == "json":
-        output_path = EXPORTS_DIR / f"{filename}.json"
+        base = output_dir or EXPORTS_DIR
+        base.mkdir(parents=True, exist_ok=True)
+        output_path = base / f"{filename}.json"
         output_path.write_text(
             json.dumps([project.model_dump() for project in projects], ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
     elif fmt == "csv":
-        output_path = engine.export_csv(projects, filename)
+        output_path = engine.export_csv(projects, filename, output_dir=output_dir)
     else:
         exporters = {
             "md": engine.export_markdown,
@@ -353,13 +361,14 @@ def _export_document(request: DraftPreviewRequest) -> dict[str, Any]:
             "pdf": engine.export_pdf,
             "docx": engine.export_docx,
         }
-        output_path = exporters[fmt](markdown, filename)
+        output_path = exporters[fmt](markdown, filename, output_dir=output_dir)
 
     return {
         "status": "ok",
         "doc_type": request.doc_type,
         "format": fmt,
         "path": str(output_path),
+        "folder": str(output_path.parent),
         "project_count": len(projects),
     }
 
@@ -864,3 +873,32 @@ def list_ai_models(
         raise HTTPException(status_code=400, detail=f"알 수 없는 제공자: {provider}")
 
     return {"provider": provider, "models": models}
+
+
+# ---------------------------------------------------------------------------
+# 파일 시스템 — 폴더 열기
+# ---------------------------------------------------------------------------
+
+@router.post("/fs/open-folder")
+def open_folder(path: str = "") -> dict[str, str]:
+    """OS 파일 탐색기에서 폴더를 연다."""
+    folder = Path(path).expanduser().resolve()
+    if not folder.exists():
+        raise HTTPException(status_code=404, detail=f"경로가 존재하지 않습니다: {path}")
+
+    home = Path.home().resolve()
+    if not str(folder).startswith(str(home)):
+        raise HTTPException(status_code=403, detail="홈 디렉터리 외부 경로는 열 수 없습니다.")
+
+    system = platform.system()
+    try:
+        if system == "Darwin":
+            subprocess.Popen(["open", str(folder)])
+        elif system == "Windows":
+            subprocess.Popen(["explorer", str(folder)])
+        else:
+            subprocess.Popen(["xdg-open", str(folder)])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"폴더를 열 수 없습니다: {exc}") from exc
+
+    return {"status": "ok", "path": str(folder)}

@@ -1256,7 +1256,23 @@ async function exportPreview() {
     const payload = buildPreviewPayload();
     const result = await apiPost(`/api/export/${state.preview.docType}`, payload);
     showToast(`내보내기 완료: ${result.path}`);
-    document.getElementById('preview-meta').textContent = `내보내기 완료 · ${result.format} · ${result.path}`;
+    const meta = document.getElementById('preview-meta');
+    meta.innerHTML = '';
+    const info = document.createElement('span');
+    info.textContent = `내보내기 완료 · ${result.format} · ${result.path}`;
+    meta.appendChild(info);
+    const openBtn = document.createElement('button');
+    openBtn.className = 'btn btn-sm btn-secondary';
+    openBtn.style.marginLeft = '10px';
+    openBtn.textContent = '폴더 열기';
+    openBtn.onclick = async () => {
+      try {
+        await apiPost(`/api/fs/open-folder?path=${encodeURIComponent(result.folder || result.path)}`);
+      } catch (e) {
+        showToast(`폴더를 열 수 없습니다: ${e.message}`);
+      }
+    };
+    meta.appendChild(openBtn);
   }, {
     title: '내보내기 실패',
     toastMessage: '내보내기에 실패했습니다.',

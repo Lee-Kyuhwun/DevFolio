@@ -107,11 +107,13 @@ class ExportEngine:
     # Markdown
     # ------------------------------------------------------------------
 
-    def export_markdown(self, content: str, filename: str) -> Path:
+    def export_markdown(self, content: str, filename: str, output_dir: Path | None = None) -> Path:
         filename = _sanitize_filename(filename)
         if not filename.endswith(".md"):
             filename = filename + ".md"
-        output_path = EXPORTS_DIR / filename
+        base = output_dir or EXPORTS_DIR
+        base.mkdir(parents=True, exist_ok=True)
+        output_path = _validate_output_path(base / filename)
         output_path.write_text(content, encoding="utf-8")
         return output_path
 
@@ -119,11 +121,13 @@ class ExportEngine:
     # PDF
     # ------------------------------------------------------------------
 
-    def export_pdf(self, content: str, filename: str) -> Path:
+    def export_pdf(self, content: str, filename: str, output_dir: Path | None = None) -> Path:
         filename = _sanitize_filename(filename)
         if not filename.endswith(".pdf"):
             filename = filename + ".pdf"
-        output_path = EXPORTS_DIR / filename
+        base = output_dir or EXPORTS_DIR
+        base.mkdir(parents=True, exist_ok=True)
+        output_path = _validate_output_path(base / filename)
 
         try:
             from weasyprint import CSS, HTML
@@ -150,11 +154,13 @@ class ExportEngine:
     # DOCX
     # ------------------------------------------------------------------
 
-    def export_docx(self, content: str, filename: str) -> Path:
+    def export_docx(self, content: str, filename: str, output_dir: Path | None = None) -> Path:
         filename = _sanitize_filename(filename)
         if not filename.endswith(".docx"):
             filename = filename + ".docx"
-        output_path = EXPORTS_DIR / filename
+        base = output_dir or EXPORTS_DIR
+        base.mkdir(parents=True, exist_ok=True)
+        output_path = _validate_output_path(base / filename)
 
         try:
             from docx import Document
@@ -174,11 +180,13 @@ class ExportEngine:
     # HTML
     # ------------------------------------------------------------------
 
-    def export_html(self, content: str, filename: str) -> Path:
+    def export_html(self, content: str, filename: str, output_dir: Path | None = None) -> Path:
         filename = _sanitize_filename(filename)
         if not filename.endswith(".html"):
             filename = filename + ".html"
-        output_path = EXPORTS_DIR / filename
+        base = output_dir or EXPORTS_DIR
+        base.mkdir(parents=True, exist_ok=True)
+        output_path = _validate_output_path(base / filename)
 
         html_body = self._md_to_html_body(content)
         full_html = self.build_html_document(html_body)
@@ -189,7 +197,7 @@ class ExportEngine:
     # CSV
     # ------------------------------------------------------------------
 
-    def export_csv(self, projects: "list[Project]", filename: str) -> Path:
+    def export_csv(self, projects: "list[Project]", filename: str, output_dir: Path | None = None) -> Path:
         """프로젝트 목록을 CSV로 내보낸다.
 
         각 행은 프로젝트 하나를 나타내며, 태스크 목록은 세미콜론으로 구분한다.
@@ -204,7 +212,9 @@ class ExportEngine:
         filename = _sanitize_filename(filename)
         if not filename.endswith(".csv"):
             filename = filename + ".csv"
-        output_path = EXPORTS_DIR / filename
+        base = output_dir or EXPORTS_DIR
+        base.mkdir(parents=True, exist_ok=True)
+        output_path = _validate_output_path(base / filename)
 
         fieldnames = [
             "id", "name", "type", "status", "organization",
