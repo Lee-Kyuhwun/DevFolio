@@ -496,9 +496,14 @@ async function loadModelsForProvider() {
     modelSelect.innerHTML = models.map(m =>
       `<option value="${escHtml(m)}"${m === defaultModel ? ' selected' : ''}>${escHtml(m)}</option>`
     ).join('');
-  } catch {
-    modelSelect.innerHTML = '<option value="">목록 불러오기 실패 — 직접 입력</option>';
-    showToast('모델 목록을 불러오지 못했습니다.', 'error');
+  } catch (err) {
+    const msg = err?.message || '';
+    let hint = '목록 불러오기 실패';
+    if (msg.includes('400') || msg.includes('API key')) hint = 'API 키가 올바르지 않습니다 (AIzaSy... 형식인지 확인)';
+    else if (msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED')) hint = 'quota 초과 — 잠시 후 다시 시도';
+    else if (msg.includes('401') || msg.includes('403')) hint = 'API 키 권한 오류';
+    modelSelect.innerHTML = `<option value="">${escHtml(hint)}</option>`;
+    showToast(hint, 'error');
   } finally {
     if (loadBtn) { loadBtn.textContent = prevLabel; loadBtn.disabled = false; }
   }
