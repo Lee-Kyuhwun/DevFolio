@@ -452,6 +452,10 @@ def upsert_ai_provider(body: AIProviderCreate) -> dict[str, str]:
     key_stored = False
     if body.api_key:
         key_stored = store_api_key(body.name, body.api_key)
+        if not key_stored:
+            # Docker 등 keyring이 없는 환경에서도 현재 실행 중인 서버에서는
+            # 바로 테스트할 수 있도록 프로세스 환경변수에 임시 반영한다.
+            os.environ[_env_var_name(body.name)] = body.api_key
 
     provider = AIProviderConfig(
         name=body.name,
