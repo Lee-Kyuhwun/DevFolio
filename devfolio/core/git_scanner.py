@@ -635,14 +635,13 @@ def _to_yyyymm(date_str: Optional[str]) -> Optional[str]:
 
 
 def _group_commits_into_tasks(
-    commits: list[CommitInfo], max_tasks: int = 6
+    commits: list[CommitInfo], max_tasks: int = 3
 ) -> list[dict]:
-    """커밋을 카테고리 + 연월로 묶어 Task 후보 dict 목록을 만든다."""
-    buckets: dict[tuple[str, str], list[CommitInfo]] = defaultdict(list)
+    """커밋을 카테고리별로 묶어 Task 후보 dict 목록을 만든다."""
+    buckets: dict[str, list[CommitInfo]] = defaultdict(list)
     for c in commits:
         cats = _categorize(c.subject) or ["feat"]
-        month = _to_yyyymm(c.date) or "unknown"
-        buckets[(cats[0], month)].append(c)
+        buckets[cats[0]].append(c)
 
     ranked = sorted(
         buckets.items(),
@@ -659,19 +658,16 @@ def _group_commits_into_tasks(
         "test": "테스트 보강", "security": "보안 강화",
     }
     tasks: list[dict] = []
-    for (category, month), bucket in ranked:
+    for category, bucket in ranked:
         months = sorted({_to_yyyymm(c.date) for c in bucket if _to_yyyymm(c.date)})
-        ins = sum(c.insertions for c in bucket)
-        dels = sum(c.deletions for c in bucket)
-        files_n = sum(c.files_changed for c in bucket)
         top_subjects = [c.subject for c in bucket[:3]]
         tasks.append({
-            "name": f"{cat_label.get(category, category)} ({month})",
+            "name": cat_label.get(category, category),
             "period_start": months[0] if months else None,
             "period_end": months[-1] if months else None,
             "problem": "",
             "solution": "\n".join(f"- {s}" for s in top_subjects),
-            "result": f"커밋 {len(bucket)}건 / +{ins} -{dels} LOC / {files_n}개 파일 변경",
+            "result": "",
             "keywords": [category],
         })
     return tasks
@@ -697,6 +693,7 @@ def _merge_ai_tasks(
                 "name": ai_task.get("name") or git_task["name"],
                 "problem": ai_task.get("problem") or git_task["problem"],
                 "solution": ai_task.get("solution") or git_task["solution"],
+                "result": ai_task.get("result") or "",
                 "tech_used": ai_task.get("tech_used") or [],
             })
         else:
@@ -732,17 +729,13 @@ def build_project_payload(
     period_end = _to_yyyymm(scan.last_date)
     top_langs = [lang for lang, _ in scan.languages.most_common(6)]
 
-    # 기본 summary (통계 기반)
-    summary_lines = [
-        f"{scan.repo_name} — 본인 커밋 {len(scan.commits)}건"
-        f" ({scan.authorship_ratio*100:.0f}% 기여)",
-        f"+{scan.total_insertions} / -{scan.total_deletions} LOC,"
-        f" {len(scan.files_touched)} 파일 변경",
-    ]
-    if scan.category_counts:
-        cats = ", ".join(f"{k}:{v}" for k, v in scan.category_counts.most_common())
-        summary_lines.append(f"커밋 분류: {cats}")
-    summary = " · ".join(summary_lines)
+    # 기본 summary (전체 통계 — 태스크별 raw 통계 대신 프로젝트 레벨에 집중)
+    ratio = scan.authorship_ratio * 100
+    summary = (
+        f"총 {len(scan.commits)}건의 커밋 기여 ({ratio:.0f}%) · "
+        f"+{scan.total_insertions:,} -{scan.total_deletions:,} LOC · "
+        f"{len(scan.files_touched)}개 파일 변경"
+    )
 
     git_tasks = _group_commits_into_tasks(scan.commits)
 

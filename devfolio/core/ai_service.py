@@ -564,7 +564,13 @@ class AIService:
   "tech_stack": ["실제 사용 기술 목록"],
   "summary": "포트폴리오용 한 줄 소개",
   "tasks": [
-    {"name": "작업명", "problem": "구체적 문제", "solution": "구현 방법", "tech_used": ["기술"]}
+    {
+      "name": "작업명",
+      "problem": "이 작업이 해결한 구체적 문제 (1~2문장)",
+      "solution": "구현 방법 (2~3문장)",
+      "tech_used": ["기술"],
+      "result": "정성적 성과 — 무엇을 달성했는지 1~2문장. 커밋 수·LOC 같은 raw 통계 제외"
+    }
   ]
 }"""
 
@@ -573,7 +579,10 @@ class AIService:
             f"다음 프로젝트 정보를 분석해 포트폴리오 초안을 JSON으로 작성해주세요.\n\n"
             f"{git_section}{readme_section}{deps_section}{files_section}"
             f"[출력 스키마]\n{schema}\n\n"
-            f"언어 지시: {lang_instr}\n"
+            f"[중요 규칙]\n"
+            f"- tasks는 2~3개로 제한하세요. 각 task는 프로젝트 내 독립적인 기능 영역을 나타냅니다.\n"
+            f"- tasks의 result 필드에는 정성적 성과만 작성하세요. 커밋 수·LOC 수치는 포함하지 마세요.\n"
+            f"- 언어 지시: {lang_instr}\n"
             f"반드시 위 스키마 형태의 JSON 객체만 반환하세요."
         )
 
