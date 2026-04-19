@@ -29,6 +29,13 @@ const DEFAULT_MODELS = {
   ollama: 'llama3.2',
 };
 
+// Gemini 무료 티어에서 RPD 무제한인 모델 (Google AI Studio 기준)
+const GEMINI_FREE_MODELS = new Set([
+  'gemini-2.0-flash',
+  'gemini-2.0-flash-lite',
+  'gemini-2.0-flash-exp',
+]);
+
 let toastTimer = null;
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -495,9 +502,12 @@ async function loadModelsForProvider() {
       return;
     }
     const defaultModel = DEFAULT_MODELS[provider] || '';
-    modelSelect.innerHTML = models.map(m =>
-      `<option value="${escHtml(m)}"${m === defaultModel ? ' selected' : ''}>${escHtml(m)}</option>`
-    ).join('');
+    modelSelect.innerHTML = models.map(m => {
+      const label = (provider === 'gemini' && GEMINI_FREE_MODELS.has(m))
+        ? `${m} (무료)`
+        : m;
+      return `<option value="${escHtml(m)}"${m === defaultModel ? ' selected' : ''}>${escHtml(label)}</option>`;
+    }).join('');
   } catch (err) {
     const msg = err?.message || '';
     let hint = '목록 불러오기 실패';
