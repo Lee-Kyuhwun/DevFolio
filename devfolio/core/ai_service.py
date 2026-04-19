@@ -121,14 +121,15 @@ def _extract_bullet_lines(text: str) -> list[str]:
 # AI 서비스 클래스
 # ---------------------------------------------------------------------------
 
-_MAX_RETRIES = 3
-_RETRY_DELAY = 2.0  # 초
+_MAX_RETRIES = 2
+# Rate limit 재시도는 RPM 리셋 주기(60초)에 맞춰야 의미가 있음
+# 짧은 간격 재시도는 quota만 낭비
+_RETRY_DELAY = 2.0  # 초 (일반 오류용)
+_RATE_LIMIT_RETRY_DELAY = 65.0  # 초 (rate limit 전용 — RPM 윈도우 넘김)
 
 _GENERATION_MODEL_ALIASES: dict[str, dict[str, str]] = {
     # Gemini stable snapshot -> generation-safe stable alias
     "gemini": {
-        "gemini-2.0-flash-001": "gemini-2.0-flash",
-        "gemini-2.0-flash-lite-001": "gemini-2.0-flash-lite",
         "gemini-2.5-flash-lite-001": "gemini-2.5-flash-lite",
     }
 }
@@ -140,12 +141,11 @@ _GENERATION_SAFE_MODEL_REGISTRY: dict[str, tuple[str, ...]] = {
         "claude-haiku-4-5-20251001",
     ),
     "openai": ("gpt-4o", "gpt-4o-mini", "gpt-4-turbo"),
-    # 무료 등급 우선 정렬 (출처: ai.google.dev/gemini-api/docs/pricing)
+    # 무료 등급 우선 정렬 (출처: ai.google.dev/gemini-api/docs/pricing 2026-04)
+    # gemini-2.0-flash / gemini-2.0-flash-lite: 2026-03 retire — 제거
     "gemini": (
-        "gemini-2.5-flash",        # 무료
-        "gemini-2.5-flash-lite",   # 무료
-        "gemini-2.0-flash",        # 무료
-        "gemini-2.0-flash-lite",   # 무료
+        "gemini-2.5-flash",        # 무료 10 RPM / 250 RPD
+        "gemini-2.5-flash-lite",   # 무료 15 RPM / 1000 RPD
         "gemini-2.5-pro",          # 유료
         "gemini-1.5-flash",        # 유료
         "gemini-1.5-pro",          # 유료
@@ -573,9 +573,19 @@ class AIService:
                             ),
                         ) from e
                     if "RateLimitError" in err_class or "RESOURCE_EXHAUSTED" in err_str:
+                        # 일일 한도(RPD) 초과는 자정까지 복구 안 됨 — 즉시 실패
+                        if "quota" in err_str.lower() and "day" in err_str.lower():
+                            raise DevfolioAIRateLimitError(provider.name) from e
+                        # RPM 초과: 60초 뒤에야 윈도우가 리셋됨.
+                        # 짧은 간격 재시도는 quota만 낭비하므로 1회만 재시도
                         if attempt < _MAX_RETRIES:
-                            logger.warning("Rate limit 발생, %0.1f초 후 재시도 (%d/%d)", _RETRY_DELAY * attempt, attempt, _MAX_RETRIES)
-                            time.sleep(_RETRY_DELAY * attempt)
+                            logger.warning(
+                                "Rate limit 발생, %0.0f초 후 재시도 (%d/%d) — 무료 RPM 한도 초과",
+                                _RATE_LIMIT_RETRY_DELAY,
+                                attempt,
+                                _MAX_RETRIES,
+                            )
+                            time.sleep(_RATE_LIMIT_RETRY_DELAY)
                             continue
                         raise DevfolioAIRateLimitError(provider.name) from e
                     last_error = e

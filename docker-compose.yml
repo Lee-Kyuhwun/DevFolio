@@ -24,6 +24,9 @@ services:
       - DEVFOLIO_LOG_LEVEL=${DEVFOLIO_LOG_LEVEL:-INFO}
       - DEVFOLIO_LANG=${DEVFOLIO_LANG:-ko}
     command: ["serve", "--host", "0.0.0.0", "--no-open", "--reload"]
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     restart: unless-stopped
 
 volumes:
