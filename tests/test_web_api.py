@@ -90,9 +90,12 @@ def test_index_renders_portfolio_studio_shell(client):
 
     assert response.status_code == 200
     assert "Portfolio Studio" in response.text
-    assert "Intake" in response.text
+    assert "Home" in response.text
+    assert "Compose" in response.text
+    assert "Library" in response.text
     assert "Preview" in response.text
     assert "Settings" in response.text
+    assert "백엔드 개발자 포트폴리오를 구조화하고 문서까지 완성하는 로컬 우선 스튜디오" in response.text
 
 
 def test_upsert_ai_provider_uses_default_model_when_omitted(client):
