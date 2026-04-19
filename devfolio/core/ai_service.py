@@ -434,6 +434,7 @@ class AIService:
         system_prompt: str,
         user_prompt: str,
         provider_name: Optional[str] = None,
+        json_mode: bool = False,
     ) -> str:
         """system/user 2턴 호출 호환용 래퍼."""
         return self._call_messages(
@@ -442,6 +443,7 @@ class AIService:
                 {"role": "user", "content": user_prompt},
             ],
             provider_name=provider_name,
+            json_mode=json_mode,
         )
 
     @staticmethod
@@ -456,24 +458,36 @@ class AIService:
     @staticmethod
     def _extract_json(raw: str) -> dict:
         cleaned = raw.strip()
-        fenced = re.search(r"```(?:json)?\s*(.*?)```", cleaned, re.DOTALL)
-        if fenced:
-            cleaned = fenced.group(1).strip()
 
-        try:
-            payload = json.loads(cleaned)
-        except json.JSONDecodeError as e:
-            raise DevfolioAIError(
-                "AI가 구조화 초안을 올바른 JSON으로 반환하지 않았습니다.",
-                hint="다시 시도하거나 모델 응답 형식을 점검하세요.",
-            ) from e
+        def _try_parse(text: str) -> dict | None:
+            try:
+                payload = json.loads(text.strip())
+                return payload if isinstance(payload, dict) else None
+            except json.JSONDecodeError:
+                return None
 
-        if not isinstance(payload, dict):
-            raise DevfolioAIError(
-                "AI가 프로젝트 초안을 객체 형태로 반환하지 않았습니다.",
-                hint="다시 시도하거나 다른 AI Provider를 선택하세요.",
-            )
-        return payload
+        # 1. 코드 펜스 내부 추출
+        for fenced in re.finditer(r"```(?:json)?\s*(.*?)```", cleaned, re.DOTALL):
+            result = _try_parse(fenced.group(1))
+            if result is not None:
+                return result
+
+        # 2. 직접 파싱
+        result = _try_parse(cleaned)
+        if result is not None:
+            return result
+
+        # 3. 응답 내 첫 번째 {...} 블록 추출 (모델이 앞뒤에 텍스트를 붙인 경우)
+        brace_match = re.search(r"\{[\s\S]*\}", cleaned)
+        if brace_match:
+            result = _try_parse(brace_match.group(0))
+            if result is not None:
+                return result
+
+        raise DevfolioAIError(
+            "AI가 구조화 초안을 올바른 JSON으로 반환하지 않았습니다.",
+            hint="다시 시도하거나 모델 응답 형식을 점검하세요.",
+        )
 
     @staticmethod
     def _draft_project_to_project(draft: ProjectDraft) -> Project:
@@ -551,6 +565,7 @@ class AIService:
         provider_name: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        json_mode: bool = False,
     ) -> str:
         """litellm 호출 (메시지 배열 직접 사용)."""
         try:
@@ -569,6 +584,9 @@ class AIService:
             kwargs["temperature"] = temperature
         if max_tokens is not None:
             kwargs["max_tokens"] = max_tokens
+        # JSON 구조화 응답이 필요한 호출에서만 json_object 요청
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
         if provider.base_url:
             kwargs["api_base"] = provider.base_url
 
@@ -774,6 +792,7 @@ class AIService:
             provider_name=provider_name,
             temperature=0.0,
             max_tokens=1200,
+            json_mode=True,
         )
         return ReviewResult.model_validate(self._extract_json(raw))
 
@@ -1000,7 +1019,7 @@ class AIService:
 {raw_text}
 </project_brief>"""
 
-        payload = self._extract_json(self._call(_INTAKE_SYSTEM, prompt, provider_name))
+        payload = self._extract_json(self._call(_INTAKE_SYSTEM, prompt, provider_name, json_mode=True))
         payload.setdefault("name", "")
         payload.setdefault("type", "company")
         payload.setdefault("status", "done")
@@ -1199,7 +1218,7 @@ class AIService:
             f"반드시 위 스키마 형태의 JSON 객체만 반환하세요."
         )
 
-        raw = self._call(_CODE_ANALYSIS_SYSTEM, prompt, provider_name)
+        raw = self._call(_CODE_ANALYSIS_SYSTEM, prompt, provider_name, json_mode=True)
         payload = self._extract_json(raw)
 
         # 필수 키 보장 (AI가 일부 생략할 경우 대비)
