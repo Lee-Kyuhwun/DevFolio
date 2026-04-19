@@ -294,6 +294,46 @@ def test_preview_resume_accepts_unsaved_draft(client):
     assert "저장 전 미리보기 테스트" in payload["html"]
 
 
+def test_preview_portfolio_renders_ai_generated_task_text(client):
+    response = client.post(
+        "/api/preview/portfolio",
+        json={
+            "source": "draft",
+            "draft_project": {
+                "name": "포트폴리오 프로젝트",
+                "type": "company",
+                "status": "done",
+                "organization": "DevFolio",
+                "period": {"start": "2024-01", "end": "2024-02"},
+                "role": "백엔드",
+                "team_size": 1,
+                "tech_stack": ["Python", "FastAPI"],
+                "summary": "더 긴 포트폴리오 렌더링 테스트",
+                "tags": ["portfolio"],
+                "tasks": [
+                    {
+                        "name": "AI 문구 작업",
+                        "period": {"start": "2024-01", "end": "2024-02"},
+                        "problem": "기존 포트폴리오 설명이 너무 짧음",
+                        "solution": "AI 생성 문구와 상세 메타를 함께 렌더링",
+                        "result": "프로젝트 설명 밀도 개선",
+                        "tech_used": ["FastAPI", "Jinja2"],
+                        "keywords": ["portfolio"],
+                        "ai_generated_text": "- 핵심 작업을 구조화해 설명 밀도를 높였습니다.\n- 구현 선택과 결과를 한 번에 읽히도록 정리했습니다.",
+                    }
+                ],
+            },
+            "template": "default",
+            "format": "html",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert "핵심 작업을 구조화해 설명 밀도를 높였습니다." in payload["markdown"]
+    assert "사용 기술" in payload["markdown"]
+
+
 def test_intake_project_draft_endpoint_returns_structured_draft(client):
     fake_draft = ProjectDraft(
         name="AI 초안 프로젝트",

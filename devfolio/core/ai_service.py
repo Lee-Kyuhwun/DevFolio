@@ -725,14 +725,14 @@ class AIService:
             return 4 <= len(_extract_bullet_lines(text)) <= 6
         if mode == "project_summary":
             sentences = _sentence_count(text)
-            return 4 <= sentences <= 6
+            return 5 <= sentences <= 7
         return bool(text.strip())
 
     def _format_validation_feedback(self, mode: str) -> str:
         if mode == "resume_bullets":
-            return "반드시 '- '로 시작하는 bullet 4~6개를 작성하고, 각 bullet에 행동·기술/맥락·결과를 모두 포함하세요."
+            return "반드시 '- '로 시작하는 bullet 4~6개를 작성하고, 각 bullet에 행동·기술/맥락·결과를 모두 포함하며 너무 짧게 끝내지 마세요."
         if mode == "project_summary":
-            return "반드시 4~6문장으로 작성하고, 책임 범위·문제 맥락·핵심 구현·결과를 모두 포함하세요."
+            return "반드시 5~7문장으로 작성하고, 책임 범위·문제 맥락·핵심 구현·기술 선택 이유·결과를 모두 포함하세요."
         return "출력 계약을 정확히 지켜 다시 작성하세요."
 
     def generate_with_review(
@@ -817,7 +817,7 @@ class AIService:
         profile = GenerationProfile(
             mode="resume_bullets",
             language=lang,
-            max_tokens=1800,
+            max_tokens=2200,
         )
         result, _ = self.generate_with_review(
             evidence=evidence,
@@ -837,7 +837,7 @@ class AIService:
         profile = GenerationProfile(
             mode="project_summary",
             language=lang,
-            max_tokens=2200,
+            max_tokens=2800,
         )
         result, _ = self.generate_with_review(
             evidence=evidence,

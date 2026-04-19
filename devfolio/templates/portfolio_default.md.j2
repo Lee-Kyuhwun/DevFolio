@@ -26,7 +26,21 @@
 {% if project.tasks %}
 {% for task in project.tasks %}
 **{{ task.name }}**
-{{ task.result }}
+{% if task.ai_generated_text %}
+{{ task.ai_generated_text }}
+{% endif %}
+{% if task.problem %}
+- 문제: {{ task.problem }}
+{% endif %}
+{% if task.solution %}
+- 해결: {{ task.solution }}
+{% endif %}
+{% if task.result %}
+- 성과: {{ task.result }}
+{% endif %}
+{% if task.tech_used %}
+- 사용 기술: {{ task.tech_used | join(', ') }}
+{% endif %}
 
 {% endfor %}
 {% endif %}

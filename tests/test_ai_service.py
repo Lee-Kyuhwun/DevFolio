@@ -252,11 +252,11 @@ class TestGenerateProjectSummary:
     def test_returns_ai_result(self):
         service = AIService(make_config())
         service._call_messages = MagicMock(side_effect=[
-            "첫째 문장입니다. 둘째 문장입니다. 셋째 문장입니다. 넷째 문장입니다.",
+            "첫째 문장입니다. 둘째 문장입니다. 셋째 문장입니다. 넷째 문장입니다. 다섯째 문장입니다.",
             '{"pass": true, "scores": {"factuality": 5}, "issues": [], "missing_points": [], "revision_instructions": []}',
         ])
         result = service.generate_project_summary(make_project(), lang="ko")
-        assert "넷째 문장입니다." in result
+        assert "다섯째 문장입니다." in result
 
     def test_includes_tasks_in_prompt(self):
         service = AIService(make_config())
@@ -265,7 +265,7 @@ class TestGenerateProjectSummary:
         def capture(messages, provider_name=None, temperature=None, max_tokens=None):
             if "writer_user" not in captured:
                 captured["writer_user"] = messages[1]["content"]
-                return "첫째 문장입니다. 둘째 문장입니다. 셋째 문장입니다. 넷째 문장입니다."
+                return "첫째 문장입니다. 둘째 문장입니다. 셋째 문장입니다. 넷째 문장입니다. 다섯째 문장입니다."
             return '{"pass": true, "scores": {"factuality": 5}, "issues": [], "missing_points": [], "revision_instructions": []}'
 
         service._call_messages = capture
@@ -278,13 +278,13 @@ class TestGenerateProjectSummary:
         service = AIService(make_config())
         service._call_messages = MagicMock(side_effect=[
             "짧은 첫 문장입니다. 둘째 문장입니다. 셋째 문장입니다.",
-            '{"pass": false, "scores": {"output_contract": 2}, "issues": ["문장이 짧음"], "missing_points": ["운영상 효과"], "revision_instructions": ["4~6문장으로 늘리고 결과를 보강하세요."]}',
-            "첫째 문장입니다. 둘째 문장입니다. 셋째 문장입니다. 넷째 문장입니다.",
+            '{"pass": false, "scores": {"output_contract": 2}, "issues": ["문장이 짧음"], "missing_points": ["운영상 효과"], "revision_instructions": ["5~7문장으로 늘리고 결과를 보강하세요."]}',
+            "첫째 문장입니다. 둘째 문장입니다. 셋째 문장입니다. 넷째 문장입니다. 다섯째 문장입니다.",
         ])
 
         result = service.generate_project_summary(make_project(), lang="ko")
 
-        assert "넷째 문장" in result
+        assert "다섯째 문장" in result
         assert service._call_messages.call_count == 3
 
 
@@ -392,13 +392,13 @@ class TestDraftAugmentation:
             tasks=[TaskDraft(name="작업", result="성과")],
         )
         service._call_messages = MagicMock(side_effect=[
-            "첫째 문장입니다. 둘째 문장입니다. 셋째 문장입니다. 넷째 문장입니다.",
+            "첫째 문장입니다. 둘째 문장입니다. 셋째 문장입니다. 넷째 문장입니다. 다섯째 문장입니다.",
             '{"pass": true, "scores": {"factuality": 5}, "issues": [], "missing_points": [], "revision_instructions": []}',
         ])
 
         result = service.generate_draft_project_summary(draft, lang="ko")
 
-        assert "넷째 문장입니다." in result
+        assert "다섯째 문장입니다." in result
         assert service._call_messages.call_count == 2
 
     def test_generate_draft_task_texts_updates_each_task(self):
