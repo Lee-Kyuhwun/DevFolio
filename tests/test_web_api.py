@@ -8,7 +8,7 @@ import pytest
 from devfolio.core import storage
 from devfolio.core.project_manager import ProjectManager
 from devfolio.exceptions import DevfolioError
-from devfolio.models.config import Config
+from devfolio.models.config import AIProviderConfig, Config
 from devfolio.models.draft import ProjectDraft, TaskDraft
 
 fastapi = pytest.importorskip("fastapi")
@@ -128,6 +128,31 @@ def test_upsert_ai_provider_normalizes_legacy_gemini_alias(client):
     providers = listed.json()["ai_providers"]
     assert providers[0]["name"] == "gemini"
     assert providers[0]["model"] == "gemini-2.0-flash-001"
+
+
+def test_get_config_auto_normalizes_legacy_gemini_and_exposes_warning(client):
+    cfg = storage.load_config()
+    cfg.default_ai_provider = "gemini"
+    cfg.upsert_provider(
+        AIProviderConfig(
+            name="gemini",
+            model="gemini-2.0-flash",
+            key_stored=True,
+        )
+    )
+    storage.save_config(cfg)
+
+    response = client.get("/api/config")
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["general"]["legacy_default_ai_model_warning"]
+    assert payload["ai_providers"][0]["is_legacy_model"] is True
+    assert "자동으로 최신 snapshot ID로 보정" in payload["ai_providers"][0]["model_warning"]
+    assert payload["ai_providers"][0]["model"] == "gemini-2.0-flash-001"
+
+    reloaded = storage.load_config()
+    assert reloaded.ai_providers[0].model == "gemini-2.0-flash-001"
 
 
 def test_upsert_ai_provider_exposes_runtime_env_when_keyring_unavailable(client):

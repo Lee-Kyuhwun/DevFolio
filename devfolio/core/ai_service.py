@@ -125,11 +125,11 @@ _MAX_RETRIES = 3
 _RETRY_DELAY = 2.0  # 초
 
 _MODEL_ALIASES: dict[str, dict[str, str]] = {
-    # versioned ID → litellm alias (litellm은 alias만 인식, versioned ID 불가)
+    # 저장된 구형 alias → 실제 사용 가능한 snapshot ID
     "gemini": {
-        "gemini-2.0-flash-001": "gemini-2.0-flash",
-        "gemini-2.0-flash-lite-001": "gemini-2.0-flash-lite",
-        "gemini-2.5-flash-lite-001": "gemini-2.5-flash-lite",
+        "gemini-2.0-flash": "gemini-2.0-flash-001",
+        "gemini-2.0-flash-lite": "gemini-2.0-flash-lite-001",
+        "gemini-2.5-flash-lite": "gemini-2.5-flash-lite-001",
     }
 }
 
@@ -138,16 +138,14 @@ def normalize_provider_model_name(provider_name: str, model_name: str) -> str:
     normalized = (model_name or "").strip().removeprefix("models/")
     if not normalized:
         return normalized
-    # 명시적 alias 매핑 우선 적용
-    explicit = _MODEL_ALIASES.get(provider_name, {}).get(normalized)
-    if explicit:
-        return explicit
-    # Gemini: 알 수 없는 versioned suffix(-NNN)를 제거해 alias로 변환
-    if provider_name == "gemini":
-        alias = re.sub(r"-\d{3}$", "", normalized)
-        if alias != normalized:
-            return alias
-    return normalized
+    return _MODEL_ALIASES.get(provider_name, {}).get(normalized, normalized)
+
+
+def is_legacy_provider_model(provider_name: str, model_name: str) -> bool:
+    normalized = (model_name or "").strip().removeprefix("models/")
+    if not normalized:
+        return False
+    return normalized in _MODEL_ALIASES.get(provider_name, {})
 
 
 class EvidenceTask(BaseModel):
@@ -246,26 +244,26 @@ class AIService:
             )
         return provider
 
-    def _model_string(self, provider: AIProviderConfig) -> str:
-        """litellm 모델 문자열 반환."""
-        model_name = normalize_provider_model_name(provider.name, provider.model)
+    @staticmethod
+    def _provider_model_string(provider_name: str, model_name: str) -> str:
         mapping = {
             "anthropic": f"anthropic/{model_name}",
             "openai": model_name,
             "gemini": f"gemini/{model_name}",
             "ollama": f"ollama/{model_name}",
         }
-        return mapping.get(provider.name, model_name)
+        return mapping.get(provider_name, model_name)
+
+    def _model_string(self, provider: AIProviderConfig) -> str:
+        """litellm 모델 문자열 반환."""
+        model_name = normalize_provider_model_name(provider.name, provider.model)
+        return self._provider_model_string(provider.name, model_name)
 
     def _runtime_model_candidates(self, provider: AIProviderConfig) -> list[str]:
-        # normalize로 litellm alias를 얻고 원본도 폴백으로 유지
+        raw_model = provider.model.strip().removeprefix("models/")
         normalized = normalize_provider_model_name(provider.name, provider.model)
-        candidates: list[str] = []
-        for candidate in [normalized, provider.model.strip()]:
-            candidate = candidate.removeprefix("models/")
-            if candidate and candidate not in candidates:
-                candidates.append(candidate)
-        return candidates
+        candidates = [candidate for candidate in [raw_model, normalized] if candidate]
+        return list(dict.fromkeys(candidates))
 
     def _set_env_key(self, provider: AIProviderConfig) -> None:
         """API 키를 환경 변수에 설정 (litellm이 읽도록)."""
@@ -428,9 +426,7 @@ class AIService:
         last_error: Exception = RuntimeError("알 수 없는 오류")
         model_candidates = self._runtime_model_candidates(provider)
         for model_index, runtime_model in enumerate(model_candidates, start=1):
-            kwargs["model"] = self._model_string(
-                provider.model_copy(update={"model": runtime_model})
-            )
+            kwargs["model"] = self._provider_model_string(provider.name, runtime_model)
             for attempt in range(1, _MAX_RETRIES + 1):
                 try:
                     logger.debug(

@@ -25,7 +25,7 @@ const state = {
 const DEFAULT_MODELS = {
   anthropic: 'claude-sonnet-4-20250514',
   openai: 'gpt-4o',
-  gemini: 'gemini-2.0-flash-lite-001',
+  gemini: 'gemini-2.0-flash-001',
   ollama: 'llama3.2',
 };
 
@@ -245,6 +245,35 @@ function closeDirectoryDialog() {
   dialog.setAttribute('aria-hidden', 'true');
 }
 
+function getConfiguredProvider(name) {
+  if (!name) return null;
+  return (state.config?.ai_providers || []).find(provider => provider.name === name) || null;
+}
+
+function getScanAnalysisProvider() {
+  const selectedName = document.getElementById('scan-provider')?.value || '';
+  if (selectedName) {
+    return getConfiguredProvider(selectedName);
+  }
+  const defaultName = state.config?.general?.default_ai_provider || '';
+  return getConfiguredProvider(defaultName);
+}
+
+function updateScanProviderWarning() {
+  const warningEl = document.getElementById('scan-provider-warning');
+  if (!warningEl) return;
+
+  const analyze = document.getElementById('scan-analyze')?.checked || false;
+  const provider = getScanAnalysisProvider();
+  const defaultWarning = state.config?.general?.legacy_default_ai_model_warning || '';
+  const warning = analyze
+    ? provider?.model_warning || (!document.getElementById('scan-provider')?.value ? defaultWarning : '')
+    : '';
+
+  warningEl.textContent = warning;
+  warningEl.classList.toggle('hidden', !warning);
+}
+
 async function loadDirectoryDialog(path = '') {
   await runUserAction(null, '', async () => {
     const query = path ? `?path=${encodeURIComponent(path)}` : '';
@@ -454,7 +483,9 @@ function bindGlobalActions() {
     const visible = event.target.checked;
     const langField = document.getElementById('scan-lang-field');
     if (langField) langField.style.display = visible ? '' : 'none';
+    updateScanProviderWarning();
   });
+  document.getElementById('scan-provider')?.addEventListener('change', updateScanProviderWarning);
 
   document.getElementById('ai-name')?.addEventListener('change', () => {
     syncProviderForm();
@@ -838,6 +869,8 @@ function populateProviders() {
       }
     });
   });
+
+  updateScanProviderWarning();
 }
 
 function syncProviderForm() {

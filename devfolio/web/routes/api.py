@@ -13,7 +13,11 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ValidationError
 
-from devfolio.core.ai_service import AIService, normalize_provider_model_name
+from devfolio.core.ai_service import (
+    AIService,
+    is_legacy_provider_model,
+    normalize_provider_model_name,
+)
 from devfolio.core.export_engine import ExportEngine
 from devfolio.core.project_manager import ProjectManager
 from devfolio.core.storage import EXPORTS_DIR, load_config, save_config
@@ -108,9 +112,16 @@ def _raise_from_devfolio(exc: DevfolioError, status_code: int = 400) -> None:
     raise HTTPException(status_code=status_code, detail=_format_error(exc)) from exc
 
 
-def _build_provider_list(cfg) -> list[dict[str, Any]]:
+def _build_provider_list(
+    cfg,
+    legacy_models: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
     result = []
+    legacy_models = legacy_models or {}
     for provider in cfg.ai_providers:
+        normalized_model = normalize_provider_model_name(provider.name, provider.model)
+        was_legacy_model = legacy_models.get(provider.name, "")
+        is_legacy_model = bool(was_legacy_model) or is_legacy_provider_model(provider.name, provider.model)
         key = get_api_key(provider.name)
         if key:
             masked = mask_api_key(key)
@@ -122,14 +133,36 @@ def _build_provider_list(cfg) -> list[dict[str, Any]]:
         result.append(
             {
                 "name": provider.name,
-                "model": normalize_provider_model_name(provider.name, provider.model),
+                "model": normalized_model,
                 "key_stored": provider.key_stored,
                 "key_masked": masked,
                 "base_url": provider.base_url,
                 "is_default": provider.name == cfg.default_ai_provider,
+                "is_legacy_model": is_legacy_model,
+                "model_warning": (
+                    f"구형 Gemini 모델 alias({was_legacy_model or provider.model})가 자동으로 최신 snapshot ID로 보정되었습니다."
+                    if is_legacy_model
+                    else ""
+                ),
             }
         )
     return result
+
+
+def _load_config_with_normalized_models():
+    cfg = load_config()
+    changed = False
+    legacy_models: dict[str, str] = {}
+    for index, provider in enumerate(cfg.ai_providers):
+        if is_legacy_provider_model(provider.name, provider.model):
+            legacy_models[provider.name] = provider.model
+        normalized_model = normalize_provider_model_name(provider.name, provider.model)
+        if normalized_model and normalized_model != provider.model:
+            cfg.ai_providers[index] = provider.model_copy(update={"model": normalized_model})
+            changed = True
+    if changed:
+        save_config(cfg)
+    return cfg, legacy_models
 
 
 def _env_var_name(provider: str) -> str:
@@ -147,7 +180,7 @@ def _default_model_name(provider: str) -> str:
     mapping = {
         "anthropic": "claude-sonnet-4-20250514",
         "openai": "gpt-4o",
-        "gemini": "gemini-2.5-flash-preview-04-17",
+        "gemini": "gemini-2.0-flash-001",
         "ollama": "llama3.2",
     }
     return mapping.get(provider, "")
@@ -380,7 +413,11 @@ def _export_document(request: DraftPreviewRequest) -> dict[str, Any]:
 @router.get("/config")
 def get_config() -> dict[str, Any]:
     """전체 설정을 반환합니다 (API 키는 마스킹)."""
-    cfg = load_config()
+    cfg, legacy_models = _load_config_with_normalized_models()
+    default_provider = next(
+        (provider for provider in cfg.ai_providers if provider.name == cfg.default_ai_provider),
+        None,
+    )
     return {
         "user": cfg.user.model_dump(),
         "export": cfg.export.model_dump(),
@@ -389,8 +426,13 @@ def get_config() -> dict[str, Any]:
             "default_language": cfg.default_language,
             "timezone": cfg.timezone,
             "default_ai_provider": cfg.default_ai_provider,
+            "legacy_default_ai_model_warning": (
+                f"기본 AI 제공자 '{cfg.default_ai_provider}'의 구형 Gemini 모델 alias가 자동으로 최신 snapshot ID로 보정되었습니다."
+                if default_provider and default_provider.name in legacy_models
+                else ""
+            ),
         },
-        "ai_providers": _build_provider_list(cfg),
+        "ai_providers": _build_provider_list(cfg, legacy_models),
         "initialized": True,
     }
 
@@ -450,8 +492,8 @@ def update_general(body: GeneralConfigUpdate) -> dict[str, str]:
 
 @router.get("/config/ai")
 def list_ai_providers() -> list[dict[str, Any]]:
-    cfg = load_config()
-    return _build_provider_list(cfg)
+    cfg, legacy_models = _load_config_with_normalized_models()
+    return _build_provider_list(cfg, legacy_models)
 
 
 @router.post("/config/ai")
@@ -499,7 +541,7 @@ def remove_ai_provider(name: str) -> dict[str, str]:
 
 @router.post("/config/ai/{name}/test")
 def test_ai_provider(name: str) -> dict[str, Any]:
-    cfg = load_config()
+    cfg, _ = _load_config_with_normalized_models()
     provider = cfg.get_provider(name)
     if not provider:
         raise HTTPException(status_code=404, detail=f"Provider '{name}'를 찾을 수 없습니다.")
@@ -583,7 +625,7 @@ def scan_git(body: GitScanRequest) -> dict[str, Any]:
 
     try:
         repo_path, translated_from = _resolve_scan_repo_path(body.repo_path)
-        cfg = load_config()
+        cfg, _ = _load_config_with_normalized_models()
         author_email = (body.author_email or cfg.user.email or "").strip()
         if not author_email:
             raise DevfolioError(
@@ -692,7 +734,8 @@ def delete_project(project_id: str) -> dict[str, str]:
 @router.post("/intake/project-draft")
 def intake_project_draft(body: DraftIntakeRequest) -> dict[str, Any]:
     try:
-        draft = AIService(load_config()).generate_project_draft(
+        cfg, _ = _load_config_with_normalized_models()
+        draft = AIService(cfg).generate_project_draft(
             raw_text=body.raw_text,
             lang=body.lang,
             provider_name=body.provider,
@@ -705,7 +748,8 @@ def intake_project_draft(body: DraftIntakeRequest) -> dict[str, Any]:
 @router.post("/draft/generate-summary")
 def generate_draft_summary(body: DraftAIRequest) -> dict[str, Any]:
     try:
-        summary = AIService(load_config()).generate_draft_project_summary(
+        cfg, _ = _load_config_with_normalized_models()
+        summary = AIService(cfg).generate_draft_project_summary(
             draft=body.draft,
             lang=body.lang,
             provider_name=body.provider,
@@ -719,7 +763,8 @@ def generate_draft_summary(body: DraftAIRequest) -> dict[str, Any]:
 @router.post("/draft/generate-task-bullets")
 def generate_draft_task_bullets(body: DraftAIRequest) -> dict[str, Any]:
     try:
-        draft = AIService(load_config()).generate_draft_task_texts(
+        cfg, _ = _load_config_with_normalized_models()
+        draft = AIService(cfg).generate_draft_task_texts(
             draft=body.draft,
             lang=body.lang,
             provider_name=body.provider,
@@ -733,7 +778,8 @@ def generate_draft_task_bullets(body: DraftAIRequest) -> dict[str, Any]:
 def generate_project_summary(project_id: str, body: SavedAIRequest) -> dict[str, Any]:
     try:
         project = pm.get_project_or_raise(project_id)
-        summary = AIService(load_config()).generate_project_summary(
+        cfg, _ = _load_config_with_normalized_models()
+        summary = AIService(cfg).generate_project_summary(
             project=project,
             lang=body.lang,
             provider_name=body.provider,
@@ -751,7 +797,8 @@ def generate_project_task_bullets(project_id: str, body: SavedAIRequest) -> dict
     try:
         project = pm.get_project_or_raise(project_id)
         draft = pm.draft_from_project(project)
-        updated_draft = AIService(load_config()).generate_draft_task_texts(
+        cfg, _ = _load_config_with_normalized_models()
+        updated_draft = AIService(cfg).generate_draft_task_texts(
             draft=draft,
             lang=body.lang,
             provider_name=body.provider,

@@ -115,6 +115,20 @@ class TestProviderConfig:
         provider = service.config.get_provider("gemini")
         assert service._model_string(provider) == "gemini/gemini-2.0-flash-001"
 
+    def test_runtime_model_candidates_include_legacy_alias_and_snapshot_fallback(self):
+        config = Config()
+        config.default_ai_provider = "gemini"
+        config.ai_providers = [
+            AIProviderConfig(name="gemini", model="gemini-2.0-flash")
+        ]
+        service = AIService(config)
+        provider = service.config.get_provider("gemini")
+
+        assert service._runtime_model_candidates(provider) == [
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-001",
+        ]
+
 
 # ---------------------------------------------------------------------------
 # API 키 처리
@@ -486,7 +500,10 @@ class TestRetryLogic:
             result = service._call("system", "user", "gemini")
 
         assert result == "ok"
-        assert fake_litellm.completion.call_count >= 1
+        assert [call.kwargs["model"] for call in fake_litellm.completion.call_args_list] == [
+            "gemini/gemini-2.0-flash",
+            "gemini/gemini-2.0-flash-001",
+        ]
 
 
 # ---------------------------------------------------------------------------
