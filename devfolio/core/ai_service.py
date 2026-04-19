@@ -144,9 +144,9 @@ _GENERATION_SAFE_MODEL_REGISTRY: dict[str, tuple[str, ...]] = {
     # 무료 등급 우선 정렬 (출처: ai.google.dev/gemini-api/docs/pricing 2026-04)
     # gemini-2.0-flash / gemini-2.0-flash-lite: 2026-03 retire — 제거
     "gemini": (
+        "gemini-2.5-flash-lite",   # 무료 15 RPM / 1000 RPD ← 기본값
         "gemini-2.5-flash",        # 무료 10 RPM / 250 RPD
-        "gemini-2.5-flash-lite",   # 무료 15 RPM / 1000 RPD
-        "gemini-2.5-pro",          # 유료
+        "gemini-2.5-pro",          # 무료 5 RPM / 100 RPD
         "gemini-1.5-flash",        # 유료
         "gemini-1.5-pro",          # 유료
     ),
