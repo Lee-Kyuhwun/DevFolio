@@ -57,7 +57,7 @@ where = ["."]
 include = ["devfolio*"]
 
 [tool.setuptools.package-data]
-devfolio = ["templates/*.j2", "web/templates/*.html", "web/static/*"]
+devfolio = ["templates/*.j2", "web/templates/*.html", "web/static/*", "prompts/ko/*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

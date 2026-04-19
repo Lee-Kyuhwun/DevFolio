@@ -1,10 +1,14 @@
 """AI Provider 추상화 서비스 (litellm 기반, lazy import)."""
 
+from dataclasses import dataclass
 import json
 import os
+from pathlib import Path
 import re
 import time
 from typing import Optional
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from devfolio.exceptions import (
     DevfolioAIAuthError,
@@ -135,6 +139,82 @@ def normalize_provider_model_name(provider_name: str, model_name: str) -> str:
     return _MODEL_ALIASES.get(provider_name, {}).get(normalized, normalized)
 
 
+class EvidenceTask(BaseModel):
+    name: str = ""
+    period: dict[str, Optional[str]] = Field(default_factory=dict)
+    problem: str = ""
+    solution: str = ""
+    result: str = ""
+    tech_used: list[str] = Field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list)
+
+
+class PortfolioEvidence(BaseModel):
+    name: str
+    project_type: str = ""
+    status: str = ""
+    role: str = ""
+    organization: str = ""
+    team_size: int = 1
+    period: dict[str, Optional[str]] = Field(default_factory=dict)
+    summary: str = ""
+    problem: list[str] = Field(default_factory=list)
+    actions: list[str] = Field(default_factory=list)
+    results: list[str] = Field(default_factory=list)
+    metrics: list[str] = Field(default_factory=list)
+    constraints: list[str] = Field(default_factory=list)
+    tech_stack: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    audience_value: list[str] = Field(default_factory=list)
+    tasks: list[EvidenceTask] = Field(default_factory=list)
+    focus_task: Optional[EvidenceTask] = None
+    raw_text: str = ""
+
+
+class ReviewResult(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    passed: bool = Field(alias="pass")
+    scores: dict[str, int] = Field(default_factory=dict)
+    issues: list[str] = Field(default_factory=list)
+    missing_points: list[str] = Field(default_factory=list)
+    revision_instructions: list[str] = Field(default_factory=list)
+
+
+@dataclass
+class GenerationProfile:
+    mode: str
+    language: str = "ko"
+    audience: str = "백엔드/플랫폼/풀스택 개발자 채용 담당자"
+    priority_keywords: tuple[str, ...] = (
+        "확장성",
+        "유지보수성",
+        "안정성",
+        "개발 생산성",
+    )
+    temperature: float = 0.3
+    max_tokens: int = 2200
+
+
+@dataclass
+class PromptPack:
+    system_prompt: str
+    user_prompt: str
+    review_prompt: str
+
+    @classmethod
+    def load(cls, lang: str = "ko") -> "PromptPack":
+        root = Path(__file__).resolve().parent.parent / "prompts" / lang
+        return cls(
+            system_prompt=(root / "system_prompt.md").read_text(encoding="utf-8"),
+            user_prompt=(root / "user_prompt.md").read_text(encoding="utf-8"),
+            review_prompt=(root / "review_prompt.md").read_text(encoding="utf-8"),
+        )
+
+
+_PROMPT_PACK_CACHE: dict[str, PromptPack] = {}
+
+
 class AIService:
     def __init__(self, config: Config):
         self.config = config
@@ -205,86 +285,14 @@ class AIService:
         user_prompt: str,
         provider_name: Optional[str] = None,
     ) -> str:
-        """litellm 호출 (재시도 + 예외 변환 포함, lazy import)."""
-        try:
-            import litellm  # lazy import for fast CLI startup
-        except ImportError:
-            raise DevfolioAIError(
-                "litellm이 설치되지 않았습니다.",
-                hint="`pip install devfolio[ai]`로 AI 의존성을 설치하세요.",
-            )
-
-        provider = self._get_provider(provider_name)
-        self._set_env_key(provider)
-
-        kwargs: dict = {
-            "messages": [
+        """system/user 2턴 호출 호환용 래퍼."""
+        return self._call_messages(
+            [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-        }
-        if provider.base_url:
-            kwargs["api_base"] = provider.base_url
-
-        last_error: Exception = RuntimeError("알 수 없는 오류")
-        model_candidates = self._runtime_model_candidates(provider)
-        for model_index, runtime_model in enumerate(model_candidates, start=1):
-            kwargs["model"] = self._model_string(
-                provider.model_copy(update={"model": runtime_model})
-            )
-            for attempt in range(1, _MAX_RETRIES + 1):
-                try:
-                    logger.debug(
-                        "AI 호출 시도 %d/%d (model=%s, candidate=%d/%d)",
-                        attempt,
-                        _MAX_RETRIES,
-                        kwargs["model"],
-                        model_index,
-                        len(model_candidates),
-                    )
-                    response = litellm.completion(**kwargs)
-                    return response.choices[0].message.content or ""
-                except Exception as e:
-                    err_class = type(e).__name__
-                    err_str = str(e)
-                    if "AuthenticationError" in err_class or "Unauthorized" in err_class:
-                        raise DevfolioAIAuthError(provider.name) from e
-                    if "NotFoundError" in err_class or ('"code": 404' in err_str and "NOT_FOUND" in err_str):
-                        last_error = e
-                        if model_index < len(model_candidates):
-                            logger.warning(
-                                "모델을 찾지 못해 대체 후보로 재시도합니다: requested=%s fallback=%s",
-                                provider.model,
-                                model_candidates[model_index],
-                            )
-                            break
-                        raise DevfolioAIError(
-                            f"모델을 찾을 수 없습니다: {provider.model}",
-                            hint="설정 탭에서 모델 목록을 새로고침(↻)하고 다른 모델을 선택한 뒤 저장하세요.",
-                        ) from e
-                    # quota 한도가 0인 경우 — 재시도 없이 즉시 안내
-                    if "limit: 0" in err_str or "free_tier_requests" in err_str:
-                        raise DevfolioAIError(
-                            f"{provider.name} 무료 티어 할당량이 0입니다.",
-                            hint=(
-                                "Google AI Studio는 결제 수단을 등록해야 무료 quota가 활성화됩니다. "
-                                "https://aistudio.google.com 에서 결제 정보를 등록하거나 "
-                                "다른 AI 제공자(Anthropic 등)로 전환하세요."
-                            ),
-                        ) from e
-                    if "RateLimitError" in err_class or "RESOURCE_EXHAUSTED" in err_str:
-                        if attempt < _MAX_RETRIES:
-                            logger.warning("Rate limit 발생, %0.1f초 후 재시도 (%d/%d)", _RETRY_DELAY * attempt, attempt, _MAX_RETRIES)
-                            time.sleep(_RETRY_DELAY * attempt)
-                            continue
-                        raise DevfolioAIRateLimitError(provider.name) from e
-                    last_error = e
-                    logger.warning("AI 호출 실패 (%d/%d): %s", attempt, _MAX_RETRIES, e)
-                    if attempt < _MAX_RETRIES:
-                        time.sleep(_RETRY_DELAY)
-                        continue
-                    break
-        raise DevfolioAIError(str(last_error)) from last_error
+            provider_name=provider_name,
+        )
 
     @staticmethod
     def _language_instruction(lang: str) -> str:
@@ -349,88 +357,205 @@ class AIService:
         )
 
     @staticmethod
-    def _join_values(values: list[str], fallback: str = "없음") -> str:
-        cleaned = [value.strip() for value in values if isinstance(value, str) and value.strip()]
-        return ", ".join(cleaned) if cleaned else fallback
+    def _prompt_pack(lang: str = "ko") -> PromptPack:
+        if lang not in _PROMPT_PACK_CACHE:
+            _PROMPT_PACK_CACHE[lang] = PromptPack.load(lang)
+        return _PROMPT_PACK_CACHE[lang]
 
     @staticmethod
-    def _execution_scope(team_size: int) -> str:
-        return "단독 수행" if team_size <= 1 else f"{team_size}명 팀 내 담당"
+    def _period_dict(period) -> dict[str, Optional[str]]:
+        return {
+            "start": getattr(period, "start", None),
+            "end": getattr(period, "end", None),
+        }
 
-    def _portfolio_style_guide(self) -> str:
-        return """[현업형 작성 가이드]
-- 독자는 채용 담당자와 실무 리드입니다. 읽기 쉬우면서도 기술적 판단이 보여야 합니다.
-- 반드시 책임 범위, 문제 맥락, 핵심 기술 판단, 구현/개선 내용, 결과 또는 운영상 효과를 드러내세요.
-- 추상적 미사여구, 근거 없는 '최적화/혁신/완성도 확보', 의미 없는 기술 나열은 피하세요.
-- 같은 의미의 동사나 문장 구조를 반복하지 마세요."""
+    @staticmethod
+    def _extract_metrics(text: str) -> list[str]:
+        if not text:
+            return []
+        fragments = re.split(r"[,.]| 및 | 그리고 ", text)
+        return [fragment.strip() for fragment in fragments if re.search(r"\d", fragment)]
 
-    def _format_task_context(self, task: Task) -> str:
-        return "\n".join(
-            [
-                f"작업명: {task.name}",
-                f"기간: {task.period.display()}",
-                f"문제 상황: {task.problem or '명시되지 않음'}",
-                f"해결 방법: {task.solution or '명시되지 않음'}",
-                f"성과/영향: {task.result or '명시되지 않음'}",
-                f"사용 기술: {self._join_values(task.tech_used)}",
-                f"키워드: {self._join_values(task.keywords)}",
-            ]
-        )
+    @staticmethod
+    def _derive_audience_value(results: list[str]) -> list[str]:
+        lowered = " ".join(results).lower()
+        values: list[str] = []
+        keyword_map = {
+            "안정성": ("다운타임", "오류", "장애", "stability", "availability"),
+            "유지보수성": ("리팩터", "유지보수", "표준화", "maintain", "refactor"),
+            "개발 생산성": ("자동화", "배포 시간", "생산성", "workflow", "ci"),
+            "확장성": ("확장", "스케일", "멀티", "확장성", "scale"),
+        }
+        for label, terms in keyword_map.items():
+            if any(term in lowered for term in terms):
+                values.append(label)
+        return values
 
-    def _format_project_context(self, project: Project) -> str:
-        task_lines = []
-        for index, task in enumerate(project.tasks, start=1):
-            task_lines.append(
-                "\n".join(
-                    [
-                        f"[Task {index}]",
-                        self._format_task_context(task),
-                    ]
-                )
+    @classmethod
+    def _format_priority_keywords(cls, keywords: tuple[str, ...]) -> str:
+        return "\n".join(f"- {keyword}" for keyword in keywords)
+
+    def _call_messages(
+        self,
+        messages: list[dict[str, str]],
+        provider_name: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> str:
+        """litellm 호출 (메시지 배열 직접 사용)."""
+        try:
+            import litellm  # lazy import for fast CLI startup
+        except ImportError:
+            raise DevfolioAIError(
+                "litellm이 설치되지 않았습니다.",
+                hint="`pip install devfolio[ai]`로 AI 의존성을 설치하세요.",
             )
 
-        tasks_section = "\n\n".join(task_lines) if task_lines else "작업 내역 없음"
-        return "\n".join(
-            [
-                f"프로젝트명: {project.name}",
-                f"프로젝트 유형: {project.type_display()} / 상태: {project.status_display()}",
-                f"기간: {project.period.display()}",
-                f"소속: {project.organization or '명시되지 않음'}",
-                f"역할: {project.role or '명시되지 않음'}",
-                f"수행 범위: {self._execution_scope(project.team_size)}",
-                f"기술 스택: {self._join_values(project.tech_stack)}",
-                f"태그: {self._join_values(project.tags)}",
-                f"기존 요약: {project.summary or '없음'}",
-                "",
-                "[주요 작업 내역]",
-                tasks_section,
-            ]
-        )
+        provider = self._get_provider(provider_name)
+        self._set_env_key(provider)
 
-    def _task_prompt_guide(self) -> str:
-        return "\n".join(
-            [
-                self._portfolio_style_guide(),
-                "[작업 bullet 규칙]",
-                "- bullet point 3~5개만 작성하세요.",
-                "- 각 bullet은 '행동 + 대상/문제 + 기술적 결정/구현 + 결과' 흐름을 따르세요.",
-                "- 작업명 자체를 반복하지 말고, 구현 사실과 효과를 한 줄 안에서 연결하세요.",
-                "- '기능을 개발했습니다', '안정성과 완성도를 높였습니다', '사용자 경험을 개선했습니다'처럼 근거 없는 문장을 쓰지 마세요.",
-            ]
-        )
+        kwargs: dict = {"messages": messages}
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
+        if provider.base_url:
+            kwargs["api_base"] = provider.base_url
 
-    def _project_prompt_guide(self) -> str:
-        return "\n".join(
-            [
-                self._portfolio_style_guide(),
-                "[프로젝트 소개 문단 규칙]",
-                "- 소개 문단은 4~6문장으로 작성하세요.",
-                "- 1문장: 프로젝트 성격과 본인 역할/책임 범위",
-                "- 2문장: 해결하려던 문제나 도메인 맥락",
-                "- 3~4문장: 핵심 기술적 실행 또는 개선 포인트",
-                "- 마지막 문장: 결과, 운영상 효과, 안정성/유지보수성 측면의 임팩트",
-                "- 기술 스택은 단순 나열하지 말고 어떤 문제 해결에 연결됐는지 문장 안에서 설명하세요.",
-            ]
+        last_error: Exception = RuntimeError("알 수 없는 오류")
+        model_candidates = self._runtime_model_candidates(provider)
+        for model_index, runtime_model in enumerate(model_candidates, start=1):
+            kwargs["model"] = self._model_string(
+                provider.model_copy(update={"model": runtime_model})
+            )
+            for attempt in range(1, _MAX_RETRIES + 1):
+                try:
+                    logger.debug(
+                        "AI 호출 시도 %d/%d (model=%s, candidate=%d/%d)",
+                        attempt,
+                        _MAX_RETRIES,
+                        kwargs["model"],
+                        model_index,
+                        len(model_candidates),
+                    )
+                    response = litellm.completion(**kwargs)
+                    return response.choices[0].message.content or ""
+                except Exception as e:
+                    err_class = type(e).__name__
+                    err_str = str(e)
+                    if "AuthenticationError" in err_class or "Unauthorized" in err_class:
+                        raise DevfolioAIAuthError(provider.name) from e
+                    if "NotFoundError" in err_class or ('"code": 404' in err_str and "NOT_FOUND" in err_str):
+                        last_error = e
+                        if model_index < len(model_candidates):
+                            logger.warning(
+                                "모델을 찾지 못해 대체 후보로 재시도합니다: requested=%s fallback=%s",
+                                provider.model,
+                                model_candidates[model_index],
+                            )
+                            break
+                        raise DevfolioAIError(
+                            f"모델을 찾을 수 없습니다: {provider.model}",
+                            hint="설정 탭에서 모델 목록을 새로고침(↻)하고 다른 모델을 선택한 뒤 저장하세요.",
+                        ) from e
+                    if "limit: 0" in err_str or "free_tier_requests" in err_str:
+                        raise DevfolioAIError(
+                            f"{provider.name} 무료 티어 할당량이 0입니다.",
+                            hint=(
+                                "Google AI Studio는 결제 수단을 등록해야 무료 quota가 활성화됩니다. "
+                                "https://aistudio.google.com 에서 결제 정보를 등록하거나 "
+                                "다른 AI 제공자(Anthropic 등)로 전환하세요."
+                            ),
+                        ) from e
+                    if "RateLimitError" in err_class or "RESOURCE_EXHAUSTED" in err_str:
+                        if attempt < _MAX_RETRIES:
+                            logger.warning("Rate limit 발생, %0.1f초 후 재시도 (%d/%d)", _RETRY_DELAY * attempt, attempt, _MAX_RETRIES)
+                            time.sleep(_RETRY_DELAY * attempt)
+                            continue
+                        raise DevfolioAIRateLimitError(provider.name) from e
+                    last_error = e
+                    logger.warning("AI 호출 실패 (%d/%d): %s", attempt, _MAX_RETRIES, e)
+                    if attempt < _MAX_RETRIES:
+                        time.sleep(_RETRY_DELAY)
+                        continue
+                    break
+        raise DevfolioAIError(str(last_error)) from last_error
+
+    def build_evidence(
+        self,
+        project: Optional[Project] = None,
+        task: Optional[Task] = None,
+        raw_text: str = "",
+    ) -> PortfolioEvidence:
+        if task and not project:
+            results = [task.result] if task.result else []
+            return PortfolioEvidence(
+                name=task.name or "Task",
+                period=self._period_dict(task.period),
+                problem=[task.problem] if task.problem else [],
+                actions=[task.solution] if task.solution else [],
+                results=results,
+                metrics=self._extract_metrics(task.result),
+                tech_stack=list(task.tech_used),
+                audience_value=self._derive_audience_value(results),
+                tasks=[
+                    EvidenceTask(
+                        name=task.name,
+                        period=self._period_dict(task.period),
+                        problem=task.problem,
+                        solution=task.solution,
+                        result=task.result,
+                        tech_used=task.tech_used,
+                        keywords=task.keywords,
+                    )
+                ],
+                focus_task=EvidenceTask(
+                    name=task.name,
+                    period=self._period_dict(task.period),
+                    problem=task.problem,
+                    solution=task.solution,
+                    result=task.result,
+                    tech_used=task.tech_used,
+                    keywords=task.keywords,
+                ),
+                raw_text=raw_text,
+            )
+
+        if not project:
+            raise DevfolioAIError("프로젝트 또는 작업 evidence가 필요합니다.")
+
+        results = [item.result for item in project.tasks if item.result]
+        evidence_tasks = [
+            EvidenceTask(
+                name=item.name,
+                period=self._period_dict(item.period),
+                problem=item.problem,
+                solution=item.solution,
+                result=item.result,
+                tech_used=item.tech_used,
+                keywords=item.keywords,
+            )
+            for item in project.tasks
+        ]
+        return PortfolioEvidence(
+            name=project.name,
+            project_type=project.type,
+            status=project.status,
+            role=project.role,
+            organization=project.organization,
+            team_size=project.team_size,
+            period=self._period_dict(project.period),
+            summary=project.summary,
+            problem=[item.problem for item in project.tasks if item.problem],
+            actions=[item.solution for item in project.tasks if item.solution],
+            results=results,
+            metrics=[metric for item in results for metric in self._extract_metrics(item)],
+            constraints=[],
+            tech_stack=project.tech_stack,
+            tags=project.tags,
+            audience_value=self._derive_audience_value(results),
+            tasks=evidence_tasks,
+            raw_text=raw_text,
         )
 
     def _intake_prompt_guide(self) -> str:
@@ -444,44 +569,131 @@ class AIService:
             ]
         )
 
-    def _call_with_quality_retry(
+    def _render_generation_prompt(
         self,
-        system_prompt: str,
-        user_prompt: str,
-        provider_name: Optional[str],
-        validator,
-        retry_instruction: str,
-        failure_message: str,
+        prompt_pack: PromptPack,
+        evidence: PortfolioEvidence,
+        profile: GenerationProfile,
     ) -> str:
-        response = _strip_preamble(self._call(system_prompt, user_prompt, provider_name))
-        if validator(response):
-            return response
+        evidence_json = json.dumps(
+            evidence.model_dump(),
+            ensure_ascii=False,
+            indent=2,
+        )
+        return prompt_pack.user_prompt.format(
+            project_evidence_json=evidence_json,
+            output_mode=profile.mode,
+            audience=profile.audience,
+            priority_keywords=self._format_priority_keywords(profile.priority_keywords),
+            language=profile.language,
+        )
 
-        retry_prompt = (
+    def _review_generated_text(
+        self,
+        prompt_pack: PromptPack,
+        evidence: PortfolioEvidence,
+        draft_text: str,
+        profile: GenerationProfile,
+        provider_name: Optional[str],
+    ) -> ReviewResult:
+        evidence_json = json.dumps(
+            evidence.model_dump(),
+            ensure_ascii=False,
+            indent=2,
+        )
+        review_prompt = prompt_pack.review_prompt.format(
+            project_evidence_json=evidence_json,
+            draft_text=draft_text,
+            output_mode=profile.mode,
+        )
+        raw = self._call_messages(
+            [
+                {"role": "system", "content": "리뷰어는 반드시 JSON 객체만 반환한다."},
+                {"role": "user", "content": review_prompt},
+            ],
+            provider_name=provider_name,
+            temperature=0.0,
+            max_tokens=1200,
+        )
+        return ReviewResult.model_validate(self._extract_json(raw))
+
+    def _validate_generated_output(self, mode: str, text: str) -> bool:
+        if mode == "resume_bullets":
+            return 4 <= len(_extract_bullet_lines(text)) <= 6
+        if mode == "project_summary":
+            sentences = _sentence_count(text)
+            return 4 <= sentences <= 6
+        return bool(text.strip())
+
+    def _format_validation_feedback(self, mode: str) -> str:
+        if mode == "resume_bullets":
+            return "반드시 '- '로 시작하는 bullet 4~6개를 작성하고, 각 bullet에 행동·기술/맥락·결과를 모두 포함하세요."
+        if mode == "project_summary":
+            return "반드시 4~6문장으로 작성하고, 책임 범위·문제 맥락·핵심 구현·결과를 모두 포함하세요."
+        return "출력 계약을 정확히 지켜 다시 작성하세요."
+
+    def generate_with_review(
+        self,
+        *,
+        evidence: PortfolioEvidence,
+        profile: GenerationProfile,
+        provider_name: Optional[str] = None,
+    ) -> tuple[str, ReviewResult]:
+        prompt_pack = self._prompt_pack("ko")
+        user_prompt = self._render_generation_prompt(prompt_pack, evidence, profile)
+        writer_messages = [
+            {"role": "system", "content": prompt_pack.system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        draft = _strip_preamble(
+            self._call_messages(
+                writer_messages,
+                provider_name=provider_name,
+                temperature=profile.temperature,
+                max_tokens=profile.max_tokens,
+            )
+        )
+        review = self._review_generated_text(
+            prompt_pack,
+            evidence,
+            draft,
+            profile,
+            provider_name,
+        )
+        if review.passed and self._validate_generated_output(profile.mode, draft):
+            return draft, review
+
+        revision_payload = json.dumps(
+            review.model_dump(by_alias=True),
+            ensure_ascii=False,
+            indent=2,
+        )
+        revised_prompt = (
             f"{user_prompt}\n\n"
-            f"[추가 교정 지시]\n"
-            f"{retry_instruction}"
+            f"<review_result>\n{revision_payload}\n</review_result>\n\n"
+            f"<revision_rules>\n"
+            f"- 리뷰의 revision_instructions와 missing_points를 모두 반영할 것.\n"
+            f"- evidence 밖의 사실은 추가하지 말 것.\n"
+            f"- {self._format_validation_feedback(profile.mode)}\n"
+            f"</revision_rules>"
         )
-        response = _strip_preamble(self._call(system_prompt, retry_prompt, provider_name))
-        if validator(response):
-            return response
-
-        raise DevfolioAIError(
-            failure_message,
-            hint="같은 작업을 다시 시도하거나 다른 AI Provider로 재생성해보세요.",
+        revised = _strip_preamble(
+            self._call_messages(
+                [
+                    {"role": "system", "content": prompt_pack.system_prompt},
+                    {"role": "user", "content": revised_prompt},
+                ],
+                provider_name=provider_name,
+                temperature=profile.temperature,
+                max_tokens=profile.max_tokens,
+            )
         )
-
-    @staticmethod
-    def _is_good_project_summary(text: str) -> bool:
-        sentences = _sentence_count(text)
-        if sentences >= 4:
-            return True
-        return sentences >= 3 and len(text.strip()) >= 180
-
-    @staticmethod
-    def _is_good_task_bullets(text: str) -> bool:
-        bullet_lines = _extract_bullet_lines(text)
-        return 3 <= len(bullet_lines) <= 5
+        if not self._validate_generated_output(profile.mode, revised):
+            raise DevfolioAIError(
+                "AI가 출력 형식을 충분히 지키지 못했습니다.",
+                hint="같은 작업을 다시 시도하거나 다른 AI Provider로 재생성해보세요.",
+            )
+        return revised, review
 
     # ------------------------------------------------------------------
     # 공개 API
@@ -498,23 +710,18 @@ class AIService:
         if task.ai_generated_text and not force_refresh:
             return task.ai_generated_text
 
-        prompt = f"""다음 작업 정보를 바탕으로 현업형 achievement bullet을 작성해주세요.
-
-[작업 컨텍스트]
-{self._format_task_context(task)}
-
-{self._task_prompt_guide()}
-언어 지시: {self._language_instruction(lang)}
-설명 없이 bullet point 목록만 반환하세요."""
-
-        return self._call_with_quality_retry(
-            _TASK_SYSTEM,
-            prompt,
-            provider_name,
-            validator=self._is_good_task_bullets,
-            retry_instruction="반드시 bullet point 3~5개만 작성하고, 각 bullet은 구현 사실과 결과를 함께 드러내세요.",
-            failure_message="AI가 현업형 작업 bullet 형식을 충분히 지키지 못했습니다.",
+        evidence = self.build_evidence(task=task)
+        profile = GenerationProfile(
+            mode="resume_bullets",
+            language=lang,
+            max_tokens=1800,
         )
+        result, _ = self.generate_with_review(
+            evidence=evidence,
+            profile=profile,
+            provider_name=provider_name,
+        )
+        return result
 
     def generate_project_summary(
         self,
@@ -523,23 +730,18 @@ class AIService:
         provider_name: Optional[str] = None,
     ) -> str:
         """프로젝트 전체 요약 생성."""
-        prompt = f"""다음 프로젝트 정보를 바탕으로 현업형 프로젝트 소개 문단을 작성해주세요.
-
-[프로젝트 컨텍스트]
-{self._format_project_context(project)}
-
-{self._project_prompt_guide()}
-언어 지시: {self._language_instruction(lang)}
-소개 문단 텍스트만 반환하세요. 인사말이나 부연 설명 없이 본문만 작성하세요."""
-
-        return self._call_with_quality_retry(
-            _PROJECT_SYSTEM,
-            prompt,
-            provider_name,
-            validator=self._is_good_project_summary,
-            retry_instruction="문단을 4~6문장으로 보강하고, 책임 범위·문제 맥락·핵심 구현·결과가 모두 드러나게 다시 작성하세요.",
-            failure_message="AI가 프로젝트 소개 문단을 충분한 밀도로 생성하지 못했습니다.",
+        evidence = self.build_evidence(project=project)
+        profile = GenerationProfile(
+            mode="project_summary",
+            language=lang,
+            max_tokens=2200,
         )
+        result, _ = self.generate_with_review(
+            evidence=evidence,
+            profile=profile,
+            provider_name=provider_name,
+        )
+        return result
 
     def generate_full_resume(
         self,
@@ -584,9 +786,11 @@ class AIService:
         provider_name: Optional[str] = None,
     ) -> ProjectDraft:
         """자유 텍스트를 구조화된 프로젝트 초안으로 변환한다."""
-        prompt = f"""다음 자유 텍스트를 읽고 개발자 포트폴리오용 프로젝트 초안 JSON으로 구조화해주세요.
+        prompt = f"""<task>
+다음 자유 텍스트를 읽고 개발자 포트폴리오용 프로젝트 초안 JSON으로 구조화해주세요.
+</task>
 
-요구 사항:
+<instructions>
 - 사실로 보이지 않는 정보는 추측하지 말고 빈 문자열 또는 null로 두세요.
 - type은 company, side, course 중 하나만 사용하세요.
 - status는 done, in_progress, planned 중 하나만 사용하세요.
@@ -597,10 +801,13 @@ class AIService:
 - summary는 과장된 마케팅 문구보다 프로젝트 성격과 역할이 드러나는 짧은 초안으로 작성하세요.
 - 자유 텍스트에 운영, 배포, 성능, 안정성, 자동화 관련 단서가 있으면 적절한 task나 keywords에 반영하세요.
 - 응답은 JSON 객체만 반환하세요.
+</instructions>
 
+<extraction_priorities>
 {self._intake_prompt_guide()}
+</extraction_priorities>
 
-출력 스키마:
+<output_schema>
 {{
   "name": "",
   "type": "company",
@@ -625,11 +832,13 @@ class AIService:
     }}
   ]
 }}
+</output_schema>
 
-언어 지시: {self._language_instruction(lang)}
+<language_instruction>{self._language_instruction(lang)}</language_instruction>
 
-[자유 텍스트]
-{raw_text}"""
+<project_brief>
+{raw_text}
+</project_brief>"""
 
         payload = self._extract_json(self._call(_INTAKE_SYSTEM, prompt, provider_name))
         payload.setdefault("name", "")
