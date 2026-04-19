@@ -68,13 +68,43 @@ def _project_text_blob(project: Project) -> str:
         task_bits.extend([task.name, task.problem, task.solution, task.result])
         task_bits.extend(task.tech_used)
         task_bits.extend(task.keywords)
+    flow_bits = []
+    for step in project.user_flow:
+        flow_bits.extend([step.title, step.description])
+    feature_bits = []
+    for feature in project.features:
+        feature_bits.extend([feature.name, feature.user_value, feature.implementation])
+    case_bits = []
+    for case in project.problem_solving_cases:
+        case_bits.extend(
+            [case.title, case.situation, case.cause, case.action, case.decision_reason, case.result, case.metric]
+        )
+        case_bits.extend(case.tech_used)
     values = [
         project.name,
+        project.one_line_summary,
         project.summary,
         project.role,
         project.organization,
+        project.overview.background,
+        project.overview.problem,
+        *project.overview.target_users,
+        *project.overview.goals,
+        *project.overview.non_goals,
         *project.tech_stack,
         *project.tags,
+        *flow_bits,
+        project.architecture.summary,
+        *feature_bits,
+        *case_bits,
+        *project.performance_security_operations.performance,
+        *project.performance_security_operations.security,
+        *project.performance_security_operations.operations,
+        *project.results.qualitative,
+        *project.retrospective.what_went_well,
+        *project.retrospective.what_was_hard,
+        *project.retrospective.what_i_learned,
+        *project.retrospective.next_steps,
         *task_bits,
     ]
     return " ".join(str(value or "") for value in values).lower()
@@ -107,6 +137,22 @@ def _stack_layers(project: Project) -> list[tuple[str, list[str], str]]:
 
 
 def describe_tech_stack(project: Project) -> str:
+    detail_sections = [
+        ("프론트엔드", project.tech_stack_detail.frontend),
+        ("백엔드", project.tech_stack_detail.backend),
+        ("데이터베이스", project.tech_stack_detail.database),
+        ("인프라", project.tech_stack_detail.infra),
+        ("도구", project.tech_stack_detail.tools),
+    ]
+    detail_lines = [
+        f"- **{title}**: {item.name} — {item.reason}"
+        for title, items in detail_sections
+        for item in items
+        if item.name or item.reason
+    ]
+    if detail_lines:
+        return "\n".join(detail_lines)
+
     layers = _stack_layers(project)
     if not layers:
         return "- 별도 기술 스택 정보가 없습니다."
@@ -117,6 +163,16 @@ def describe_tech_stack(project: Project) -> str:
 
 
 def describe_project_purpose(project: Project) -> str:
+    if project.overview.background or project.overview.problem or project.overview.goals:
+        parts: list[str] = []
+        if project.overview.background:
+            parts.append(project.overview.background.strip())
+        if project.overview.problem:
+            parts.append(f"핵심적으로는 {project.overview.problem.strip()} 문제를 해결하는 데 초점을 맞췄습니다.")
+        if project.overview.goals:
+            parts.append(f"주요 목표는 {', '.join(project.overview.goals[:3])}입니다.")
+        return " ".join(parts)
+
     summary = " ".join((project.summary or "").split())
     problems = _task_texts(project, "problem")
     results = _task_texts(project, "result")
@@ -146,7 +202,34 @@ def describe_project_purpose(project: Project) -> str:
     return " ".join(sentences)
 
 
+def describe_problem_definition(project: Project) -> str:
+    lines: list[str] = []
+    if project.overview.background:
+        lines.append(f"- **배경**: {project.overview.background}")
+    if project.overview.problem:
+        lines.append(f"- **핵심 문제**: {project.overview.problem}")
+    if project.overview.target_users:
+        lines.append(f"- **대상 사용자**: {', '.join(project.overview.target_users)}")
+    if project.overview.goals:
+        lines.append(f"- **목표**: {', '.join(project.overview.goals)}")
+    if project.overview.non_goals:
+        lines.append(f"- **비범위**: {', '.join(project.overview.non_goals)}")
+    if lines:
+        return "\n".join(lines)
+
+    problems = _task_texts(project, "problem")
+    if problems:
+        return "\n".join(f"- {problem}" for problem in problems[:3])
+    return "- 프로젝트 배경과 문제 정의 정보가 아직 구체적으로 정리되지 않았습니다."
+
+
 def describe_user_flow(project: Project) -> str:
+    if project.user_flow:
+        return "\n".join(
+            f"{step.step}. **{step.title or f'단계 {step.step}'}** — {step.description}"
+            for step in sorted(project.user_flow, key=lambda item: item.step)
+        )
+
     text_blob = _project_text_blob(project)
 
     has_setup = any(keyword in text_blob for keyword in ("init", "setup", "config", "설정", "api key"))
@@ -182,6 +265,93 @@ def describe_user_flow(project: Project) -> str:
         steps.append("필요 시 GitHub sync로 원본 데이터와 산출물을 백업합니다.")
 
     return "\n".join(f"{index}. {step}" for index, step in enumerate(steps, start=1))
+
+
+def describe_architecture_details(project: Project) -> str:
+    lines: list[str] = []
+    if project.architecture.summary:
+        lines.append(project.architecture.summary)
+    if project.architecture.components:
+        lines.append("### 구성 요소")
+        lines.extend(
+            f"- **{component.name}**: {component.role}"
+            for component in project.architecture.components
+            if component.name or component.role
+        )
+    if project.architecture.data_model:
+        lines.append("### 데이터 모델")
+        lines.extend(
+            f"- **{entity.entity}**: {', '.join(entity.fields)}"
+            for entity in project.architecture.data_model
+            if entity.entity or entity.fields
+        )
+    if project.architecture.api_examples:
+        lines.append("### API 예시")
+        lines.extend(
+            f"- **{api.method} {api.path}**: {api.purpose}"
+            for api in project.architecture.api_examples
+            if api.path or api.purpose
+        )
+    return "\n".join(lines) if lines else "- 아키텍처 세부 설명은 다이어그램과 함께 보완할 수 있습니다."
+
+
+def describe_features(project: Project) -> str:
+    if project.features:
+        return "\n".join(
+            f"- **{feature.name}**: {feature.user_value} 구현은 {feature.implementation}"
+            for feature in project.features
+            if feature.name or feature.user_value or feature.implementation
+        )
+
+    if project.tasks:
+        return "\n".join(
+            f"- **{task.name}**: {task.result or task.solution or task.problem}"
+            for task in project.tasks[:4]
+        )
+    return "- 핵심 기능 정보가 아직 정리되지 않았습니다."
+
+
+def describe_problem_solving_cases(project: Project) -> str:
+    if project.problem_solving_cases:
+        blocks = []
+        for case in project.problem_solving_cases:
+            title = case.title or "문제 해결 사례"
+            lines = [f"### {title}"]
+            if case.situation:
+                lines.append(f"- **문제 상황**: {case.situation}")
+            if case.cause:
+                lines.append(f"- **원인**: {case.cause}")
+            if case.action:
+                lines.append(f"- **해결 방식**: {case.action}")
+            if case.decision_reason:
+                lines.append(f"- **기술적 판단**: {case.decision_reason}")
+            if case.result:
+                lines.append(f"- **결과**: {case.result}")
+            if case.metric:
+                lines.append(f"- **지표**: {case.metric}")
+            if case.tech_used:
+                lines.append(f"- **사용 기술**: {', '.join(case.tech_used)}")
+            blocks.append("\n".join(lines))
+        return "\n\n".join(blocks)
+
+    if project.tasks:
+        blocks = []
+        for task in project.tasks:
+            lines = [f"### {task.name}"]
+            if task.ai_generated_text:
+                lines.append(task.ai_generated_text)
+            if task.problem:
+                lines.append(f"- **문제 상황**: {task.problem}")
+            if task.solution:
+                lines.append(f"- **해결 방식**: {task.solution}")
+            if task.result:
+                lines.append(f"- **결과**: {task.result}")
+            if task.tech_used:
+                lines.append(f"- **사용 기술**: {', '.join(task.tech_used)}")
+            blocks.append("\n".join(lines))
+        return "\n\n".join(blocks)
+
+    return "- 문제 해결 사례가 아직 정리되지 않았습니다."
 
 
 def build_architecture_diagram(project: Project) -> str:
@@ -260,6 +430,18 @@ def build_architecture_diagram(project: Project) -> str:
 
 
 def summarize_project_outcomes(project: Project) -> str:
+    bullets: list[str] = []
+
+    for metric in project.results.quantitative:
+        if metric.metric_name or metric.impact:
+            bullets.append(
+                f"- **{metric.metric_name or '지표'}**: {metric.before or '-'} → {metric.after or '-'}"
+                f"{' · ' + metric.impact if metric.impact else ''}"
+            )
+    bullets.extend(f"- {item}" for item in project.results.qualitative if item)
+    if bullets:
+        return "\n".join(bullets)
+
     results = _task_texts(project, "result")
     text_blob = _project_text_blob(project)
     bullets = [f"- {result}" for result in results[:3]]
@@ -274,6 +456,54 @@ def summarize_project_outcomes(project: Project) -> str:
         bullets.append("- 핵심 기능을 하나의 일관된 흐름으로 정리해 이후 확장과 유지보수에 유리한 구조를 만들었습니다.")
 
     return "\n".join(bullets)
+
+
+def describe_operational_considerations(project: Project) -> str:
+    parts: list[str] = []
+    if project.performance_security_operations.performance:
+        parts.append(
+            "- **성능**: " + "; ".join(project.performance_security_operations.performance)
+        )
+    if project.performance_security_operations.security:
+        parts.append(
+            "- **보안**: " + "; ".join(project.performance_security_operations.security)
+        )
+    if project.performance_security_operations.operations:
+        parts.append(
+            "- **운영**: " + "; ".join(project.performance_security_operations.operations)
+        )
+    return "\n".join(parts) if parts else "- 성능·보안·운영 고려사항은 추후 보강 가능합니다."
+
+
+def describe_retrospective(project: Project) -> str:
+    sections: list[str] = []
+    mapping = (
+        ("잘된 점", project.retrospective.what_went_well),
+        ("어려웠던 점", project.retrospective.what_was_hard),
+        ("배운 점", project.retrospective.what_i_learned),
+        ("다음 단계", project.retrospective.next_steps),
+    )
+    for title, items in mapping:
+        if items:
+            sections.append(f"### {title}\n" + "\n".join(f"- {item}" for item in items))
+    return "\n\n".join(sections) if sections else "- 회고 내용은 추후 프로젝트 진행 과정에 맞춰 보강할 수 있습니다."
+
+
+def describe_links_and_assets(project: Project) -> str:
+    items: list[str] = []
+    if project.links.github:
+        items.append(f"- **GitHub**: {project.links.github}")
+    if project.links.demo:
+        items.append(f"- **Demo**: {project.links.demo}")
+    if project.links.docs:
+        items.append(f"- **Docs**: {project.links.docs}")
+    if project.links.video:
+        items.append(f"- **Video**: {project.links.video}")
+    for screenshot in project.assets.screenshots:
+        items.append(f"- **스크린샷 · {screenshot.title or '이미지'}**: {screenshot.description} ({screenshot.path})")
+    for diagram in project.assets.diagrams:
+        items.append(f"- **다이어그램 · {diagram.title or '다이어그램'}**: {diagram.description} ({diagram.path})")
+    return "\n".join(items) if items else "- 링크나 스크린샷 자산은 아직 등록되지 않았습니다."
 
 
 class TemplateEngine:
@@ -335,10 +565,17 @@ class TemplateEngine:
             "user": config.user,
             "config": config,
             "describe_project_purpose": describe_project_purpose,
+            "describe_problem_definition": describe_problem_definition,
             "describe_user_flow": describe_user_flow,
             "describe_tech_stack": describe_tech_stack,
+            "describe_architecture_details": describe_architecture_details,
+            "describe_features": describe_features,
+            "describe_problem_solving_cases": describe_problem_solving_cases,
             "build_architecture_diagram": build_architecture_diagram,
             "summarize_project_outcomes": summarize_project_outcomes,
+            "describe_operational_considerations": describe_operational_considerations,
+            "describe_retrospective": describe_retrospective,
+            "describe_links_and_assets": describe_links_and_assets,
         }
 
         # 1단계: 정확한 이름 매칭
@@ -371,10 +608,17 @@ class TemplateEngine:
             "project": project,
             "user": config.user,
             "describe_project_purpose": describe_project_purpose,
+            "describe_problem_definition": describe_problem_definition,
             "describe_user_flow": describe_user_flow,
             "describe_tech_stack": describe_tech_stack,
+            "describe_architecture_details": describe_architecture_details,
+            "describe_features": describe_features,
+            "describe_problem_solving_cases": describe_problem_solving_cases,
             "build_architecture_diagram": build_architecture_diagram,
             "summarize_project_outcomes": summarize_project_outcomes,
+            "describe_operational_considerations": describe_operational_considerations,
+            "describe_retrospective": describe_retrospective,
+            "describe_links_and_assets": describe_links_and_assets,
         }
 
         try:
@@ -459,9 +703,23 @@ _BUILTIN_PROJECT_SINGLE = """\
 
 ## 프로젝트 개요
 
+{% if project.one_line_summary %}> {{ project.one_line_summary }}{% endif %}
+
 {{ project.summary }}
 
-## 기술 스택 구성
+## 왜 만들었는지
+
+{{ describe_project_purpose(project) }}
+
+## 문제 정의
+
+{{ describe_problem_definition(project) }}
+
+## 사용자 흐름
+
+{{ describe_user_flow(project) }}
+
+## 기술 스택 및 선정 이유
 
 {{ describe_tech_stack(project) }}
 
@@ -471,30 +729,31 @@ _BUILTIN_PROJECT_SINGLE = """\
 {{ build_architecture_diagram(project) }}
 ```
 
-## 주요 작업 내역
+{{ describe_architecture_details(project) }}
 
-{% for task in project.tasks %}
-### {{ task.name }}
-{% if task.period.start %}*기간: {{ task.period.display() }}*{% endif %}
+## 핵심 기능
 
-{% if task.ai_generated_text %}
-{{ task.ai_generated_text }}
-{% else %}
-**문제 상황**
+{{ describe_features(project) }}
 
-{{ task.problem }}
+## 문제 해결 사례
 
-**해결 방법**
+{{ describe_problem_solving_cases(project) }}
 
-{{ task.solution }}
+## 성능 / 보안 / 운영 고려사항
 
-**성과**
+{{ describe_operational_considerations(project) }}
 
-{{ task.result }}
+## 결과 및 성과
 
-**사용 기술**: {{ task.tech_used | join(", ") }}
-{% endif %}
-{% endfor %}
+{{ summarize_project_outcomes(project) }}
+
+## 회고
+
+{{ describe_retrospective(project) }}
+
+## 링크 및 참고 자료
+
+{{ describe_links_and_assets(project) }}
 """
 
 _BUILTIN_PORTFOLIO_DEFAULT = """\
@@ -513,21 +772,27 @@ _BUILTIN_PORTFOLIO_DEFAULT = """\
 
 ### 프로젝트 개요
 
+{% if project.one_line_summary %}> {{ project.one_line_summary }}{% endif %}
+
 {{ project.summary }}
 
 - **기간**: {{ project.period.display() }}
 - **역할**: {{ project.role }}
 - **기술 스택**: {{ project.tech_stack | join(", ") }}
 
-### 프로젝트 목적
+### 왜 만들었는지
 
 {{ describe_project_purpose(project) }}
 
-### 사용자 / 제품 흐름
+### 문제 정의
+
+{{ describe_problem_definition(project) }}
+
+### 사용자 흐름
 
 {{ describe_user_flow(project) }}
 
-### 기술 스택 구성
+### 기술 스택 및 선정 이유
 
 {{ describe_tech_stack(project) }}
 
@@ -537,30 +802,31 @@ _BUILTIN_PORTFOLIO_DEFAULT = """\
 {{ build_architecture_diagram(project) }}
 ```
 
-### 문제 해결 내역
+{{ describe_architecture_details(project) }}
 
-{% for task in project.tasks %}
-#### {{ task.name }}
-{% if task.ai_generated_text %}
-{{ task.ai_generated_text }}
-{% endif %}
-{% if task.problem %}
-- 문제 상황: {{ task.problem }}
-{% endif %}
-{% if task.solution %}
-- 해결 방식: {{ task.solution }}
-{% endif %}
-{% if task.result %}
-- 결과: {{ task.result }}
-{% endif %}
-{% if task.tech_used %}
-- 사용 기술: {{ task.tech_used | join(", ") }}
-{% endif %}
-{% endfor %}
+### 핵심 기능
+
+{{ describe_features(project) }}
+
+### 문제 해결 사례
+
+{{ describe_problem_solving_cases(project) }}
+
+### 성능 / 보안 / 운영 고려사항
+
+{{ describe_operational_considerations(project) }}
 
 ### 결과 및 확장성
 
 {{ summarize_project_outcomes(project) }}
+
+### 회고
+
+{{ describe_retrospective(project) }}
+
+### 링크 및 참고 자료
+
+{{ describe_links_and_assets(project) }}
 
 ---
 {% endfor %}

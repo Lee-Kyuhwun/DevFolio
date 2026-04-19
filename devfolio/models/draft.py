@@ -6,7 +6,20 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
-from devfolio.models.project import Period
+from devfolio.models.project import (
+    Period,
+    ProblemSolvingCase,
+    ProjectArchitecture,
+    ProjectAssets,
+    ProjectFeature,
+    ProjectLinks,
+    ProjectOverview,
+    ProjectResults,
+    ProjectRetrospective,
+    TechStackDetail,
+    UserFlowStep,
+    PerformanceSecurityOperations,
+)
 
 
 class TaskDraft(BaseModel):
@@ -35,7 +48,19 @@ class ProjectDraft(BaseModel):
     role: str = Field(default="", description="역할")
     team_size: int = Field(default=1, ge=1, description="팀 규모")
     tech_stack: list[str] = Field(default_factory=list, description="기술 스택")
+    one_line_summary: str = Field(default="", description="프로젝트 한 줄 소개")
     summary: str = Field(default="", description="프로젝트 소개")
+    links: ProjectLinks = Field(default_factory=ProjectLinks)
+    overview: ProjectOverview = Field(default_factory=ProjectOverview)
+    user_flow: list[UserFlowStep] = Field(default_factory=list)
+    tech_stack_detail: TechStackDetail = Field(default_factory=TechStackDetail)
+    architecture: ProjectArchitecture = Field(default_factory=ProjectArchitecture)
+    features: list[ProjectFeature] = Field(default_factory=list)
+    problem_solving_cases: list[ProblemSolvingCase] = Field(default_factory=list)
+    performance_security_operations: PerformanceSecurityOperations = Field(default_factory=PerformanceSecurityOperations)
+    results: ProjectResults = Field(default_factory=ProjectResults)
+    retrospective: ProjectRetrospective = Field(default_factory=ProjectRetrospective)
+    assets: ProjectAssets = Field(default_factory=ProjectAssets)
     tags: list[str] = Field(default_factory=list, description="태그")
     tasks: list[TaskDraft] = Field(default_factory=list, description="작업 초안 목록")
     raw_text: str = Field(default="", description="원본 자유 텍스트")

@@ -13,7 +13,19 @@ from devfolio.exceptions import (
 )
 from devfolio.models.config import AIProviderConfig, Config
 from devfolio.models.draft import ProjectDraft, TaskDraft
-from devfolio.models.project import Period, Project, Task
+from devfolio.models.project import (
+    Period,
+    ProblemSolvingCase,
+    Project,
+    ProjectFeature,
+    ProjectOverview,
+    ProjectResults,
+    ProjectRetrospective,
+    StackReason,
+    Task,
+    TechStackDetail,
+    UserFlowStep,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -57,7 +69,42 @@ def make_project() -> Project:
         role="백엔드 개발자",
         team_size=5,
         tech_stack=["Spring Boot", "Java"],
+        one_line_summary="백엔드 운영 자동화를 위한 테스트 프로젝트",
         summary="테스트 프로젝트 요약",
+        overview=ProjectOverview(
+            background="배포와 운영 과정이 수동이어서 안정성이 낮았습니다.",
+            problem="다운타임과 운영 부담을 줄일 백엔드 자동화 구조가 필요했습니다.",
+            target_users=["운영팀", "개발팀"],
+            goals=["배포 안정성 향상", "운영 자동화"],
+        ),
+        user_flow=[
+            UserFlowStep(step=1, title="배포 요청", description="운영자가 배포를 시작합니다."),
+            UserFlowStep(step=2, title="자동 배포", description="블루그린 배포 전략으로 무중단 전환합니다."),
+        ],
+        tech_stack_detail=TechStackDetail(
+            backend=[StackReason(name="Spring Boot", reason="API와 배포 제어 로직을 안정적으로 구성하기 위해 사용했습니다.")],
+        ),
+        features=[
+            ProjectFeature(
+                name="무중단 배포",
+                user_value="운영 중에도 서비스를 중단하지 않고 배포할 수 있습니다.",
+                implementation="블루그린 배포 파이프라인과 헬스체크 기반 전환으로 구현했습니다.",
+            )
+        ],
+        problem_solving_cases=[
+            ProblemSolvingCase(
+                title="다운타임 제거",
+                situation="배포 시 서비스 중단이 발생했습니다.",
+                cause="단일 인스턴스를 직접 교체하는 수동 배포 구조였습니다.",
+                action="블루그린 배포 전략과 자동 전환 파이프라인을 구축했습니다.",
+                decision_reason="트래픽 전환 시점을 제어해 롤백 가능성을 확보할 수 있었기 때문입니다.",
+                result="다운타임 0으로 전환했습니다.",
+                metric="다운타임 5분 → 0",
+                tech_used=["Jenkins", "AWS ECS"],
+            )
+        ],
+        results=ProjectResults(qualitative=["운영 안정성과 배포 재현성을 개선했습니다."]),
+        retrospective=ProjectRetrospective(what_i_learned=["운영 자동화는 배포 속도보다 롤백 전략까지 포함해야 합니다."]),
         tags=["backend"],
         tasks=[make_task()],
     )
@@ -80,8 +127,8 @@ class TestProviderConfig:
 
     def test_no_default_provider_raises(self):
         service = AIService(Config())
-        with pytest.raises(DevfolioAINotConfiguredError):
-            service._get_provider(None)
+        provider = service._get_provider(None)
+        assert provider.name == "pollinations"
 
     def test_model_string_anthropic(self):
         service = AIService(make_config("anthropic"))
@@ -113,7 +160,7 @@ class TestProviderConfig:
         ]
         service = AIService(config)
         provider = service.config.get_provider("gemini")
-        assert service._model_string(provider) == "gemini/gemini-2.0-flash"
+        assert service._model_string(provider) == "gemini/gemini-3.1-flash-lite-preview"
 
     def test_runtime_model_candidates_prioritize_same_family_then_safe_defaults(self):
         config = Config()
@@ -125,10 +172,11 @@ class TestProviderConfig:
         provider = service.config.get_provider("gemini")
 
         assert service._runtime_model_candidates(provider) == [
-            "gemini-2.0-flash",
-            "gemini-2.5-flash",
+            "gemini-3.1-flash-lite-preview",
+            "gemini-3-flash-preview",
             "gemini-2.5-flash-lite",
-            "gemini-2.0-flash-lite",
+            "gemini-2.5-flash",
+            "gemini-2.5-pro",
             "gemini-1.5-flash",
             "gemini-1.5-pro",
         ]
@@ -211,7 +259,7 @@ class TestGenerateTaskText:
         service = AIService(make_config())
         captured: dict = {}
 
-        def capture(messages, provider_name=None, temperature=None, max_tokens=None):
+        def capture(messages, provider_name=None, temperature=None, max_tokens=None, json_mode=False):
             if "writer_user" not in captured:
                 captured["writer_system"] = messages[0]["content"]
                 captured["writer_user"] = messages[1]["content"]
@@ -262,7 +310,7 @@ class TestGenerateProjectSummary:
         service = AIService(make_config())
         captured: dict = {}
 
-        def capture(messages, provider_name=None, temperature=None, max_tokens=None):
+        def capture(messages, provider_name=None, temperature=None, max_tokens=None, json_mode=False):
             if "writer_user" not in captured:
                 captured["writer_user"] = messages[1]["content"]
                 return "첫째 문장입니다. 둘째 문장입니다. 셋째 문장입니다. 넷째 문장입니다. 다섯째 문장입니다."
@@ -337,7 +385,7 @@ class TestGenerateProjectDraft:
         service = AIService(make_config())
         captured: dict = {}
 
-        def capture(system, user, provider=None):
+        def capture(system, user, provider=None, json_mode=False):
             captured["user"] = user
             return """
 {
@@ -349,7 +397,19 @@ class TestGenerateProjectDraft:
   "role": "",
   "team_size": 1,
   "tech_stack": [],
+  "one_line_summary": "",
   "summary": "",
+  "links": {"github": "", "demo": "", "docs": "", "video": ""},
+  "overview": {"background": "", "problem": "", "target_users": [], "goals": [], "non_goals": []},
+  "user_flow": [],
+  "tech_stack_detail": {"frontend": [], "backend": [], "database": [], "infra": [], "tools": []},
+  "architecture": {"summary": "", "components": [], "data_model": [], "api_examples": []},
+  "features": [],
+  "problem_solving_cases": [],
+  "performance_security_operations": {"performance": [], "security": [], "operations": []},
+  "results": {"quantitative": [], "qualitative": []},
+  "retrospective": {"what_went_well": [], "what_was_hard": [], "what_i_learned": [], "next_steps": []},
+  "assets": {"screenshots": [], "diagrams": []},
   "tags": [],
   "tasks": []
 }
@@ -360,6 +420,8 @@ class TestGenerateProjectDraft:
 
         assert "배포, 운영, 성능, 안정성, 자동화" in captured["user"]
         assert "role, organization, team_size" in captured["user"]
+        assert "problem_solving_cases" in captured["user"]
+        assert "one_line_summary" in captured["user"]
         assert "<project_brief>" in captured["user"]
         assert "<output_schema>" in captured["user"]
 
@@ -372,6 +434,8 @@ class TestEvidenceAndPromptPack:
 
         assert evidence.name == "테스트 프로젝트"
         assert evidence.role == "백엔드 개발자"
+        assert evidence.overview["problem"] == "다운타임과 운영 부담을 줄일 백엔드 자동화 구조가 필요했습니다."
+        assert evidence.problem_solving_cases[0]["title"] == "다운타임 제거"
         assert evidence.tasks[0].name == "블루그린 배포 구축"
         assert "다운타임 0" in " ".join(evidence.metrics)
 
@@ -464,7 +528,7 @@ class TestRetryLogic:
             with pytest.raises(DevfolioAIRateLimitError):
                 service._call("system", "user", "anthropic")
 
-        assert fake_litellm.completion.call_count == 3
+        assert fake_litellm.completion.call_count == 2
 
     def test_auth_error_no_retry(self):
         service = AIService(make_config())
@@ -499,7 +563,7 @@ class TestRetryLogic:
         FakeNotFoundError.__name__ = "NotFoundError"
 
         def completion_side_effect(**kwargs):
-            if kwargs["model"] == "gemini/gemini-2.0-flash":
+            if kwargs["model"] == "gemini/gemini-3.1-flash-lite-preview":
                 raise FakeNotFoundError("missing")
             response = MagicMock()
             response.choices = [MagicMock(message=MagicMock(content="ok"))]
@@ -513,8 +577,8 @@ class TestRetryLogic:
 
         assert result == "ok"
         assert [call.kwargs["model"] for call in fake_litellm.completion.call_args_list] == [
-            "gemini/gemini-2.0-flash",
-            "gemini/gemini-2.5-flash",
+            "gemini/gemini-3.1-flash-lite-preview",
+            "gemini/gemini-3-flash-preview",
         ]
 
 

@@ -71,6 +71,116 @@ class Period(BaseModel):
         return f"{start} ~ {end}"
 
 
+class ProjectLinks(BaseModel):
+    github: str = Field(default="", description="GitHub 저장소 링크")
+    demo: str = Field(default="", description="배포 또는 데모 링크")
+    docs: str = Field(default="", description="문서 링크")
+    video: str = Field(default="", description="영상 링크")
+
+
+class ProjectOverview(BaseModel):
+    background: str = Field(default="", description="왜 만들었는지")
+    problem: str = Field(default="", description="핵심 문제 정의")
+    target_users: list[str] = Field(default_factory=list, description="대상 사용자")
+    goals: list[str] = Field(default_factory=list, description="프로젝트 목표")
+    non_goals: list[str] = Field(default_factory=list, description="의도적으로 제외한 범위")
+
+
+class UserFlowStep(BaseModel):
+    step: int = Field(default=1, ge=1, description="사용 흐름 순서")
+    title: str = Field(default="", description="사용 흐름 단계명")
+    description: str = Field(default="", description="사용 흐름 설명")
+
+
+class StackReason(BaseModel):
+    name: str = Field(default="", description="기술명")
+    reason: str = Field(default="", description="선정 이유")
+
+
+class TechStackDetail(BaseModel):
+    frontend: list[StackReason] = Field(default_factory=list)
+    backend: list[StackReason] = Field(default_factory=list)
+    database: list[StackReason] = Field(default_factory=list)
+    infra: list[StackReason] = Field(default_factory=list)
+    tools: list[StackReason] = Field(default_factory=list)
+
+
+class ArchitectureComponent(BaseModel):
+    name: str = Field(default="", description="컴포넌트명")
+    role: str = Field(default="", description="컴포넌트 역할")
+
+
+class DataModelEntity(BaseModel):
+    entity: str = Field(default="", description="엔터티명")
+    fields: list[str] = Field(default_factory=list, description="주요 필드")
+
+
+class ApiExample(BaseModel):
+    method: str = Field(default="GET", description="HTTP 메서드")
+    path: str = Field(default="", description="API 경로")
+    purpose: str = Field(default="", description="API 목적")
+
+
+class ProjectArchitecture(BaseModel):
+    summary: str = Field(default="", description="아키텍처 요약")
+    components: list[ArchitectureComponent] = Field(default_factory=list)
+    data_model: list[DataModelEntity] = Field(default_factory=list)
+    api_examples: list[ApiExample] = Field(default_factory=list)
+
+
+class ProjectFeature(BaseModel):
+    name: str = Field(default="", description="기능명")
+    user_value: str = Field(default="", description="사용자 가치")
+    implementation: str = Field(default="", description="구현 방식")
+
+
+class ProblemSolvingCase(BaseModel):
+    title: str = Field(default="", description="문제 해결 사례 제목")
+    situation: str = Field(default="", description="문제 상황")
+    cause: str = Field(default="", description="원인")
+    action: str = Field(default="", description="내가 한 행동")
+    decision_reason: str = Field(default="", description="기술적 판단 이유")
+    result: str = Field(default="", description="결과")
+    metric: str = Field(default="", description="수치 또는 정량 지표")
+    tech_used: list[str] = Field(default_factory=list, description="사용 기술")
+
+
+class PerformanceSecurityOperations(BaseModel):
+    performance: list[str] = Field(default_factory=list)
+    security: list[str] = Field(default_factory=list)
+    operations: list[str] = Field(default_factory=list)
+
+
+class QuantitativeResult(BaseModel):
+    metric_name: str = Field(default="", description="지표명")
+    before: str = Field(default="", description="개선 전")
+    after: str = Field(default="", description="개선 후")
+    impact: str = Field(default="", description="영향")
+
+
+class ProjectResults(BaseModel):
+    quantitative: list[QuantitativeResult] = Field(default_factory=list)
+    qualitative: list[str] = Field(default_factory=list)
+
+
+class ProjectRetrospective(BaseModel):
+    what_went_well: list[str] = Field(default_factory=list)
+    what_was_hard: list[str] = Field(default_factory=list)
+    what_i_learned: list[str] = Field(default_factory=list)
+    next_steps: list[str] = Field(default_factory=list)
+
+
+class AssetItem(BaseModel):
+    title: str = Field(default="", description="자산 제목")
+    description: str = Field(default="", description="자산 설명")
+    path: str = Field(default="", description="자산 경로 또는 링크")
+
+
+class ProjectAssets(BaseModel):
+    screenshots: list[AssetItem] = Field(default_factory=list)
+    diagrams: list[AssetItem] = Field(default_factory=list)
+
+
 class Task(BaseModel):
     """프로젝트 내 세부 작업 내역.
 
@@ -128,7 +238,19 @@ class Project(BaseModel):
     # ge=1 : greater than or equal → @Min(1) 과 동일.
     team_size: int = Field(default=1, ge=1, description="팀 규모")
     tech_stack: list[str] = Field(default_factory=list, description="기술 스택")
+    one_line_summary: str = Field(default="", description="한 줄 소개")
     summary: str = Field(default="", description="한 줄 요약")
+    links: ProjectLinks = Field(default_factory=ProjectLinks)
+    overview: ProjectOverview = Field(default_factory=ProjectOverview)
+    user_flow: list[UserFlowStep] = Field(default_factory=list)
+    tech_stack_detail: TechStackDetail = Field(default_factory=TechStackDetail)
+    architecture: ProjectArchitecture = Field(default_factory=ProjectArchitecture)
+    features: list[ProjectFeature] = Field(default_factory=list)
+    problem_solving_cases: list[ProblemSolvingCase] = Field(default_factory=list)
+    performance_security_operations: PerformanceSecurityOperations = Field(default_factory=PerformanceSecurityOperations)
+    results: ProjectResults = Field(default_factory=ProjectResults)
+    retrospective: ProjectRetrospective = Field(default_factory=ProjectRetrospective)
+    assets: ProjectAssets = Field(default_factory=ProjectAssets)
     tags: list[str] = Field(default_factory=list, description="태그")
     tasks: list[Task] = Field(default_factory=list, description="작업 내역 목록")
 

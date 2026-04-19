@@ -308,7 +308,55 @@ def test_preview_portfolio_renders_ai_generated_task_text(client):
                 "role": "백엔드",
                 "team_size": 1,
                 "tech_stack": ["Python", "FastAPI"],
+                "one_line_summary": "구조화된 커리어 데이터를 문서로 전환하는 로컬 우선 스튜디오",
                 "summary": "더 긴 포트폴리오 렌더링 테스트",
+                "overview": {
+                    "background": "포트폴리오 문구가 기능 나열 위주라 문제 맥락이 약했습니다.",
+                    "problem": "왜 만들었고 어떤 판단을 했는지 드러나는 문서 구조가 필요했습니다.",
+                    "target_users": ["개발자"],
+                    "goals": ["케이스 스터디형 문서", "구조화 데이터 재사용"],
+                    "non_goals": [],
+                },
+                "user_flow": [
+                    {"step": 1, "title": "입력", "description": "프로젝트 초안을 구조화합니다."},
+                    {"step": 2, "title": "검토", "description": "AI 생성 결과를 확인하고 수정합니다."},
+                ],
+                "tech_stack_detail": {
+                    "frontend": [],
+                    "backend": [{"name": "Python", "reason": "CLI와 웹 API, 렌더링을 한 언어로 통합하기 위해 사용했습니다."}],
+                    "database": [],
+                    "infra": [],
+                    "tools": [{"name": "Jinja2", "reason": "구조화 데이터를 여러 문서 형식으로 재사용하기 위해 선택했습니다."}],
+                },
+                "features": [
+                    {
+                        "name": "케이스 스터디 렌더링",
+                        "user_value": "문제 맥락과 설계 판단이 드러나는 포트폴리오 문서를 빠르게 만들 수 있습니다.",
+                        "implementation": "구조화 필드와 템플릿 helper를 조합해 구현했습니다.",
+                    }
+                ],
+                "problem_solving_cases": [
+                    {
+                        "title": "양식 부실 문제 개선",
+                        "situation": "무엇을 만들었는지는 보이지만 판단과 결과가 약했습니다.",
+                        "cause": "summary와 task 나열만으로는 케이스 스터디 구조를 만들기 어려웠습니다.",
+                        "action": "개요, 문제 정의, 사용자 흐름, 문제 해결 사례 구조를 스키마와 템플릿에 추가했습니다.",
+                        "decision_reason": "AI 출력과 최종 렌더링이 같은 구조를 공유해야 품질이 안정되기 때문입니다.",
+                        "result": "문제, 판단, 결과가 분리된 문서를 렌더링할 수 있게 됐습니다.",
+                        "metric": "문서 구조 명시화",
+                        "tech_used": ["Python", "Jinja2"],
+                    }
+                ],
+                "results": {
+                    "quantitative": [{"metric_name": "구조", "before": "summary 중심", "after": "case study 중심", "impact": "가독성 개선"}],
+                    "qualitative": ["프로젝트 목적과 결과가 먼저 읽히는 문서가 되었습니다."],
+                },
+                "retrospective": {
+                    "what_went_well": ["문서 구조를 스키마와 템플릿에 함께 반영했습니다."],
+                    "what_was_hard": ["기존 task 중심 구조와의 호환이 필요했습니다."],
+                    "what_i_learned": ["좋은 포트폴리오는 기능보다 판단과 결과를 먼저 보여줘야 합니다."],
+                    "next_steps": ["링크와 시각 자산 입력 UI를 보강합니다."],
+                },
                 "tags": ["portfolio"],
                 "tasks": [
                     {
@@ -332,10 +380,11 @@ def test_preview_portfolio_renders_ai_generated_task_text(client):
     payload = response.json()
     assert "핵심 작업을 구조화해 설명 밀도를 높였습니다." in payload["markdown"]
     assert "사용 기술" in payload["markdown"]
-    assert "프로젝트 목적" in payload["markdown"]
-    assert "사용자 / 제품 흐름" in payload["markdown"]
-    assert "기술 스택 구성" in payload["markdown"]
-    assert "결과 및 확장성" in payload["markdown"]
+    assert "문제 정의" in payload["markdown"]
+    assert "사용자 흐름" in payload["markdown"]
+    assert "기술 스택 및 선정 이유" in payload["markdown"]
+    assert "문제 해결 사례" in payload["markdown"]
+    assert "회고" in payload["markdown"]
     assert "```mermaid" in payload["markdown"]
 
 
@@ -388,7 +437,7 @@ def test_export_portfolio_saved_project_creates_html(client, web_store):
     assert (storage.EXPORTS_DIR / "portfolio_default.html").exists()
     exported_html = (storage.EXPORTS_DIR / "portfolio_default.html").read_text(encoding="utf-8")
     assert "cdn.jsdelivr.net/npm/mermaid" in exported_html
-    assert "프로젝트 목적" in exported_html
+    assert "문제 정의" in exported_html
 
 
 def test_saved_project_ai_task_generation_updates_persisted_project(client):

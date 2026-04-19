@@ -1,12 +1,14 @@
 """AI Provider 추상화 서비스 (litellm 기반, lazy import)."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
 import re
 import time
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -350,6 +352,7 @@ class PortfolioEvidence(BaseModel):
     organization: str = ""
     team_size: int = 1
     period: dict[str, Optional[str]] = Field(default_factory=dict)
+    one_line_summary: str = ""
     summary: str = ""
     problem: list[str] = Field(default_factory=list)
     actions: list[str] = Field(default_factory=list)
@@ -359,6 +362,17 @@ class PortfolioEvidence(BaseModel):
     tech_stack: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     audience_value: list[str] = Field(default_factory=list)
+    links: dict[str, str] = Field(default_factory=dict)
+    overview: dict[str, Any] = Field(default_factory=dict)
+    user_flow: list[dict[str, Any]] = Field(default_factory=list)
+    tech_stack_detail: dict[str, list[dict[str, str]]] = Field(default_factory=dict)
+    architecture: dict[str, Any] = Field(default_factory=dict)
+    features: list[dict[str, str]] = Field(default_factory=list)
+    problem_solving_cases: list[dict[str, Any]] = Field(default_factory=list)
+    performance_security_operations: dict[str, list[str]] = Field(default_factory=dict)
+    detailed_results: dict[str, Any] = Field(default_factory=dict)
+    retrospective: dict[str, list[str]] = Field(default_factory=dict)
+    assets: dict[str, list[dict[str, str]]] = Field(default_factory=dict)
     tasks: list[EvidenceTask] = Field(default_factory=list)
     focus_task: Optional[EvidenceTask] = None
     raw_text: str = ""
@@ -560,7 +574,19 @@ class AIService:
             role=draft.role,
             team_size=draft.team_size,
             tech_stack=draft.tech_stack,
+            one_line_summary=draft.one_line_summary,
             summary=draft.summary,
+            links=draft.links,
+            overview=draft.overview,
+            user_flow=draft.user_flow,
+            tech_stack_detail=draft.tech_stack_detail,
+            architecture=draft.architecture,
+            features=draft.features,
+            problem_solving_cases=draft.problem_solving_cases,
+            performance_security_operations=draft.performance_security_operations,
+            results=draft.results,
+            retrospective=draft.retrospective,
+            assets=draft.assets,
             tags=draft.tags,
             tasks=tasks,
         )
@@ -768,6 +794,7 @@ class AIService:
             organization=project.organization,
             team_size=project.team_size,
             period=self._period_dict(project.period),
+            one_line_summary=project.one_line_summary,
             summary=project.summary,
             problem=[item.problem for item in project.tasks if item.problem],
             actions=[item.solution for item in project.tasks if item.solution],
@@ -777,6 +804,17 @@ class AIService:
             tech_stack=project.tech_stack,
             tags=project.tags,
             audience_value=self._derive_audience_value(results),
+            links=project.links.model_dump(),
+            overview=project.overview.model_dump(),
+            user_flow=[step.model_dump() for step in project.user_flow],
+            tech_stack_detail=project.tech_stack_detail.model_dump(),
+            architecture=project.architecture.model_dump(),
+            features=[feature.model_dump() for feature in project.features],
+            problem_solving_cases=[case.model_dump() for case in project.problem_solving_cases],
+            performance_security_operations=project.performance_security_operations.model_dump(),
+            detailed_results=project.results.model_dump(),
+            retrospective=project.retrospective.model_dump(),
+            assets=project.assets.model_dump(),
             tasks=evidence_tasks,
             raw_text=raw_text,
         )
@@ -786,6 +824,10 @@ class AIService:
             [
                 "[추출 우선순위]",
                 "- role, organization, team_size를 가능한 범위에서 추출하세요.",
+                "- background, problem, goals, target_users를 우선적으로 구조화하세요.",
+                "- user_flow는 사용자가 실제로 거치는 단계 순서대로 정리하세요.",
+                "- features는 사용자 가치와 구현 포인트가 같이 보이도록 정리하세요.",
+                "- problem_solving_cases는 문제 상황, 원인, 행동, 판단 이유, 결과 순서가 드러나도록 작성하세요.",
                 "- task는 기능 단위 또는 책임 단위로 나누고 각 task에 problem, solution, result를 채우세요.",
                 "- tech_stack, tech_used, keywords는 서술에 등장하는 실제 기술/개념만 추출하세요.",
                 "- 배포, 운영, 성능, 안정성, 자동화, 모니터링 관련 단서는 우선적으로 구조화하세요.",
@@ -847,6 +889,19 @@ class AIService:
         if mode == "project_summary":
             sentences = _sentence_count(text)
             return 5 <= sentences <= 7
+        if mode == "project_case_study":
+            required_sections = (
+                "## 프로젝트 개요",
+                "## 문제 정의",
+                "## 사용자 흐름",
+                "## 기술 스택 및 선정 이유",
+                "## 아키텍처",
+                "## 핵심 기능",
+                "## 문제 해결 사례",
+                "## 결과 및 성과",
+                "## 회고",
+            )
+            return all(section in text for section in required_sections)
         return bool(text.strip())
 
     def _format_validation_feedback(self, mode: str) -> str:
@@ -854,6 +909,8 @@ class AIService:
             return "반드시 '- '로 시작하는 bullet 4~6개를 작성하고, 각 bullet에 행동·기술/맥락·결과를 모두 포함하며 너무 짧게 끝내지 마세요."
         if mode == "project_summary":
             return "반드시 5~7문장으로 작성하고, 책임 범위·문제 맥락·핵심 구현·기술 선택 이유·결과를 모두 포함하세요."
+        if mode == "project_case_study":
+            return "반드시 Markdown 섹션을 유지하고, 프로젝트 개요·문제 정의·사용자 흐름·기술 스택 및 선정 이유·아키텍처·핵심 기능·문제 해결 사례·결과 및 성과·회고를 모두 포함하세요."
         return "출력 계약을 정확히 지켜 다시 작성하세요."
 
     def generate_with_review(
@@ -967,6 +1024,26 @@ class AIService:
         )
         return result
 
+    def generate_project_case_study(
+        self,
+        project: Project,
+        lang: str = "ko",
+        provider_name: Optional[str] = None,
+    ) -> str:
+        """프로젝트 전체를 케이스 스터디형 Markdown으로 생성한다."""
+        evidence = self.build_evidence(project=project)
+        profile = GenerationProfile(
+            mode="project_case_study",
+            language=lang,
+            max_tokens=4200,
+        )
+        result, _ = self.generate_with_review(
+            evidence=evidence,
+            profile=profile,
+            provider_name=provider_name,
+        )
+        return result
+
     def generate_full_resume(
         self,
         projects: list[Project],
@@ -1020,10 +1097,16 @@ class AIService:
 - status는 done, in_progress, planned 중 하나만 사용하세요.
 - period는 {{\"start\": \"YYYY-MM 또는 null\", \"end\": \"YYYY-MM 또는 null\"}} 형식으로 작성하세요.
 - tech_stack, tags, tasks, tech_used, keywords는 항상 배열로 반환하세요.
+- target_users, goals, non_goals, performance, security, operations, qualitative, what_went_well, what_was_hard, what_i_learned, next_steps도 항상 배열로 반환하세요.
 - tasks 각 항목은 name, period, problem, solution, result, tech_used, keywords, ai_generated_text 필드를 모두 포함하세요.
+- user_flow, features, problem_solving_cases, screenshots, diagrams는 비어 있더라도 배열 필드를 유지하세요.
+- links, overview, tech_stack_detail, architecture, performance_security_operations, results, retrospective, assets는 항상 객체로 반환하세요.
 - team_size를 알 수 없으면 1을 사용하세요.
-- summary는 과장된 마케팅 문구보다 프로젝트 성격과 역할이 드러나는 짧은 초안으로 작성하세요.
+- one_line_summary는 프로젝트의 가치가 한 문장으로 드러나도록 작성하세요.
+- summary는 과장된 마케팅 문구보다 프로젝트 성격과 역할이 드러나는 3~5문장 수준의 초안으로 작성하세요.
 - 자유 텍스트에 운영, 배포, 성능, 안정성, 자동화 관련 단서가 있으면 적절한 task나 keywords에 반영하세요.
+- 링크가 명시되면 links에 채우고, 기술 선택 이유가 드러나면 tech_stack_detail에 reason까지 채우세요.
+- 설계 판단이나 트러블슈팅이 보이면 problem_solving_cases로 분리하세요.
 - 응답은 JSON 객체만 반환하세요.
 </instructions>
 
@@ -1041,7 +1124,98 @@ class AIService:
   "role": "",
   "team_size": 1,
   "tech_stack": [],
+  "one_line_summary": "",
   "summary": "",
+  "links": {{
+    "github": "",
+    "demo": "",
+    "docs": "",
+    "video": ""
+  }},
+  "overview": {{
+    "background": "",
+    "problem": "",
+    "target_users": [],
+    "goals": [],
+    "non_goals": []
+  }},
+  "user_flow": [
+    {{
+      "step": 1,
+      "title": "",
+      "description": ""
+    }}
+  ],
+  "tech_stack_detail": {{
+    "frontend": [{{"name": "", "reason": ""}}],
+    "backend": [{{"name": "", "reason": ""}}],
+    "database": [{{"name": "", "reason": ""}}],
+    "infra": [{{"name": "", "reason": ""}}],
+    "tools": [{{"name": "", "reason": ""}}]
+  }},
+  "architecture": {{
+    "summary": "",
+    "components": [{{"name": "", "role": ""}}],
+    "data_model": [{{"entity": "", "fields": [""]}}],
+    "api_examples": [{{"method": "GET", "path": "", "purpose": ""}}]
+  }},
+  "features": [
+    {{
+      "name": "",
+      "user_value": "",
+      "implementation": ""
+    }}
+  ],
+  "problem_solving_cases": [
+    {{
+      "title": "",
+      "situation": "",
+      "cause": "",
+      "action": "",
+      "decision_reason": "",
+      "result": "",
+      "metric": "",
+      "tech_used": []
+    }}
+  ],
+  "performance_security_operations": {{
+    "performance": [],
+    "security": [],
+    "operations": []
+  }},
+  "results": {{
+    "quantitative": [
+      {{
+        "metric_name": "",
+        "before": "",
+        "after": "",
+        "impact": ""
+      }}
+    ],
+    "qualitative": []
+  }},
+  "retrospective": {{
+    "what_went_well": [],
+    "what_was_hard": [],
+    "what_i_learned": [],
+    "next_steps": []
+  }},
+  "assets": {{
+    "screenshots": [
+      {{
+        "title": "",
+        "description": "",
+        "path": ""
+      }}
+    ],
+    "diagrams": [
+      {{
+        "title": "",
+        "description": "",
+        "path": ""
+      }}
+    ]
+  }},
   "tags": [],
   "tasks": [
     {{
@@ -1073,7 +1247,39 @@ class AIService:
         payload.setdefault("role", "")
         payload.setdefault("team_size", 1)
         payload.setdefault("tech_stack", [])
+        payload.setdefault("one_line_summary", "")
         payload.setdefault("summary", "")
+        payload.setdefault("links", {"github": "", "demo": "", "docs": "", "video": ""})
+        payload.setdefault(
+            "overview",
+            {"background": "", "problem": "", "target_users": [], "goals": [], "non_goals": []},
+        )
+        payload.setdefault("user_flow", [])
+        payload.setdefault(
+            "tech_stack_detail",
+            {"frontend": [], "backend": [], "database": [], "infra": [], "tools": []},
+        )
+        payload.setdefault(
+            "architecture",
+            {"summary": "", "components": [], "data_model": [], "api_examples": []},
+        )
+        payload.setdefault("features", [])
+        payload.setdefault("problem_solving_cases", [])
+        payload.setdefault(
+            "performance_security_operations",
+            {"performance": [], "security": [], "operations": []},
+        )
+        payload.setdefault("results", {"quantitative": [], "qualitative": []})
+        payload.setdefault(
+            "retrospective",
+            {
+                "what_went_well": [],
+                "what_was_hard": [],
+                "what_i_learned": [],
+                "next_steps": [],
+            },
+        )
+        payload.setdefault("assets", {"screenshots": [], "diagrams": []})
         payload.setdefault("tags", [])
         payload.setdefault("tasks", [])
         payload["raw_text"] = raw_text

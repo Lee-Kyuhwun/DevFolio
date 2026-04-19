@@ -16,6 +16,8 @@
 
 ## 프로젝트 개요
 
+{% if project.one_line_summary %}> {{ project.one_line_summary }}{% endif %}
+
 {{ project.summary }}
 
 | | |
@@ -25,15 +27,19 @@
 | **팀 규모** | {{ project.team_size }}명 |
 | **기술 스택** | {{ project.tech_stack | join(', ') }} |
 
-## 프로젝트 목적
+## 왜 만들었는지
 
 {{ describe_project_purpose(project) }}
 
-## 사용자 / 제품 흐름
+## 문제 정의
+
+{{ describe_problem_definition(project) }}
+
+## 사용자 흐름
 
 {{ describe_user_flow(project) }}
 
-## 기술 스택 구성
+## 기술 스택 및 선정 이유
 
 {{ describe_tech_stack(project) }}
 
@@ -43,41 +49,31 @@
 {{ build_architecture_diagram(project) }}
 ```
 
-## 문제 해결 내역
+{{ describe_architecture_details(project) }}
 
-{% if project.tasks %}
-{% for task in project.tasks %}
-### {{ task.name }}
-{% if task.ai_generated_text %}
-**핵심 기여**
+## 핵심 기능
 
-{{ task.ai_generated_text }}
-{% endif %}
-{% if task.problem %}
-**문제 상황**
+{{ describe_features(project) }}
 
-{{ task.problem }}
-{% endif %}
-{% if task.solution %}
-**해결 방식**
+## 문제 해결 사례
 
-{{ task.solution }}
-{% endif %}
-{% if task.result %}
-**결과**
+{{ describe_problem_solving_cases(project) }}
 
-{{ task.result }}
-{% endif %}
-{% if task.tech_used %}
-**사용 기술**: {{ task.tech_used | join(', ') }}
-{% endif %}
+## 성능 / 보안 / 운영 고려사항
 
-{% endfor %}
-{% endif %}
+{{ describe_operational_considerations(project) }}
 
 ## 결과 및 확장성
 
 {{ summarize_project_outcomes(project) }}
+
+## 회고
+
+{{ describe_retrospective(project) }}
+
+## 링크 및 참고 자료
+
+{{ describe_links_and_assets(project) }}
 
 ---
 {% endfor %}

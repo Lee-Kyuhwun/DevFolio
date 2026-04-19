@@ -12,9 +12,23 @@
 
 ## 프로젝트 개요
 
+{% if project.one_line_summary %}> {{ project.one_line_summary }}{% endif %}
+
 {{ project.summary }}
 
-## 기술 스택 구성
+## 왜 만들었는지
+
+{{ describe_project_purpose(project) }}
+
+## 문제 정의
+
+{{ describe_problem_definition(project) }}
+
+## 사용자 흐름
+
+{{ describe_user_flow(project) }}
+
+## 기술 스택 및 선정 이유
 
 {{ describe_tech_stack(project) }}
 
@@ -24,37 +38,32 @@
 {{ build_architecture_diagram(project) }}
 ```
 
+{{ describe_architecture_details(project) }}
+
 {% if project.tags %}
 **태그**: {{ project.tags | join(", ") }}
 
 {% endif %}
-## 주요 작업 내역
+## 핵심 기능
 
-{% for task in project.tasks %}
-### {{ task.name }}
+{{ describe_features(project) }}
 
-{% if task.period.start %}*기간: {{ task.period.display() }}*{% endif %}
+## 문제 해결 사례
 
-{% if task.ai_generated_text %}
-{{ task.ai_generated_text }}
-{% else %}
-**문제 상황**
+{{ describe_problem_solving_cases(project) }}
 
-{{ task.problem }}
+## 성능 / 보안 / 운영 고려사항
 
-**해결 방법**
+{{ describe_operational_considerations(project) }}
 
-{{ task.solution }}
+## 결과 및 성과
 
-**성과**
+{{ summarize_project_outcomes(project) }}
 
-{{ task.result }}
+## 회고
 
-**사용 기술**: {{ task.tech_used | join(", ") }}
-{% endif %}
+{{ describe_retrospective(project) }}
 
-{% if task.keywords %}
-*키워드: {{ task.keywords | join(", ") }}*
-{% endif %}
+## 링크 및 참고 자료
 
-{% endfor %}
+{{ describe_links_and_assets(project) }}
