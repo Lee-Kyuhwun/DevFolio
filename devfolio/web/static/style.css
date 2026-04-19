@@ -463,6 +463,11 @@ code {
   line-height: 1.55;
 }
 
+.provider-item .provider-warning {
+  color: #9f4422;
+  font-weight: 600;
+}
+
 .preview-topline {
   display: grid;
   gap: 1rem;

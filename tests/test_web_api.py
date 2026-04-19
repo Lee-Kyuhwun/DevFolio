@@ -1,6 +1,8 @@
 """Portfolio Studio API / UI smoke tests."""
 
+from collections import Counter
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -111,12 +113,12 @@ def test_upsert_ai_provider_uses_default_model_when_omitted(client):
     assert providers[0]["model"] == "claude-sonnet-4-20250514"
 
 
-def test_upsert_ai_provider_normalizes_legacy_gemini_alias(client):
+def test_upsert_ai_provider_preserves_display_model_and_exposes_generation_model(client):
     response = client.post(
         "/api/config/ai",
         json={
             "name": "gemini",
-            "model": "gemini-2.0-flash",
+            "model": "gemini-2.0-flash-001",
             "api_key": "test-key",
         },
     )
@@ -127,16 +129,18 @@ def test_upsert_ai_provider_normalizes_legacy_gemini_alias(client):
     assert listed.status_code == 200, listed.text
     providers = listed.json()["ai_providers"]
     assert providers[0]["name"] == "gemini"
-    assert providers[0]["model"] == "gemini-2.0-flash-001"
+    assert providers[0]["display_model"] == "gemini-2.0-flash-001"
+    assert providers[0]["generation_model"] == "gemini-2.0-flash"
+    assert providers[0]["generation_status"] == "fallback"
 
 
-def test_get_config_auto_normalizes_legacy_gemini_and_exposes_warning(client):
+def test_get_config_keeps_display_model_and_reports_generation_fallback(client):
     cfg = storage.load_config()
     cfg.default_ai_provider = "gemini"
     cfg.upsert_provider(
         AIProviderConfig(
             name="gemini",
-            model="gemini-2.0-flash",
+            model="gemini-2.0-flash-001",
             key_stored=True,
         )
     )
@@ -146,10 +150,12 @@ def test_get_config_auto_normalizes_legacy_gemini_and_exposes_warning(client):
 
     assert response.status_code == 200, response.text
     payload = response.json()
-    assert payload["general"]["legacy_default_ai_model_warning"]
-    assert payload["ai_providers"][0]["is_legacy_model"] is True
-    assert "자동으로 최신 snapshot ID로 보정" in payload["ai_providers"][0]["model_warning"]
-    assert payload["ai_providers"][0]["model"] == "gemini-2.0-flash-001"
+    assert payload["general"]["default_ai_generation_model"] == "gemini-2.0-flash"
+    assert payload["general"]["default_ai_generation_status"] == "fallback"
+    assert payload["general"]["default_ai_generation_warning"]
+    assert payload["ai_providers"][0]["display_model"] == "gemini-2.0-flash-001"
+    assert payload["ai_providers"][0]["generation_model"] == "gemini-2.0-flash"
+    assert payload["ai_providers"][0]["generation_warning"]
 
     reloaded = storage.load_config()
     assert reloaded.ai_providers[0].model == "gemini-2.0-flash-001"
@@ -171,6 +177,30 @@ def test_upsert_ai_provider_exposes_runtime_env_when_keyring_unavailable(client)
     assert listed.status_code == 200, listed.text
     providers = listed.json()["ai_providers"]
     assert providers[0]["key_masked"] == "(환경변수 ANTHROPIC_API_KEY)"
+
+
+def test_list_ai_models_returns_generation_metadata(client):
+    fake_response = (
+        b'{"models": ['
+        b'{"name": "models/gemini-2.5-flash", "supportedGenerationMethods": ["generateContent"]},'
+        b'{"name": "models/gemini-2.5-flash-preview-09-2025", "supportedGenerationMethods": ["generateContent"]}'
+        b']}'
+    )
+    mocked = patch("urllib.request.urlopen")
+    with mocked as urlopen:
+        response_obj = urlopen.return_value.__enter__.return_value
+        response_obj.read.return_value = fake_response
+        response = client.get("/api/models", params={"provider": "gemini", "api_key": "AIza-test"})
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["provider"] == "gemini"
+    assert payload["models"][0]["id"] == "gemini-2.5-flash"
+    assert payload["models"][0]["generation_status"] == "ready"
+    preview = next(item for item in payload["models"] if item["id"] == "gemini-2.5-flash-preview-09-2025")
+    assert preview["generation_model"] == "gemini-2.5-flash"
+    assert preview["generation_status"] == "fallback"
+    assert preview["warning"]
 
 
 def test_projects_crud_round_trip(client):
@@ -374,3 +404,48 @@ def test_scan_git_rejects_remote_repository_url(client):
 
     assert response.status_code == 400
     assert "원격 Git URL은 바로 스캔할 수 없습니다" in response.json()["detail"]
+
+
+def test_scan_git_ai_failure_keeps_basic_scan_result(client, web_store):
+    cfg = storage.load_config()
+    cfg.default_ai_provider = "gemini"
+    cfg.upsert_provider(
+        AIProviderConfig(
+            name="gemini",
+            model="gemini-2.0-flash-001",
+            key_stored=True,
+        )
+    )
+    storage.save_config(cfg)
+
+    fake_scan_result = SimpleNamespace(
+        commits=["a", "b"],
+        languages=Counter({"Python": 90, "HTML": 10}),
+        project_context={"readme": "demo"},
+    )
+
+    with (
+        patch("devfolio.core.git_scanner.scan_repo", return_value=fake_scan_result),
+        patch("devfolio.core.git_scanner.build_project_payload", return_value={"repo": "DevFolio"}),
+        patch(
+            "devfolio.web.routes.api.AIService.analyze_project_from_code",
+            side_effect=DevfolioError("AI 실패"),
+        ),
+    ):
+        response = client.post(
+            "/api/scan/git",
+            json={
+                "repo_path": str(web_store),
+                "author_email": "user@example.com",
+                "refresh": True,
+                "analyze": True,
+                "lang": "ko",
+                "provider": None,
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["analyzed"] is False
+    assert payload["payload"] == {"repo": "DevFolio"}

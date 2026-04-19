@@ -15,8 +15,8 @@ from pydantic import BaseModel, ValidationError
 
 from devfolio.core.ai_service import (
     AIService,
-    is_legacy_provider_model,
     normalize_provider_model_name,
+    resolve_generation_model,
 )
 from devfolio.core.export_engine import ExportEngine
 from devfolio.core.project_manager import ProjectManager
@@ -114,14 +114,11 @@ def _raise_from_devfolio(exc: DevfolioError, status_code: int = 400) -> None:
 
 def _build_provider_list(
     cfg,
-    legacy_models: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     result = []
-    legacy_models = legacy_models or {}
     for provider in cfg.ai_providers:
-        normalized_model = normalize_provider_model_name(provider.name, provider.model)
-        was_legacy_model = legacy_models.get(provider.name, "")
-        is_legacy_model = bool(was_legacy_model) or is_legacy_provider_model(provider.name, provider.model)
+        display_model = normalize_provider_model_name(provider.name, provider.model)
+        resolution = resolve_generation_model(provider.name, provider.model)
         key = get_api_key(provider.name)
         if key:
             masked = mask_api_key(key)
@@ -133,17 +130,16 @@ def _build_provider_list(
         result.append(
             {
                 "name": provider.name,
-                "model": normalized_model,
+                "model": display_model,
+                "display_model": display_model,
+                "generation_model": resolution.generation_model,
+                "generation_status": resolution.status,
+                "generation_warning": resolution.warning,
                 "key_stored": provider.key_stored,
                 "key_masked": masked,
                 "base_url": provider.base_url,
                 "is_default": provider.name == cfg.default_ai_provider,
-                "is_legacy_model": is_legacy_model,
-                "model_warning": (
-                    f"구형 Gemini 모델 alias({was_legacy_model or provider.model})가 자동으로 최신 snapshot ID로 보정되었습니다."
-                    if is_legacy_model
-                    else ""
-                ),
+                "is_supported_for_generation": resolution.status != "unavailable",
             }
         )
     return result
@@ -152,17 +148,14 @@ def _build_provider_list(
 def _load_config_with_normalized_models():
     cfg = load_config()
     changed = False
-    legacy_models: dict[str, str] = {}
     for index, provider in enumerate(cfg.ai_providers):
-        if is_legacy_provider_model(provider.name, provider.model):
-            legacy_models[provider.name] = provider.model
         normalized_model = normalize_provider_model_name(provider.name, provider.model)
         if normalized_model and normalized_model != provider.model:
             cfg.ai_providers[index] = provider.model_copy(update={"model": normalized_model})
             changed = True
     if changed:
         save_config(cfg)
-    return cfg, legacy_models
+    return cfg
 
 
 def _env_var_name(provider: str) -> str:
@@ -180,7 +173,7 @@ def _default_model_name(provider: str) -> str:
     mapping = {
         "anthropic": "claude-sonnet-4-20250514",
         "openai": "gpt-4o",
-        "gemini": "gemini-2.0-flash-001",
+        "gemini": "gemini-2.5-flash",
         "ollama": "llama3.2",
     }
     return mapping.get(provider, "")
@@ -413,10 +406,15 @@ def _export_document(request: DraftPreviewRequest) -> dict[str, Any]:
 @router.get("/config")
 def get_config() -> dict[str, Any]:
     """전체 설정을 반환합니다 (API 키는 마스킹)."""
-    cfg, legacy_models = _load_config_with_normalized_models()
+    cfg = _load_config_with_normalized_models()
     default_provider = next(
         (provider for provider in cfg.ai_providers if provider.name == cfg.default_ai_provider),
         None,
+    )
+    default_resolution = (
+        resolve_generation_model(default_provider.name, default_provider.model)
+        if default_provider
+        else None
     )
     return {
         "user": cfg.user.model_dump(),
@@ -426,13 +424,11 @@ def get_config() -> dict[str, Any]:
             "default_language": cfg.default_language,
             "timezone": cfg.timezone,
             "default_ai_provider": cfg.default_ai_provider,
-            "legacy_default_ai_model_warning": (
-                f"기본 AI 제공자 '{cfg.default_ai_provider}'의 구형 Gemini 모델 alias가 자동으로 최신 snapshot ID로 보정되었습니다."
-                if default_provider and default_provider.name in legacy_models
-                else ""
-            ),
+            "default_ai_generation_model": default_resolution.generation_model if default_resolution else "",
+            "default_ai_generation_status": default_resolution.status if default_resolution else "unavailable",
+            "default_ai_generation_warning": default_resolution.warning if default_resolution else "",
         },
-        "ai_providers": _build_provider_list(cfg, legacy_models),
+        "ai_providers": _build_provider_list(cfg),
         "initialized": True,
     }
 
@@ -492,8 +488,8 @@ def update_general(body: GeneralConfigUpdate) -> dict[str, str]:
 
 @router.get("/config/ai")
 def list_ai_providers() -> list[dict[str, Any]]:
-    cfg, legacy_models = _load_config_with_normalized_models()
-    return _build_provider_list(cfg, legacy_models)
+    cfg = _load_config_with_normalized_models()
+    return _build_provider_list(cfg)
 
 
 @router.post("/config/ai")
@@ -541,7 +537,7 @@ def remove_ai_provider(name: str) -> dict[str, str]:
 
 @router.post("/config/ai/{name}/test")
 def test_ai_provider(name: str) -> dict[str, Any]:
-    cfg, _ = _load_config_with_normalized_models()
+    cfg = _load_config_with_normalized_models()
     provider = cfg.get_provider(name)
     if not provider:
         raise HTTPException(status_code=404, detail=f"Provider '{name}'를 찾을 수 없습니다.")
@@ -625,7 +621,7 @@ def scan_git(body: GitScanRequest) -> dict[str, Any]:
 
     try:
         repo_path, translated_from = _resolve_scan_repo_path(body.repo_path)
-        cfg, _ = _load_config_with_normalized_models()
+        cfg = _load_config_with_normalized_models()
         author_email = (body.author_email or cfg.user.email or "").strip()
         if not author_email:
             raise DevfolioError(
@@ -660,12 +656,30 @@ def scan_git(body: GitScanRequest) -> dict[str, Any]:
 
         ai_analysis: Optional[dict] = None
         if body.analyze and scan_result.project_context:
+            ai_provider = None
+            resolution = None
             try:
+                ai_provider_name = body.provider or cfg.default_ai_provider
+                ai_provider = cfg.get_provider(ai_provider_name) if ai_provider_name else None
+                resolution = (
+                    resolve_generation_model(ai_provider.name, ai_provider.model)
+                    if ai_provider
+                    else None
+                )
                 scan_metrics = {
                     "commits": len(scan_result.commits),
                     "period_months": 0,
                     "languages": {k: v for k, v in scan_result.languages.most_common(5)},
                 }
+                if ai_provider and resolution:
+                    logger.info(
+                        "Git scan AI 모델 해석: provider=%s requested=%s generation=%s candidates=%s status=%s",
+                        ai_provider.name,
+                        resolution.display_model,
+                        resolution.generation_model,
+                        list(resolution.candidate_models),
+                        resolution.status,
+                    )
                 ai_analysis = AIService(cfg).analyze_project_from_code(
                     repo_name=repo_path.name,
                     project_context=scan_result.project_context,
@@ -674,7 +688,14 @@ def scan_git(body: GitScanRequest) -> dict[str, Any]:
                     provider_name=body.provider,
                 )
             except Exception as exc:
-                logger.warning("AI 딥 분석 실패 (기본 스캔 결과로 계속): %s", exc)
+                logger.warning(
+                    "AI 딥 분석 실패 (기본 스캔 결과로 계속): requested=%s generation=%s candidates=%s failure=%s detail=%s",
+                    resolution.display_model if ai_provider and resolution else "",
+                    resolution.generation_model if ai_provider and resolution else "",
+                    list(resolution.candidate_models) if ai_provider and resolution else [],
+                    type(exc).__name__,
+                    exc,
+                )
 
         payload = build_project_payload(scan_result, ai_analysis=ai_analysis)
         return {
@@ -734,7 +755,7 @@ def delete_project(project_id: str) -> dict[str, str]:
 @router.post("/intake/project-draft")
 def intake_project_draft(body: DraftIntakeRequest) -> dict[str, Any]:
     try:
-        cfg, _ = _load_config_with_normalized_models()
+        cfg = _load_config_with_normalized_models()
         draft = AIService(cfg).generate_project_draft(
             raw_text=body.raw_text,
             lang=body.lang,
@@ -748,7 +769,7 @@ def intake_project_draft(body: DraftIntakeRequest) -> dict[str, Any]:
 @router.post("/draft/generate-summary")
 def generate_draft_summary(body: DraftAIRequest) -> dict[str, Any]:
     try:
-        cfg, _ = _load_config_with_normalized_models()
+        cfg = _load_config_with_normalized_models()
         summary = AIService(cfg).generate_draft_project_summary(
             draft=body.draft,
             lang=body.lang,
@@ -763,7 +784,7 @@ def generate_draft_summary(body: DraftAIRequest) -> dict[str, Any]:
 @router.post("/draft/generate-task-bullets")
 def generate_draft_task_bullets(body: DraftAIRequest) -> dict[str, Any]:
     try:
-        cfg, _ = _load_config_with_normalized_models()
+        cfg = _load_config_with_normalized_models()
         draft = AIService(cfg).generate_draft_task_texts(
             draft=body.draft,
             lang=body.lang,
@@ -778,7 +799,7 @@ def generate_draft_task_bullets(body: DraftAIRequest) -> dict[str, Any]:
 def generate_project_summary(project_id: str, body: SavedAIRequest) -> dict[str, Any]:
     try:
         project = pm.get_project_or_raise(project_id)
-        cfg, _ = _load_config_with_normalized_models()
+        cfg = _load_config_with_normalized_models()
         summary = AIService(cfg).generate_project_summary(
             project=project,
             lang=body.lang,
@@ -797,7 +818,7 @@ def generate_project_task_bullets(project_id: str, body: SavedAIRequest) -> dict
     try:
         project = pm.get_project_or_raise(project_id)
         draft = pm.draft_from_project(project)
-        cfg, _ = _load_config_with_normalized_models()
+        cfg = _load_config_with_normalized_models()
         updated_draft = AIService(cfg).generate_draft_task_texts(
             draft=draft,
             lang=body.lang,
@@ -877,7 +898,7 @@ def list_ai_models(
             raise HTTPException(status_code=502, detail=f"제공자 서버에 연결할 수 없습니다: {exc.reason}") from exc
 
     key = api_key or get_api_key(provider)
-    models: list[str] = []
+    model_ids: list[str] = []
 
     if provider == "anthropic":
         if not key:
@@ -886,7 +907,7 @@ def list_ai_models(
             "https://api.anthropic.com/v1/models",
             {"x-api-key": key, "anthropic-version": "2023-06-01"},
         )
-        models = [m["id"] for m in data.get("data", [])]
+        model_ids = [m["id"] for m in data.get("data", [])]
 
     elif provider == "openai":
         if not key:
@@ -896,7 +917,7 @@ def list_ai_models(
             {"Authorization": f"Bearer {key}"},
         )
         all_ids = [m["id"] for m in data.get("data", [])]
-        models = sorted(
+        model_ids = sorted(
             [m for m in all_ids if m.startswith(("gpt-", "o1", "o3", "o4"))],
             reverse=True,
         )
@@ -908,7 +929,7 @@ def list_ai_models(
             f"https://generativelanguage.googleapis.com/v1beta/models?key={key}&pageSize=100",
         )
         # API가 반환한 versioned ID만 사용 (alias 주입 없음 — litellm 호환성 보장)
-        models = [
+        model_ids = [
             m["name"].removeprefix("models/")
             for m in data.get("models", [])
             if "generateContent" in m.get("supportedGenerationMethods", [])
@@ -917,13 +938,34 @@ def list_ai_models(
     elif provider == "ollama":
         url = (base_url or "http://localhost:11434").rstrip("/")
         data = _fetch(f"{url}/api/tags")
-        models = [m.get("name", m.get("model", "")) for m in data.get("models", [])]
-        models = [m for m in models if m]
+        model_ids = [m.get("name", m.get("model", "")) for m in data.get("models", [])]
+        model_ids = [m for m in model_ids if m]
 
     else:
         raise HTTPException(status_code=400, detail=f"알 수 없는 제공자: {provider}")
 
-    return {"provider": provider, "models": models}
+    models = []
+    for model_id in model_ids:
+        resolution = resolve_generation_model(provider, model_id)
+        models.append(
+            {
+                "id": model_id,
+                "generation_model": resolution.generation_model,
+                "generation_status": resolution.status,
+                "is_supported_for_generation": resolution.status != "unavailable",
+                "warning": resolution.warning,
+            }
+        )
+
+    def _sort_key(item: dict[str, Any]) -> tuple[int, int, str]:
+        status_rank = {"ready": 0, "fallback": 1, "unavailable": 2}
+        return (
+            status_rank.get(item["generation_status"], 9),
+            0 if item["id"] == item["generation_model"] else 1,
+            item["id"],
+        )
+
+    return {"provider": provider, "models": sorted(models, key=_sort_key)}
 
 
 # ---------------------------------------------------------------------------

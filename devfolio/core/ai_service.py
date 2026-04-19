@@ -124,28 +124,128 @@ def _extract_bullet_lines(text: str) -> list[str]:
 _MAX_RETRIES = 3
 _RETRY_DELAY = 2.0  # 초
 
-_MODEL_ALIASES: dict[str, dict[str, str]] = {
-    # 저장된 구형 alias → 실제 사용 가능한 snapshot ID
+_GENERATION_MODEL_ALIASES: dict[str, dict[str, str]] = {
+    # Gemini stable snapshot -> generation-safe stable alias
     "gemini": {
-        "gemini-2.0-flash": "gemini-2.0-flash-001",
-        "gemini-2.0-flash-lite": "gemini-2.0-flash-lite-001",
-        "gemini-2.5-flash-lite": "gemini-2.5-flash-lite-001",
+        "gemini-2.0-flash-001": "gemini-2.0-flash",
+        "gemini-2.0-flash-lite-001": "gemini-2.0-flash-lite",
+        "gemini-2.5-flash-lite-001": "gemini-2.5-flash-lite",
     }
 }
 
+_GENERATION_SAFE_MODEL_REGISTRY: dict[str, tuple[str, ...]] = {
+    "anthropic": (
+        "claude-sonnet-4-20250514",
+        "claude-opus-4-20250514",
+        "claude-haiku-4-5-20251001",
+    ),
+    "openai": ("gpt-4o", "gpt-4o-mini", "gpt-4-turbo"),
+    "gemini": (
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+        "gemini-2.0-flash",
+        "gemini-2.0-flash-lite",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro",
+    ),
+}
+
+
+@dataclass(frozen=True)
+class GenerationModelResolution:
+    provider_name: str
+    display_model: str
+    generation_model: str
+    candidate_models: tuple[str, ...]
+    status: str
+    warning: str = ""
+
+
+def _clean_provider_model_name(model_name: str) -> str:
+    return (model_name or "").strip().removeprefix("models/")
+
 
 def normalize_provider_model_name(provider_name: str, model_name: str) -> str:
-    normalized = (model_name or "").strip().removeprefix("models/")
-    if not normalized:
-        return normalized
-    return _MODEL_ALIASES.get(provider_name, {}).get(normalized, normalized)
+    return _clean_provider_model_name(model_name)
 
 
 def is_legacy_provider_model(provider_name: str, model_name: str) -> bool:
-    normalized = (model_name or "").strip().removeprefix("models/")
+    normalized = _clean_provider_model_name(model_name)
+    return normalized in _GENERATION_MODEL_ALIASES.get(provider_name, {})
+
+
+def _generation_alias(provider_name: str, model_name: str) -> str:
+    normalized = normalize_provider_model_name(provider_name, model_name)
     if not normalized:
-        return False
-    return normalized in _MODEL_ALIASES.get(provider_name, {})
+        return normalized
+    return _GENERATION_MODEL_ALIASES.get(provider_name, {}).get(normalized, normalized)
+
+
+def _safe_generation_models(provider_name: str) -> tuple[str, ...]:
+    return _GENERATION_SAFE_MODEL_REGISTRY.get(provider_name, ())
+
+
+def resolve_generation_model(provider_name: str, model_name: str) -> GenerationModelResolution:
+    display_model = normalize_provider_model_name(provider_name, model_name)
+    safe_models = _safe_generation_models(provider_name)
+
+    if provider_name == "ollama":
+        candidates = (display_model,) if display_model else ()
+        return GenerationModelResolution(
+            provider_name=provider_name,
+            display_model=display_model,
+            generation_model=display_model,
+            candidate_models=candidates,
+            status="ready" if display_model else "unavailable",
+            warning="",
+        )
+
+    requested_generation = _generation_alias(provider_name, display_model)
+    candidates: list[str] = []
+
+    if requested_generation in safe_models:
+        candidates.append(requested_generation)
+    else:
+        family_match = next(
+            (
+                safe_model
+                for safe_model in safe_models
+                if requested_generation.startswith(f"{safe_model}-")
+            ),
+            "",
+        )
+        if family_match:
+            candidates.append(family_match)
+
+    for safe_model in safe_models:
+        if safe_model not in candidates:
+            candidates.append(safe_model)
+
+    generation_model = candidates[0] if candidates else requested_generation
+    warning = ""
+    status = "ready"
+
+    if not generation_model:
+        status = "unavailable"
+        warning = "현재 생성에 사용할 수 있는 안전 모델이 없습니다."
+    elif display_model and generation_model != requested_generation:
+        status = "fallback"
+        warning = f"저장된 모델 {display_model} 대신 생성 시 {generation_model}를 사용합니다."
+    elif requested_generation and generation_model != display_model:
+        status = "fallback"
+        warning = f"저장된 모델 {display_model}은 생성 시 {generation_model}로 해석됩니다."
+    elif display_model and display_model not in safe_models and requested_generation not in safe_models:
+        status = "fallback"
+        warning = f"저장된 모델 {display_model}은 생성용 안정 모델이 아니어서 {generation_model}를 사용합니다."
+
+    return GenerationModelResolution(
+        provider_name=provider_name,
+        display_model=display_model,
+        generation_model=generation_model,
+        candidate_models=tuple(candidates),
+        status=status,
+        warning=warning,
+    )
 
 
 class EvidenceTask(BaseModel):
@@ -256,14 +356,16 @@ class AIService:
 
     def _model_string(self, provider: AIProviderConfig) -> str:
         """litellm 모델 문자열 반환."""
-        model_name = normalize_provider_model_name(provider.name, provider.model)
+        resolution = resolve_generation_model(provider.name, provider.model)
+        model_name = resolution.generation_model or normalize_provider_model_name(provider.name, provider.model)
         return self._provider_model_string(provider.name, model_name)
 
     def _runtime_model_candidates(self, provider: AIProviderConfig) -> list[str]:
-        raw_model = provider.model.strip().removeprefix("models/")
-        normalized = normalize_provider_model_name(provider.name, provider.model)
-        candidates = [candidate for candidate in [raw_model, normalized] if candidate]
-        return list(dict.fromkeys(candidates))
+        resolution = resolve_generation_model(provider.name, provider.model)
+        candidates = list(resolution.candidate_models)
+        if not candidates and resolution.generation_model:
+            candidates = [resolution.generation_model]
+        return candidates
 
     def _set_env_key(self, provider: AIProviderConfig) -> None:
         """API 키를 환경 변수에 설정 (litellm이 읽도록)."""
@@ -448,14 +550,16 @@ class AIService:
                         last_error = e
                         if model_index < len(model_candidates):
                             logger.warning(
-                                "모델을 찾지 못해 대체 후보로 재시도합니다: requested=%s fallback=%s",
+                                "모델을 찾지 못해 대체 후보로 재시도합니다: provider=%s requested=%s fallback=%s failure=%s",
+                                provider.name,
                                 provider.model,
                                 model_candidates[model_index],
+                                err_class,
                             )
                             break
                         raise DevfolioAIError(
                             f"모델을 찾을 수 없습니다: {provider.model}",
-                            hint="설정 탭에서 모델 목록을 새로고침(↻)하고 다른 모델을 선택한 뒤 저장하세요.",
+                            hint=f"시도한 생성 모델: {', '.join(model_candidates)}. 설정 탭에서 지원 모델 상태를 확인하거나 다른 제공자를 선택하세요.",
                         ) from e
                     if "limit: 0" in err_str or "free_tier_requests" in err_str:
                         raise DevfolioAIError(

@@ -25,7 +25,7 @@ const state = {
 const DEFAULT_MODELS = {
   anthropic: 'claude-sonnet-4-20250514',
   openai: 'gpt-4o',
-  gemini: 'gemini-2.0-flash-001',
+  gemini: 'gemini-2.5-flash',
   ollama: 'llama3.2',
 };
 
@@ -45,6 +45,20 @@ function geminiModelLabel(modelId) {
   const info = GEMINI_MODEL_INFO.find(i => modelId.startsWith(i.prefix));
   if (!info) return modelId;
   return info.free ? `${modelId} (무료)` : modelId;
+}
+
+function modelLabelForProvider(providerName, modelId) {
+  if (!modelId) return '-';
+  return providerName === 'gemini' ? geminiModelLabel(modelId) : modelId;
+}
+
+function providerModelSummary(provider) {
+  const displayModel = provider.display_model || provider.model || '';
+  const generationModel = provider.generation_model || displayModel;
+  if (generationModel && generationModel !== displayModel) {
+    return `저장: ${displayModel} · 생성: ${generationModel}`;
+  }
+  return generationModel || displayModel || '-';
 }
 
 let toastTimer = null;
@@ -265,9 +279,9 @@ function updateScanProviderWarning() {
 
   const analyze = document.getElementById('scan-analyze')?.checked || false;
   const provider = getScanAnalysisProvider();
-  const defaultWarning = state.config?.general?.legacy_default_ai_model_warning || '';
+  const defaultWarning = state.config?.general?.default_ai_generation_warning || '';
   const warning = analyze
-    ? provider?.model_warning || (!document.getElementById('scan-provider')?.value ? defaultWarning : '')
+    ? provider?.generation_warning || (!document.getElementById('scan-provider')?.value ? defaultWarning : '')
     : '';
 
   warningEl.textContent = warning;
@@ -543,10 +557,16 @@ async function loadModelsForProvider() {
       modelSelect.innerHTML = '<option value="">사용 가능한 모델 없음</option>';
       return;
     }
-    const defaultModel = DEFAULT_MODELS[provider] || '';
-    modelSelect.innerHTML = models.map(m => {
-      const label = provider === 'gemini' ? geminiModelLabel(m) : m;
-      return `<option value="${escHtml(m)}"${m === defaultModel ? ' selected' : ''}>${escHtml(label)}</option>`;
+    const savedModel = (state.config?.ai_providers || []).find(item => item.name === provider)?.display_model || '';
+    const defaultModel = savedModel || DEFAULT_MODELS[provider] || '';
+    modelSelect.innerHTML = models.map(model => {
+      const label = modelLabelForProvider(provider, model.id);
+      const suffix = model.generation_status === 'fallback'
+        ? ` · 생성 시 ${model.generation_model}`
+        : model.generation_status === 'unavailable'
+          ? ' · 생성 비권장'
+          : '';
+      return `<option value="${escHtml(model.id)}"${model.id === defaultModel ? ' selected' : ''}>${escHtml(label + suffix)}</option>`;
     }).join('');
   } catch (err) {
     const msg = err?.message || '';
@@ -776,18 +796,19 @@ function applyConfigToForms() {
     if (aiNameEl) aiNameEl.value = defaultProvider;
     syncProviderForm();
     const savedProvider = (state.config.ai_providers || []).find(p => p.name === defaultProvider);
-    if (savedProvider?.model) {
+    const displayModel = savedProvider?.display_model || savedProvider?.model || '';
+    if (displayModel) {
       const modelEl = document.getElementById('ai-model');
       if (modelEl) {
         // 현재 저장된 모델을 옵션으로 추가 (목록 로드 전 임시)
-        if (![...modelEl.options].some(o => o.value === savedProvider.model)) {
+        if (![...modelEl.options].some(o => o.value === displayModel)) {
           const opt = document.createElement('option');
-          opt.value = savedProvider.model;
-          const label = defaultProvider === 'gemini' ? geminiModelLabel(savedProvider.model) : savedProvider.model;
+          opt.value = displayModel;
+          const label = modelLabelForProvider(defaultProvider, displayModel);
           opt.textContent = label;
           modelEl.appendChild(opt);
         }
-        modelEl.value = savedProvider.model;
+        modelEl.value = displayModel;
       }
     }
   }
@@ -800,14 +821,14 @@ function populateProviders() {
   const intakeProvider = document.getElementById('intake-provider');
   if (intakeProvider) {
     intakeProvider.innerHTML = '<option value="">자동 선택</option>' + providers
-      .map(provider => `<option value="${escHtml(provider.name)}">${escHtml(provider.name)} · ${escHtml(provider.model)}</option>`)
+      .map(provider => `<option value="${escHtml(provider.name)}">${escHtml(provider.name)} · ${escHtml(providerModelSummary(provider))}</option>`)
       .join('');
   }
 
   const scanProvider = document.getElementById('scan-provider');
   if (scanProvider) {
     scanProvider.innerHTML = '<option value="">자동 선택</option>' + providers
-      .map(provider => `<option value="${escHtml(provider.name)}">${escHtml(provider.name)} · ${escHtml(provider.model)}</option>`)
+      .map(provider => `<option value="${escHtml(provider.name)}">${escHtml(provider.name)} · ${escHtml(providerModelSummary(provider))}</option>`)
       .join('');
   }
 
@@ -821,8 +842,10 @@ function populateProviders() {
           <article class="provider-item">
             <div>
               <strong>${escHtml(provider.name)}</strong>
-              <p>${escHtml(provider.model)}</p>
+              <p>저장 모델: ${escHtml(provider.display_model || provider.model || '-')}</p>
+              <p>생성 모델: ${escHtml(provider.generation_model || '-')}</p>
               <small>${escHtml(provider.key_masked)}${provider.is_default ? ' · 기본 제공자' : ''}</small>
+              ${provider.generation_warning ? `<small class="provider-warning">${escHtml(provider.generation_warning)}</small>` : ''}
             </div>
             <div class="inline-actions">
               <button type="button" class="btn btn-ghost" data-provider-action="test" data-provider-name="${escHtml(provider.name)}">테스트</button>

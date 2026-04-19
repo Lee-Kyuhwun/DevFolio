@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from devfolio.core.ai_service import AIService
+from devfolio.core.ai_service import AIService, resolve_generation_model
 from devfolio.exceptions import (
     DevfolioAIAuthError,
     DevfolioAIError,
@@ -105,29 +105,41 @@ class TestProviderConfig:
         provider = service.config.get_provider("ollama")
         assert service._model_string(provider) == "ollama/llama3.2"
 
-    def test_model_string_normalizes_legacy_gemini_alias(self):
+    def test_model_string_resolves_gemini_snapshot_to_safe_alias(self):
         config = Config()
         config.default_ai_provider = "gemini"
         config.ai_providers = [
-            AIProviderConfig(name="gemini", model="gemini-2.0-flash")
+            AIProviderConfig(name="gemini", model="gemini-2.0-flash-001")
         ]
         service = AIService(config)
         provider = service.config.get_provider("gemini")
-        assert service._model_string(provider) == "gemini/gemini-2.0-flash-001"
+        assert service._model_string(provider) == "gemini/gemini-2.0-flash"
 
-    def test_runtime_model_candidates_include_legacy_alias_and_snapshot_fallback(self):
+    def test_runtime_model_candidates_prioritize_same_family_then_safe_defaults(self):
         config = Config()
         config.default_ai_provider = "gemini"
         config.ai_providers = [
-            AIProviderConfig(name="gemini", model="gemini-2.0-flash")
+            AIProviderConfig(name="gemini", model="gemini-2.0-flash-001")
         ]
         service = AIService(config)
         provider = service.config.get_provider("gemini")
 
         assert service._runtime_model_candidates(provider) == [
             "gemini-2.0-flash",
-            "gemini-2.0-flash-001",
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite",
+            "gemini-2.0-flash-lite",
+            "gemini-1.5-flash",
+            "gemini-1.5-pro",
         ]
+
+    def test_resolve_generation_model_uses_safe_fallback_for_preview_model(self):
+        resolution = resolve_generation_model("gemini", "gemini-2.5-flash-preview-09-2025")
+
+        assert resolution.display_model == "gemini-2.5-flash-preview-09-2025"
+        assert resolution.generation_model == "gemini-2.5-flash"
+        assert resolution.status == "fallback"
+        assert "preview" not in resolution.candidate_models
 
 
 # ---------------------------------------------------------------------------
@@ -476,7 +488,7 @@ class TestRetryLogic:
         config = Config()
         config.default_ai_provider = "gemini"
         config.ai_providers = [
-            AIProviderConfig(name="gemini", model="gemini-2.0-flash", key_stored=True)
+            AIProviderConfig(name="gemini", model="gemini-2.0-flash-001", key_stored=True)
         ]
         service = AIService(config)
         fake_litellm = MagicMock()
@@ -502,7 +514,7 @@ class TestRetryLogic:
         assert result == "ok"
         assert [call.kwargs["model"] for call in fake_litellm.completion.call_args_list] == [
             "gemini/gemini-2.0-flash",
-            "gemini/gemini-2.0-flash-001",
+            "gemini/gemini-2.5-flash",
         ]
 
 
