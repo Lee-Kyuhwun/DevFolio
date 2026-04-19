@@ -542,10 +542,13 @@ function bindGlobalActions() {
     syncProviderForm();
     const provider = document.getElementById('ai-name')?.value;
     const alreadySaved = state.config?.ai_providers?.some(p => p.name === provider);
-    if (alreadySaved) loadModelsForProvider();
+    const isBuiltin = provider === 'pollinations';
+    const isOllama = provider === 'ollama';
+    if (alreadySaved || isBuiltin || isOllama) loadModelsForProvider();
     else resetModelSelect();
   });
   document.getElementById('ai-key')?.addEventListener('change', loadModelsForProvider);
+  document.getElementById('ai-key')?.addEventListener('paste', () => setTimeout(loadModelsForProvider, 100));
   document.getElementById('ai-base-url')?.addEventListener('change', loadModelsForProvider);
   document.getElementById('btn-load-models')?.addEventListener('click', loadModelsForProvider);
   document.addEventListener('click', event => {
@@ -572,8 +575,9 @@ async function loadModelsForProvider() {
   if (!modelSelect || !provider) return;
 
   const isOllama = provider === 'ollama';
+  const isBuiltin = provider === 'pollinations';
   const hasSavedKey = state.config?.ai_providers?.some(p => p.name === provider);
-  if (!apiKey && !hasSavedKey && !isOllama) {
+  if (!apiKey && !hasSavedKey && !isOllama && !isBuiltin) {
     resetModelSelect();
     showToast('API 키를 먼저 입력하세요.', 'error');
     return;
@@ -694,6 +698,10 @@ function bindSettingsForms() {
     // 모델이 비어있으면 현재 select 값을 직접 읽어 보완
     if (!data.model) {
       data.model = document.getElementById('ai-model')?.value || '';
+    }
+    // 모델 목록을 못 불러온 경우 DEFAULT_MODELS 기본값으로 폴백
+    if (!data.model && data.name) {
+      data.model = DEFAULT_MODELS[data.name] || '';
     }
     if (!data.model) {
       showToast('모델을 선택하세요. ↻ 버튼으로 모델 목록을 먼저 불러오세요.', 'error');
