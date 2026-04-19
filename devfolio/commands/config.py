@@ -18,9 +18,16 @@ app.add_typer(ai_app, name="ai")
 console = Console()
 
 _PROVIDER_MODELS: dict[str, list[str]] = {
+    "groq": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "gemma2-9b-it", "deepseek-r1-distill-llama-70b"],
+    "openrouter": [
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "google/gemma-3-27b-it:free",
+        "deepseek/deepseek-r1:free",
+        "microsoft/phi-4:free",
+    ],
     "anthropic": ["claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-haiku-4-5-20251001"],
     "openai": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
-    "gemini": ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"],
+    "gemini": ["gemini-3.1-flash-lite-preview", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"],
     "ollama": ["llama3.2", "llama3.1", "mistral", "deepseek-coder"],
 }
 
@@ -34,12 +41,14 @@ def ai_set(
 
     if not provider:
         console.print("AI Provider를 선택하세요:")
-        console.print("  [bold]1[/bold]  Anthropic (Claude)")
-        console.print("  [bold]2[/bold]  OpenAI (GPT)")
+        console.print("  [bold]1[/bold]  Groq (무료, 14,400 req/일)")
+        console.print("  [bold]2[/bold]  OpenRouter (무료 모델 포함)")
         console.print("  [bold]3[/bold]  Google (Gemini)")
-        console.print("  [bold]4[/bold]  Ollama (로컬 실행)")
-        choice = Prompt.ask("번호 선택", choices=["1", "2", "3", "4"])
-        provider_map = {"1": "anthropic", "2": "openai", "3": "gemini", "4": "ollama"}
+        console.print("  [bold]4[/bold]  Anthropic (Claude)")
+        console.print("  [bold]5[/bold]  OpenAI (GPT)")
+        console.print("  [bold]6[/bold]  Ollama (로컬 실행)")
+        choice = Prompt.ask("번호 선택", choices=["1", "2", "3", "4", "5", "6"])
+        provider_map = {"1": "groq", "2": "openrouter", "3": "gemini", "4": "anthropic", "5": "openai", "6": "ollama"}
         provider = provider_map[choice]
 
     models = _PROVIDER_MODELS.get(provider, [])

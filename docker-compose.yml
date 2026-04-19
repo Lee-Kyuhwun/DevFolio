@@ -18,6 +18,8 @@ services:
       - DEVFOLIO_DOCKER_REPO_ROOT=/home/user
       # API 키는 환경변수로 주입 (keyring 불필요)
       # .env 파일을 만들거나 직접 설정하세요
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}

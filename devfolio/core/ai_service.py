@@ -151,6 +151,21 @@ _GENERATION_SAFE_MODEL_REGISTRY: dict[str, tuple[str, ...]] = {
         "gemini-1.5-flash",               # 유료
         "gemini-1.5-pro",                 # 유료
     ),
+    # 무료 한도: 14,400 req/일 (출처: console.groq.com/docs/rate-limits)
+    "groq": (
+        "llama-3.3-70b-versatile",        # 무료, 고성능
+        "llama-3.1-8b-instant",           # 무료, 초고속
+        "gemma2-9b-it",                   # 무료
+        "deepseek-r1-distill-llama-70b",  # 무료, 추론
+    ),
+    # :free 태그 모델은 무료 (출처: openrouter.ai/models?q=free)
+    "openrouter": (
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "google/gemma-3-27b-it:free",
+        "deepseek/deepseek-r1:free",
+        "microsoft/phi-4:free",
+        "qwen/qwen3-235b-a22b:free",
+    ),
 }
 
 
@@ -354,6 +369,8 @@ class AIService:
             "openai": model_name,
             "gemini": f"gemini/{model_name}",
             "ollama": f"ollama/{model_name}",
+            "groq": f"groq/{model_name}",
+            "openrouter": f"openrouter/{model_name}",
         }
         return mapping.get(provider_name, model_name)
 

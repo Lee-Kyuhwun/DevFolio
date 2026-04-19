@@ -164,6 +164,7 @@ def _env_var_name(provider: str) -> str:
         "openai": "OPENAI_API_KEY",
         "gemini": "GEMINI_API_KEY",
         "groq": "GROQ_API_KEY",
+        "openrouter": "OPENROUTER_API_KEY",
         "cohere": "COHERE_API_KEY",
     }
     return mapping.get(provider, f"{provider.upper()}_API_KEY")
@@ -173,8 +174,10 @@ def _default_model_name(provider: str) -> str:
     mapping = {
         "anthropic": "claude-sonnet-4-20250514",
         "openai": "gpt-4o",
-        "gemini": "gemini-2.5-flash",
+        "gemini": "gemini-3.1-flash-lite-preview",
         "ollama": "llama3.2",
+        "groq": "llama-3.3-70b-versatile",
+        "openrouter": "meta-llama/llama-3.3-70b-instruct:free",
     }
     return mapping.get(provider, "")
 
@@ -940,6 +943,28 @@ def list_ai_models(
         data = _fetch(f"{url}/api/tags")
         model_ids = [m.get("name", m.get("model", "")) for m in data.get("models", [])]
         model_ids = [m for m in model_ids if m]
+
+    elif provider == "groq":
+        if not key:
+            raise HTTPException(status_code=400, detail="API 키가 필요합니다.")
+        data = _fetch(
+            "https://api.groq.com/openai/v1/models",
+            {"Authorization": f"Bearer {key}"},
+        )
+        model_ids = sorted([m["id"] for m in data.get("data", []) if not m.get("id", "").startswith("whisper")])
+
+    elif provider == "openrouter":
+        if not key:
+            raise HTTPException(status_code=400, detail="API 키가 필요합니다.")
+        data = _fetch(
+            "https://openrouter.ai/api/v1/models",
+            {"Authorization": f"Bearer {key}"},
+        )
+        # 무료 모델(:free 태그)을 먼저 표시
+        all_models = [m["id"] for m in data.get("data", [])]
+        free_models = sorted([m for m in all_models if m.endswith(":free")])
+        paid_models = sorted([m for m in all_models if not m.endswith(":free")])
+        model_ids = free_models + paid_models
 
     else:
         raise HTTPException(status_code=400, detail=f"알 수 없는 제공자: {provider}")

@@ -23,9 +23,11 @@ const state = {
 };
 
 const DEFAULT_MODELS = {
+  groq: 'llama-3.3-70b-versatile',
+  openrouter: 'meta-llama/llama-3.3-70b-instruct:free',
+  gemini: 'gemini-3.1-flash-lite-preview',
   anthropic: 'claude-sonnet-4-20250514',
   openai: 'gpt-4o',
-  gemini: 'gemini-3.1-flash-lite-preview',
   ollama: 'llama3.2',
 };
 
@@ -51,7 +53,9 @@ function geminiModelLabel(modelId) {
 
 function modelLabelForProvider(providerName, modelId) {
   if (!modelId) return '-';
-  return providerName === 'gemini' ? geminiModelLabel(modelId) : modelId;
+  if (providerName === 'gemini') return geminiModelLabel(modelId);
+  if (providerName === 'openrouter' && modelId.endsWith(':free')) return `${modelId} (무료)`;
+  return modelId;
 }
 
 function providerModelSummary(provider) {
