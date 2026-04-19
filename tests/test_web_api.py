@@ -332,7 +332,10 @@ def test_preview_portfolio_renders_ai_generated_task_text(client):
     payload = response.json()
     assert "핵심 작업을 구조화해 설명 밀도를 높였습니다." in payload["markdown"]
     assert "사용 기술" in payload["markdown"]
+    assert "프로젝트 목적" in payload["markdown"]
+    assert "사용자 / 제품 흐름" in payload["markdown"]
     assert "기술 스택 구성" in payload["markdown"]
+    assert "결과 및 확장성" in payload["markdown"]
     assert "```mermaid" in payload["markdown"]
 
 
@@ -385,6 +388,7 @@ def test_export_portfolio_saved_project_creates_html(client, web_store):
     assert (storage.EXPORTS_DIR / "portfolio_default.html").exists()
     exported_html = (storage.EXPORTS_DIR / "portfolio_default.html").read_text(encoding="utf-8")
     assert "cdn.jsdelivr.net/npm/mermaid" in exported_html
+    assert "프로젝트 목적" in exported_html
 
 
 def test_saved_project_ai_task_generation_updates_persisted_project(client):

@@ -46,6 +46,22 @@ _STACK_LAYER_RULES: tuple[tuple[str, tuple[str, ...], str], ...] = (
 )
 
 
+def _unique_texts(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    results: list[str] = []
+    for value in values:
+        cleaned = " ".join(str(value or "").split())
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        results.append(cleaned)
+    return results
+
+
+def _task_texts(project: Project, attribute: str) -> list[str]:
+    return _unique_texts([str(getattr(task, attribute, "") or "") for task in project.tasks])
+
+
 def _project_text_blob(project: Project) -> str:
     task_bits = []
     for task in project.tasks:
@@ -98,6 +114,74 @@ def describe_tech_stack(project: Project) -> str:
         f"- **{title}**: {', '.join(items)} — {description}"
         for title, items, description in layers
     )
+
+
+def describe_project_purpose(project: Project) -> str:
+    summary = " ".join((project.summary or "").split())
+    problems = _task_texts(project, "problem")
+    results = _task_texts(project, "result")
+
+    sentences: list[str] = []
+    if summary:
+        if summary[-1] not in ".!?。！？":
+            summary += "."
+        sentences.append(summary)
+
+    if problems:
+        sentences.append(
+            f"이 프로젝트는 {', '.join(problems[:2])} 같은 문제를 줄이고, "
+            "사용자가 하나의 일관된 흐름 안에서 작업을 이어갈 수 있도록 설계했습니다."
+        )
+    else:
+        sentences.append(
+            "이 프로젝트는 흩어진 작업 과정을 구조화된 흐름으로 묶고, "
+            "같은 원천 데이터를 반복 재사용할 수 있는 기반을 만드는 데 목적이 있습니다."
+        )
+
+    if results:
+        sentences.append(
+            f"이를 통해 {', '.join(results[:2])} 같은 결과로 이어지는 제품 구조를 만들었습니다."
+        )
+
+    return " ".join(sentences)
+
+
+def describe_user_flow(project: Project) -> str:
+    text_blob = _project_text_blob(project)
+
+    has_setup = any(keyword in text_blob for keyword in ("init", "setup", "config", "설정", "api key"))
+    has_scan = any(keyword in text_blob for keyword in ("scan", "git", "repository", "저장소"))
+    has_ai = any(keyword in text_blob for keyword in ("ai", "llm", "draft", "요약", "bullet", "litellm", "openai", "anthropic", "gemini"))
+    has_preview = any(keyword in text_blob for keyword in ("preview", "미리보기", "review", "검토"))
+    has_export = any(keyword in text_blob for keyword in ("export", "내보내기", "pdf", "html", "docx", "markdown", "csv"))
+    has_sync = any(keyword in text_blob for keyword in ("sync", "backup", "github", "동기화", "백업"))
+
+    steps: list[str] = []
+    if has_setup:
+        steps.append("사용자가 초기 설정을 마치고 작업 환경을 준비합니다.")
+
+    if has_scan:
+        steps.append("Git 저장소를 스캔하거나 프로젝트 정보를 입력해 원천 데이터를 수집합니다.")
+    else:
+        steps.append("프로젝트 데이터와 작업 내역을 구조화해 입력합니다.")
+
+    if has_ai:
+        steps.append("AI draft, 요약, task bullet을 생성하고 사람이 검토하며 문구를 다듬습니다.")
+    else:
+        steps.append("구조화된 데이터를 바탕으로 핵심 내용을 검토하고 정리합니다.")
+
+    if has_preview:
+        steps.append("preview로 문서 결과를 확인하고 저장 전 품질을 점검합니다.")
+
+    if has_export:
+        steps.append("필요한 형식으로 export해 이력서, 포트폴리오, 프로젝트 문서로 전환합니다.")
+    elif not has_preview:
+        steps.append("결과를 검토하고 다음 작업 단계로 연결합니다.")
+
+    if has_sync:
+        steps.append("필요 시 GitHub sync로 원본 데이터와 산출물을 백업합니다.")
+
+    return "\n".join(f"{index}. {step}" for index, step in enumerate(steps, start=1))
 
 
 def build_architecture_diagram(project: Project) -> str:
@@ -175,6 +259,23 @@ def build_architecture_diagram(project: Project) -> str:
     return "\n".join(lines)
 
 
+def summarize_project_outcomes(project: Project) -> str:
+    results = _task_texts(project, "result")
+    text_blob = _project_text_blob(project)
+    bullets = [f"- {result}" for result in results[:3]]
+
+    if not bullets and any(keyword in text_blob for keyword in ("export", "내보내기", "template", "jinja2")):
+        bullets.append("- 구조화된 프로젝트 데이터를 여러 문서 형식으로 재사용할 수 있는 기반을 만들었습니다.")
+    if not bullets and any(keyword in text_blob for keyword in ("sync", "backup", "github", "동기화", "백업")):
+        bullets.append("- 로컬 작업 결과와 백업 흐름을 분리해 운영 안정성과 복원 가능성을 높였습니다.")
+    if not bullets and any(keyword in text_blob for keyword in ("ai", "llm", "draft", "litellm")):
+        bullets.append("- 구조화된 데이터를 AI 생성 흐름과 연결해 문서 작성 생산성을 높일 수 있는 기반을 마련했습니다.")
+    if not bullets:
+        bullets.append("- 핵심 기능을 하나의 일관된 흐름으로 정리해 이후 확장과 유지보수에 유리한 구조를 만들었습니다.")
+
+    return "\n".join(bullets)
+
+
 class TemplateEngine:
     def __init__(self):
         search_paths: list[str] = []
@@ -233,8 +334,11 @@ class TemplateEngine:
             "projects": projects,
             "user": config.user,
             "config": config,
+            "describe_project_purpose": describe_project_purpose,
+            "describe_user_flow": describe_user_flow,
             "describe_tech_stack": describe_tech_stack,
             "build_architecture_diagram": build_architecture_diagram,
+            "summarize_project_outcomes": summarize_project_outcomes,
         }
 
         # 1단계: 정확한 이름 매칭
@@ -266,8 +370,11 @@ class TemplateEngine:
         context = {
             "project": project,
             "user": config.user,
+            "describe_project_purpose": describe_project_purpose,
+            "describe_user_flow": describe_user_flow,
             "describe_tech_stack": describe_tech_stack,
             "build_architecture_diagram": build_architecture_diagram,
+            "summarize_project_outcomes": summarize_project_outcomes,
         }
 
         try:
@@ -404,11 +511,21 @@ _BUILTIN_PORTFOLIO_DEFAULT = """\
 {% for project in projects %}
 ## {{ loop.index }}. {{ project.name }}
 
-> {{ project.summary }}
+### 프로젝트 개요
+
+{{ project.summary }}
 
 - **기간**: {{ project.period.display() }}
 - **역할**: {{ project.role }}
 - **기술 스택**: {{ project.tech_stack | join(", ") }}
+
+### 프로젝트 목적
+
+{{ describe_project_purpose(project) }}
+
+### 사용자 / 제품 흐름
+
+{{ describe_user_flow(project) }}
 
 ### 기술 스택 구성
 
@@ -420,9 +537,30 @@ _BUILTIN_PORTFOLIO_DEFAULT = """\
 {{ build_architecture_diagram(project) }}
 ```
 
+### 문제 해결 내역
+
 {% for task in project.tasks %}
-**{{ task.name }}**: {{ task.result }}
+#### {{ task.name }}
+{% if task.ai_generated_text %}
+{{ task.ai_generated_text }}
+{% endif %}
+{% if task.problem %}
+- 문제 상황: {{ task.problem }}
+{% endif %}
+{% if task.solution %}
+- 해결 방식: {{ task.solution }}
+{% endif %}
+{% if task.result %}
+- 결과: {{ task.result }}
+{% endif %}
+{% if task.tech_used %}
+- 사용 기술: {{ task.tech_used | join(", ") }}
+{% endif %}
 {% endfor %}
+
+### 결과 및 확장성
+
+{{ summarize_project_outcomes(project) }}
 
 ---
 {% endfor %}

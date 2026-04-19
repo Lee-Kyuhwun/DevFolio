@@ -9,10 +9,12 @@
 {% endblock header %}
 
 {% block projects %}
-## Projects
+## 포트폴리오 프로젝트
 
 {% for project in projects %}
 ### {{ project.name }}
+
+## 프로젝트 개요
 
 {{ project.summary }}
 
@@ -22,6 +24,14 @@
 | **역할** | {{ project.role }}{% if project.organization %} @ {{ project.organization }}{% endif %} |
 | **팀 규모** | {{ project.team_size }}명 |
 | **기술 스택** | {{ project.tech_stack | join(', ') }} |
+
+## 프로젝트 목적
+
+{{ describe_project_purpose(project) }}
+
+## 사용자 / 제품 흐름
+
+{{ describe_user_flow(project) }}
 
 ## 기술 스택 구성
 
@@ -33,27 +43,41 @@
 {{ build_architecture_diagram(project) }}
 ```
 
+## 문제 해결 내역
+
 {% if project.tasks %}
 {% for task in project.tasks %}
-**{{ task.name }}**
+### {{ task.name }}
 {% if task.ai_generated_text %}
+**핵심 기여**
+
 {{ task.ai_generated_text }}
 {% endif %}
 {% if task.problem %}
-- 문제: {{ task.problem }}
+**문제 상황**
+
+{{ task.problem }}
 {% endif %}
 {% if task.solution %}
-- 해결: {{ task.solution }}
+**해결 방식**
+
+{{ task.solution }}
 {% endif %}
 {% if task.result %}
-- 성과: {{ task.result }}
+**결과**
+
+{{ task.result }}
 {% endif %}
 {% if task.tech_used %}
-- 사용 기술: {{ task.tech_used | join(', ') }}
+**사용 기술**: {{ task.tech_used | join(', ') }}
 {% endif %}
 
 {% endfor %}
 {% endif %}
+
+## 결과 및 확장성
+
+{{ summarize_project_outcomes(project) }}
 
 ---
 {% endfor %}
