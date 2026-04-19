@@ -9,420 +9,415 @@
 <body data-initialized="{{ 'true' if initialized else 'false' }}">
   <a class="skip-link" href="#app-main">본문 바로가기</a>
 
-  <div class="app-shell">
-    <aside class="studio-rail" id="studio-rail">
-      <div class="brand-block">
+  <div class="app-frame">
+    <header class="global-header">
+      <div class="global-brand">
         <p class="eyebrow">Portfolio Studio</p>
         <h1>DevFolio</h1>
-        <p class="brand-copy">
-          백엔드 개발자 포트폴리오를 구조화하고 문서까지 완성하는 로컬 우선 스튜디오
-        </p>
+        <p class="global-copy">백엔드 개발자 포트폴리오를 구조화하고 문서까지 완성하는 로컬 우선 작업 공간</p>
       </div>
 
-      <div class="rail-story">
-        <div class="rail-story-card">
-          <strong>무엇을 할 수 있나요?</strong>
-          <p>프로젝트 경험을 붙여넣거나 Git 저장소를 분석해 포트폴리오 초안을 만들고, 구조화 편집 후 바로 문서로 내보낼 수 있습니다.</p>
-        </div>
-        <div class="rail-story-card">
-          <strong>어떻게 진행되나요?</strong>
-          <p>입력 → 구조화 → 검토 → 저장 → 미리보기 → 내보내기 흐름으로 한 번에 이어집니다.</p>
-        </div>
+      <div class="global-header-actions">
+        <button id="btn-new-draft" type="button" class="btn btn-secondary">새 포트폴리오 시작</button>
+        <button id="btn-go-preview" type="button" class="btn btn-primary">문서 미리보기</button>
       </div>
+    </header>
 
-      <nav class="studio-nav" aria-label="sections">
-        <button class="nav-item" data-screen="home" type="button">Home</button>
-        <button class="nav-item" data-screen="compose" type="button">Compose</button>
-        <button class="nav-item" data-screen="library" type="button">Library</button>
-        <button class="nav-item" data-screen="preview" type="button">Preview</button>
-        <button class="nav-item" data-screen="settings" type="button">Settings</button>
-      </nav>
+    <div class="shell-layout">
+      <aside class="workspace-nav">
+        <nav class="studio-nav" aria-label="sections">
+          <button class="nav-item" data-screen="home" type="button">Home</button>
+          <button class="nav-item" data-screen="compose" type="button">Compose</button>
+          <button class="nav-item" data-screen="library" type="button">Library</button>
+          <button class="nav-item" data-screen="preview" type="button">Preview</button>
+          <button class="nav-item" data-screen="settings" type="button">Settings</button>
+        </nav>
 
-      <div class="rail-status" id="rail-status">
-        <p class="eyebrow">Current Status</p>
-        <div class="status-pills" id="rail-status-pills"></div>
-      </div>
-    </aside>
+        <section class="nav-support">
+          <div class="nav-support-block">
+            <strong>한 번의 흐름으로 끝내기</strong>
+            <p>입력, 구조화, 저장, 문서 미리보기까지 분리된 도구 없이 한 화면 안에서 이어집니다.</p>
+          </div>
+          <div class="nav-support-block">
+            <strong>지금 상태</strong>
+            <div class="status-pills" id="rail-status-pills"></div>
+          </div>
+        </section>
+      </aside>
 
-    <main class="workspace" id="app-main">
-      <header class="workspace-header">
-        <div class="workspace-copy-block">
-          <p class="eyebrow" id="workspace-eyebrow">Portfolio Workflow</p>
-          <h2 id="workspace-title">프로젝트 경험을 문서 품질까지 연결하는 작업 공간</h2>
-          <p class="workspace-copy" id="workspace-copy">
-            초안 생성부터 구조화 편집, 문서 미리보기와 내보내기까지 한 흐름으로 이어집니다.
-          </p>
-        </div>
-        <div class="header-actions">
-          <button id="btn-mobile-nav" type="button" class="btn btn-ghost btn-icon-nav" aria-label="메뉴 열기" aria-expanded="false">☰</button>
-          <button id="btn-new-draft" type="button" class="btn btn-secondary">새 포트폴리오 시작</button>
-          <button id="btn-go-preview" type="button" class="btn btn-primary">문서로 바로 확인</button>
-        </div>
-      </header>
+      <main class="workspace" id="app-main">
+        <section class="workspace-hero">
+          <div>
+            <p class="eyebrow" id="workspace-eyebrow">Portfolio Workflow</p>
+            <h2 id="workspace-title">프로젝트 경험을 읽히는 문서 구조로 바꾸는 작업 공간</h2>
+            <p class="workspace-copy" id="workspace-copy">
+              초안 생성, 구조화 편집, 미리보기, 내보내기까지 한 번의 흐름으로 연결합니다.
+            </p>
+          </div>
+        </section>
 
-      <section class="screen-panel active" id="screen-home">
-        <div class="home-grid">
-          <section class="studio-panel hero-panel">
-            <div class="section-header">
-              <p class="eyebrow">Start Here</p>
-              <h3>처음 시작하는 사용자도 바로 초안을 만들 수 있게</h3>
-              <p>필요한 설정 상태와 다음 액션을 먼저 보여주고, 텍스트 입력과 Git 분석 중 원하는 방식으로 시작할 수 있게 구성했습니다.</p>
-            </div>
-            <div class="hero-actions">
-              <button id="btn-home-start-text" type="button" class="btn btn-primary">텍스트로 시작하기</button>
-              <button id="btn-home-start-git" type="button" class="btn btn-secondary">Git 저장소 분석하기</button>
-              <button id="btn-home-open-library" type="button" class="btn btn-ghost">기존 프로젝트 이어서 작업</button>
-            </div>
-          </section>
-
-          <section class="studio-panel">
-            <div class="section-header">
-              <p class="eyebrow">Next Actions</p>
-              <h3>지금 해야 할 일</h3>
-              <p>설정 상태와 현재 작업 중인 초안을 기준으로 우선순위를 추천합니다.</p>
-            </div>
-            <div class="home-actions-grid" id="home-quick-actions"></div>
-          </section>
-
-          <section class="studio-panel">
-            <div class="section-header">
-              <p class="eyebrow">Workspace Health</p>
-              <h3>작업 상태 요약</h3>
-              <p>초기 설정, AI 연결, 저장된 프로젝트, 최근 미리보기 상태를 한눈에 확인할 수 있습니다.</p>
-            </div>
-            <div class="status-card-grid" id="home-status-grid"></div>
-          </section>
-
-          <section class="studio-panel">
-            <div class="section-header">
-              <p class="eyebrow">Recent Work</p>
-              <h3>최근 작업한 프로젝트</h3>
-              <p>최근 저장된 프로젝트를 다시 열거나 곧바로 미리보기로 보낼 수 있습니다.</p>
-            </div>
-            <div id="home-recent-projects" class="project-list"></div>
-          </section>
-        </div>
-      </section>
-
-      <section class="screen-panel" id="screen-compose">
-        <div class="compose-shell">
-          <section class="studio-panel compose-steps-panel">
-            <div class="section-header">
-              <p class="eyebrow">Compose Workflow</p>
-              <h3>단계별로 초안을 구조화하세요</h3>
-              <p>입력부터 검토 및 저장까지 순서대로 진행하면 포트폴리오 케이스 스터디를 완성할 수 있습니다.</p>
-            </div>
-            <div class="compose-stepper" id="compose-stepper"></div>
-          </section>
-
-          <div class="compose-layout">
-            <section class="studio-panel compose-main-panel">
-              <div class="section-header" id="compose-step-header">
-                <p class="eyebrow" id="compose-step-eyebrow">Step 1</p>
-                <h3 id="compose-step-title">입력 방식 선택</h3>
-                <p id="compose-step-copy">원본 텍스트로 시작하거나, Git 저장소 분석으로 프로젝트 초안을 자동 생성할 수 있습니다.</p>
+        <section class="screen-panel active" id="screen-home">
+          <div class="home-grid">
+            <section class="hero-surface">
+              <div class="hero-copy">
+                <p class="eyebrow">Start Here</p>
+                <h3>처음 쓰는 사람도 바로 초안을 만들 수 있게 설계했습니다</h3>
+                <p>프로젝트 설명을 붙여넣거나 Git 저장소를 분석한 뒤, 단계형 편집기로 포트폴리오 문서까지 빠르게 이어갈 수 있습니다.</p>
               </div>
-              <div id="compose-inline-error" class="inline-error hidden" role="status" aria-live="polite"></div>
-              <div id="compose-step-content"></div>
+              <div class="hero-actions">
+                <button id="btn-home-start-text" type="button" class="btn btn-primary">텍스트로 시작</button>
+                <button id="btn-home-start-git" type="button" class="btn btn-secondary">Git 저장소 분석</button>
+                <button id="btn-home-open-library" type="button" class="btn btn-ghost">저장된 프로젝트 열기</button>
+              </div>
             </section>
 
-            <aside class="compose-sidebar">
-              <section class="studio-panel">
+            <section class="workspace-section">
+              <div class="section-header">
+                <p class="eyebrow">Next Actions</p>
+                <h3>지금 해야 할 일</h3>
+                <p>설정 상태와 현재 작업 중인 초안을 기준으로 다음 액션을 추천합니다.</p>
+              </div>
+              <div class="home-actions-grid" id="home-quick-actions"></div>
+            </section>
+
+            <section class="workspace-section">
+              <div class="section-header">
+                <p class="eyebrow">Workspace Health</p>
+                <h3>작업 상태 요약</h3>
+                <p>초기 설정, AI 연결, 저장된 프로젝트, 현재 초안 상태를 빠르게 확인할 수 있습니다.</p>
+              </div>
+              <div class="status-card-grid" id="home-status-grid"></div>
+            </section>
+
+            <section class="workspace-section">
+              <div class="section-header">
+                <p class="eyebrow">Recent Work</p>
+                <h3>최근 저장한 프로젝트</h3>
+                <p>최근 작업한 프로젝트를 다시 열거나 곧바로 문서 미리보기로 보낼 수 있습니다.</p>
+              </div>
+              <div id="home-recent-projects" class="project-list"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="screen-panel" id="screen-compose">
+          <div class="compose-grid">
+            <aside class="compose-rail">
+              <section class="workspace-section compact">
+                <div class="section-header">
+                  <p class="eyebrow">Compose Workflow</p>
+                  <h3>단계별 편집</h3>
+                  <p>프로젝트 구조를 순서대로 채우면서 문서 품질을 올립니다.</p>
+                </div>
+                <div class="compose-stepper" id="compose-stepper"></div>
+              </section>
+
+              <section class="workspace-section compact">
                 <div class="section-header">
                   <p class="eyebrow">Draft Status</p>
                   <h3>현재 초안 상태</h3>
-                  <p>저장 상태, 핵심 정보, 누락 항목을 보면서 다음 작업을 결정할 수 있습니다.</p>
                 </div>
                 <div id="compose-draft-status" class="detail-copy"></div>
               </section>
+            </aside>
 
-              <section class="studio-panel">
+            <section class="compose-main">
+              <article class="workspace-section compose-stage">
+                <div class="section-header" id="compose-step-header">
+                  <p class="eyebrow" id="compose-step-eyebrow">Step 1</p>
+                  <h3 id="compose-step-title">입력 방식 선택</h3>
+                  <p id="compose-step-copy">원본 텍스트 또는 Git 저장소 분석으로 프로젝트 초안을 시작할 수 있습니다.</p>
+                </div>
+                <div id="compose-inline-error" class="inline-error hidden" role="status" aria-live="polite"></div>
+                <div id="compose-step-content"></div>
+              </article>
+
+              <article class="workspace-section">
                 <div class="section-header">
                   <p class="eyebrow">Smart Actions</p>
                   <h3>현재 단계에서 바로 실행</h3>
-                  <p>문맥에 맞는 AI 액션과 다음 단계 이동을 한곳에 모았습니다.</p>
+                  <p>문맥에 맞는 AI 액션과 다음 단계 이동 버튼을 한곳에 배치했습니다.</p>
                 </div>
                 <div id="compose-step-actions" class="action-stack"></div>
-              </section>
-            </aside>
+              </article>
+
+              <div class="compose-footer">
+                <div class="compose-footer-copy" id="compose-sticky-copy">원본 입력부터 시작해 프로젝트 초안의 틀을 만드세요.</div>
+                <div class="action-row">
+                  <button id="btn-compose-prev" type="button" class="btn btn-ghost">이전 단계</button>
+                  <button id="btn-compose-next" type="button" class="btn btn-secondary">다음 단계</button>
+                  <button id="btn-draft-preview" type="button" class="btn btn-secondary">저장 전 미리보기</button>
+                  <button id="btn-draft-save" type="button" class="btn btn-primary">현재 초안 저장</button>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="screen-panel" id="screen-library">
+          <div class="split-layout">
+            <section class="workspace-section">
+              <div class="section-header">
+                <p class="eyebrow">Library</p>
+                <h3>저장된 프로젝트</h3>
+                <p>저장한 프로젝트를 다시 열고, 문구를 갱신하고, 문서 작업으로 바로 연결할 수 있습니다.</p>
+              </div>
+              <div id="projects-library" class="project-list"></div>
+            </section>
+
+            <section class="workspace-section">
+              <div class="section-header">
+                <p class="eyebrow">Project Snapshot</p>
+                <h3>선택한 프로젝트 요약</h3>
+                <p>문제 정의, 핵심 기술, 최근 상태를 먼저 확인하고 다음 액션을 선택할 수 있습니다.</p>
+              </div>
+              <div id="projects-detail" class="detail-copy">
+                저장된 프로젝트가 아직 없습니다. Compose 화면에서 초안을 저장하면 여기에 표시됩니다.
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="screen-panel" id="screen-preview">
+          <div class="preview-header">
+            <div class="section-header">
+              <p class="eyebrow">Preview & Export</p>
+              <h3>문서 품질을 확인하고 바로 내보내기</h3>
+              <p>현재 초안이나 저장된 프로젝트를 선택해 포트폴리오와 이력서를 미리보고 원하는 형식으로 출력할 수 있습니다.</p>
+            </div>
+            <div id="preview-badges" class="status-pills"></div>
           </div>
 
-          <div class="compose-sticky-actions">
-            <div class="compose-sticky-copy" id="compose-sticky-copy">원본 입력부터 시작해 프로젝트 초안의 틀을 만드세요.</div>
-            <div class="action-row">
-              <button id="btn-compose-prev" type="button" class="btn btn-ghost">이전 단계</button>
-              <button id="btn-compose-next" type="button" class="btn btn-secondary">다음 단계</button>
-              <button id="btn-draft-preview" type="button" class="btn btn-secondary">저장 전 미리보기</button>
-              <button id="btn-draft-save" type="button" class="btn btn-primary">현재 초안 저장</button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="screen-panel" id="screen-library">
-        <div class="two-column library-layout">
-          <section class="studio-panel">
-            <div class="section-header">
-              <p class="eyebrow">Library</p>
-              <h3>저장된 프로젝트</h3>
-              <p>저장한 프로젝트를 다시 열고, 문구를 갱신하고, 문서 작업으로 바로 연결할 수 있습니다.</p>
-            </div>
-            <div id="projects-library" class="project-list"></div>
-          </section>
-
-          <section class="studio-panel">
-            <div class="section-header">
-              <p class="eyebrow">Project Snapshot</p>
-              <h3>선택한 프로젝트 요약</h3>
-              <p>문제 정의, 핵심 기술, 최근 수정 상태를 먼저 보고 다음 액션을 선택할 수 있습니다.</p>
-            </div>
-            <div id="projects-detail" class="detail-copy">
-              저장된 프로젝트가 아직 없습니다. Compose 화면에서 초안을 저장하면 여기에 표시됩니다.
-            </div>
-          </section>
-        </div>
-      </section>
-
-      <section class="screen-panel" id="screen-preview">
-        <div class="preview-topline">
-          <div class="section-header">
-            <p class="eyebrow">Preview & Export</p>
-            <h3>문서 품질을 확인하고 바로 내보내기</h3>
-            <p>현재 초안이나 저장된 프로젝트를 선택해 포트폴리오와 이력서를 미리보고 원하는 형식으로 내보낼 수 있습니다.</p>
-          </div>
-          <div id="preview-badges" class="status-pills"></div>
-        </div>
-
-        <div class="two-column preview-layout">
-          <section class="studio-panel preview-panel">
-            <div class="section-header">
-              <p class="eyebrow">Document Setup</p>
-              <h3>문서 조건 설정</h3>
-              <p>출력 문서 종류, 소스, 템플릿, 내보내기 포맷을 정하고 저장된 프로젝트 포함 여부를 선택합니다.</p>
-            </div>
-            <div class="field-grid compact preview-controls">
-              <label class="field">
-                <span>문서 종류</span>
-                <select id="preview-doc-type" name="preview_doc_type">
-                  <option value="portfolio">포트폴리오</option>
-                  <option value="resume">이력서</option>
-                </select>
-              </label>
-              <label class="field">
-                <span>소스</span>
-                <select id="preview-source" name="preview_source">
-                  <option value="draft">현재 초안</option>
-                  <option value="saved">저장된 프로젝트</option>
-                </select>
-              </label>
-              <label class="field">
-                <span>템플릿</span>
-                <select id="preview-template" name="preview_template">
-                  <option value="default">기본</option>
-                  <option value="compact">간단</option>
-                </select>
-              </label>
-              <label class="field">
-                <span>내보내기 포맷</span>
-                <select id="preview-format" name="preview_format">
-                  <option value="html">html</option>
-                  <option value="md">md</option>
-                  <option value="pdf">pdf</option>
-                  <option value="docx">docx</option>
-                  <option value="json">json</option>
-                  <option value="csv">csv</option>
-                </select>
-              </label>
-            </div>
-            <div id="preview-saved-projects" class="selection-list"></div>
-            <div class="action-row">
-              <button id="btn-preview-render" type="button" class="btn btn-secondary">문서 미리보기 갱신</button>
-              <button id="btn-preview-export" type="button" class="btn btn-primary">최종 문서 내보내기</button>
-            </div>
-            <div id="preview-meta" class="detail-copy">아직 생성된 미리보기가 없습니다.</div>
-          </section>
-
-          <section class="studio-panel preview-surface">
-            <div class="section-header">
-              <p class="eyebrow">Rendered Output</p>
-              <h3>문서 미리보기</h3>
-              <p>실제 문서와 유사한 형태로 렌더링된 결과를 확인할 수 있습니다.</p>
-            </div>
-            <div id="preview-output" class="preview-output">
-              <div class="empty-surface">문서 미리보기를 생성하면 이 영역에 결과가 표시됩니다.</div>
-            </div>
-          </section>
-        </div>
-      </section>
-
-      <section class="screen-panel" id="screen-settings">
-        <div class="settings-stack">
-          <section class="studio-panel">
-            <div class="section-header">
-              <p class="eyebrow">Profile</p>
-              <h3>문서에 노출될 기본 프로필</h3>
-              <p>이력서와 포트폴리오 상단에 반복해서 쓰이는 정보를 먼저 정리해두세요.</p>
-            </div>
-            <form id="form-profile" class="settings-form">
-              <div class="field-grid">
-                <label class="field">
-                  <span>이름</span>
-                  <input type="text" id="user-name" name="name" placeholder="홍길동…" autocomplete="name" />
-                </label>
-                <label class="field">
-                  <span>이메일</span>
-                  <input type="email" id="user-email" name="email" placeholder="you@example.com…" autocomplete="email" spellcheck="false" />
-                </label>
+          <div class="split-layout preview-layout">
+            <section class="workspace-section preview-controls-surface">
+              <div class="section-header">
+                <p class="eyebrow">Document Setup</p>
+                <h3>문서 조건 설정</h3>
+                <p>문서 종류, 소스, 템플릿, 포맷을 정하고 포함할 프로젝트를 선택합니다.</p>
               </div>
-              <div class="field-grid">
+              <div class="field-grid compact preview-controls">
                 <label class="field">
-                  <span>GitHub URL</span>
-                  <input type="url" id="user-github" name="github" placeholder="https://github.com/username…" autocomplete="url" spellcheck="false" />
-                </label>
-                <label class="field">
-                  <span>블로그 URL</span>
-                  <input type="url" id="user-blog" name="blog" placeholder="https://blog.example.com…" autocomplete="url" spellcheck="false" />
-                </label>
-              </div>
-              <div class="action-row action-row-end">
-                <button type="submit" class="btn btn-primary">프로필 저장</button>
-              </div>
-            </form>
-          </section>
-
-          <section class="studio-panel">
-            <div class="section-header">
-              <p class="eyebrow">AI Workspace</p>
-              <h3>AI 제공자와 생성 모델 설정</h3>
-              <p>초안 생성과 문구 다듬기에 사용할 AI를 연결합니다. 저장 모델과 실제 생성 모델이 다를 경우 이유도 함께 안내합니다.</p>
-            </div>
-            <div id="provider-list" class="provider-list"></div>
-            <form id="form-ai" class="settings-form">
-              <div class="field-grid">
-                <label class="field">
-                  <span>제공자</span>
-                  <select id="ai-name" name="name">
-                    <option value="pollinations">기본 내장 AI</option>
-                    <option value="groq">Groq</option>
-                    <option value="openrouter">OpenRouter</option>
-                    <option value="gemini">Gemini</option>
-                    <option value="anthropic">Anthropic</option>
-                    <option value="openai">OpenAI</option>
-                    <option value="ollama">Ollama</option>
+                  <span>문서 종류</span>
+                  <select id="preview-doc-type" name="preview_doc_type">
+                    <option value="portfolio">포트폴리오</option>
+                    <option value="resume">이력서</option>
                   </select>
                 </label>
                 <label class="field">
-                  <span>저장 모델</span>
-                  <div class="input-with-model-select">
-                    <select id="ai-model" name="model">
-                      <option value="">-- API 키 입력 후 모델 목록 불러오기 --</option>
-                    </select>
-                    <button type="button" id="btn-load-models" class="btn btn-ghost btn-load-models" title="모델 목록 새로고침" aria-label="모델 목록 새로고침">↻</button>
-                  </div>
+                  <span>소스</span>
+                  <select id="preview-source" name="preview_source">
+                    <option value="draft">현재 초안</option>
+                    <option value="saved">저장된 프로젝트</option>
+                  </select>
                 </label>
-              </div>
-              <label class="field" id="field-api-key">
-                <span>API 키</span>
-                <div class="input-with-toggle">
-                  <input type="password" id="ai-key" name="api_key" placeholder="sk-…" autocomplete="off" spellcheck="false" />
-                  <button type="button" class="btn-icon toggle-password" aria-label="비밀번호 표시 또는 숨기기">보기</button>
-                </div>
-              </label>
-              <label class="field hidden" id="field-base-url">
-                <span>서버 주소 (Ollama)</span>
-                <input type="url" id="ai-base-url" name="base_url" placeholder="http://localhost:11434…" autocomplete="url" spellcheck="false" />
-              </label>
-              <div class="action-row action-row-end">
-                <button type="submit" class="btn btn-primary">AI 제공자 저장</button>
-              </div>
-            </form>
-          </section>
-
-          <section class="studio-panel">
-            <div class="section-header">
-              <p class="eyebrow">Workspace Defaults</p>
-              <h3>내보내기, 백업, 일반 설정</h3>
-              <p>문서 기본값과 백업 방식을 정리해 반복 작업을 줄일 수 있습니다.</p>
-            </div>
-
-            <div class="settings-grid">
-              <form id="form-export" class="settings-form">
-                <h4>내보내기 기본값</h4>
                 <label class="field">
-                  <span>기본 포맷</span>
-                  <select id="export-format" name="default_format">
-                    <option value="md">md</option>
+                  <span>템플릿</span>
+                  <select id="preview-template" name="preview_template">
+                    <option value="default">기본</option>
+                    <option value="compact">간단</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>내보내기 포맷</span>
+                  <select id="preview-format" name="preview_format">
                     <option value="html">html</option>
+                    <option value="md">md</option>
                     <option value="pdf">pdf</option>
                     <option value="docx">docx</option>
                     <option value="json">json</option>
                     <option value="csv">csv</option>
                   </select>
                 </label>
-                <label class="field">
-                  <span>기본 템플릿</span>
-                  <select id="export-template" name="default_template">
-                    <option value="default">기본</option>
-                    <option value="compact">간단</option>
-                  </select>
-                </label>
-                <label class="field">
-                  <span>출력 디렉터리</span>
-                  <input type="text" id="export-output-dir" name="output_dir" placeholder="비워두면 기본 경로 사용…" autocomplete="off" />
-                </label>
-                <div class="action-row action-row-end">
-                  <button type="submit" class="btn btn-secondary">내보내기 기본값 저장</button>
-                </div>
-              </form>
+              </div>
+              <div id="preview-saved-projects" class="selection-list"></div>
+              <div class="action-row">
+                <button id="btn-preview-render" type="button" class="btn btn-secondary">문서 미리보기 갱신</button>
+                <button id="btn-preview-export" type="button" class="btn btn-primary">최종 문서 내보내기</button>
+              </div>
+              <div id="preview-meta" class="detail-copy">아직 생성된 미리보기가 없습니다.</div>
+            </section>
 
-              <form id="form-sync" class="settings-form">
-                <h4>GitHub 백업</h4>
-                <label class="field toggle-field">
-                  <span>동기화 활성화</span>
-                  <input type="checkbox" id="sync-enabled" name="enabled" />
-                </label>
-                <label class="field">
-                  <span>저장소 URL</span>
-                  <input type="text" id="sync-repo" name="repo_url" placeholder="https://github.com/username/repo…" autocomplete="off" spellcheck="false" />
-                </label>
-                <label class="field">
-                  <span>브랜치</span>
-                  <input type="text" id="sync-branch" name="branch" placeholder="main…" autocomplete="off" spellcheck="false" />
-                </label>
-                <div class="action-row action-row-end">
-                  <button type="submit" class="btn btn-secondary">백업 설정 저장</button>
-                </div>
-              </form>
+            <section class="workspace-section preview-output-surface">
+              <div class="section-header">
+                <p class="eyebrow">Rendered Output</p>
+                <h3>문서 미리보기</h3>
+                <p>실제 문서와 유사한 형태로 렌더링된 결과를 이 영역에서 바로 검토할 수 있습니다.</p>
+              </div>
+              <div id="preview-output" class="preview-output">
+                <div class="empty-surface">문서 미리보기를 생성하면 이 영역에 결과가 표시됩니다.</div>
+              </div>
+            </section>
+          </div>
+        </section>
 
-              <form id="form-general" class="settings-form">
-                <h4>일반 설정</h4>
-                <label class="field">
-                  <span>기본 언어</span>
-                  <select id="general-lang" name="default_language">
-                    <option value="ko">ko</option>
-                    <option value="en">en</option>
-                    <option value="both">both</option>
-                  </select>
-                </label>
-                <label class="field">
-                  <span>타임존</span>
-                  <input type="text" id="general-tz" name="timezone" placeholder="Asia/Seoul…" autocomplete="off" spellcheck="false" />
-                </label>
-                <label class="field">
-                  <span>기본 AI 제공자</span>
-                  <select id="general-provider" name="default_ai_provider">
-                    <option value="">자동 선택</option>
-                  </select>
-                </label>
+        <section class="screen-panel" id="screen-settings">
+          <div class="settings-grid">
+            <section class="workspace-section">
+              <div class="section-header">
+                <p class="eyebrow">Profile</p>
+                <h3>문서에 노출될 기본 프로필</h3>
+                <p>이력서와 포트폴리오 상단에 반복해서 쓰이는 정보를 먼저 정리해두세요.</p>
+              </div>
+              <form id="form-profile" class="settings-form">
+                <div class="field-grid">
+                  <label class="field">
+                    <span>이름</span>
+                    <input type="text" id="user-name" name="name" placeholder="홍길동" autocomplete="name" />
+                  </label>
+                  <label class="field">
+                    <span>이메일</span>
+                    <input type="email" id="user-email" name="email" placeholder="you@example.com" autocomplete="email" spellcheck="false" />
+                  </label>
+                </div>
+                <div class="field-grid">
+                  <label class="field">
+                    <span>GitHub URL</span>
+                    <input type="url" id="user-github" name="github" placeholder="https://github.com/username" autocomplete="url" spellcheck="false" />
+                  </label>
+                  <label class="field">
+                    <span>블로그 URL</span>
+                    <input type="url" id="user-blog" name="blog" placeholder="https://blog.example.com" autocomplete="url" spellcheck="false" />
+                  </label>
+                </div>
                 <div class="action-row action-row-end">
-                  <button type="submit" class="btn btn-secondary">일반 설정 저장</button>
+                  <button type="submit" class="btn btn-primary">프로필 저장</button>
                 </div>
               </form>
-            </div>
-          </section>
-        </div>
-      </section>
-    </main>
+            </section>
+
+            <section class="workspace-section">
+              <div class="section-header">
+                <p class="eyebrow">AI Workspace</p>
+                <h3>AI 제공자와 생성 모델 설정</h3>
+                <p>초안 생성과 문구 다듬기에 사용할 AI를 연결합니다. 저장 모델과 실제 생성 모델 차이도 함께 보여줍니다.</p>
+              </div>
+              <div id="provider-list" class="provider-list"></div>
+              <form id="form-ai" class="settings-form">
+                <div class="field-grid">
+                  <label class="field">
+                    <span>제공자</span>
+                    <select id="ai-name" name="name">
+                      <option value="pollinations">기본 내장 AI</option>
+                      <option value="groq">Groq</option>
+                      <option value="openrouter">OpenRouter</option>
+                      <option value="gemini">Gemini</option>
+                      <option value="anthropic">Anthropic</option>
+                      <option value="openai">OpenAI</option>
+                      <option value="ollama">Ollama</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>저장 모델</span>
+                    <div class="input-with-model-select">
+                      <select id="ai-model" name="model">
+                        <option value="">-- API 키 입력 후 모델 목록 불러오기 --</option>
+                      </select>
+                      <button type="button" id="btn-load-models" class="btn btn-ghost btn-load-models" title="모델 목록 새로고침" aria-label="모델 목록 새로고침">↻</button>
+                    </div>
+                  </label>
+                </div>
+                <label class="field" id="field-api-key">
+                  <span>API 키</span>
+                  <div class="input-with-toggle">
+                    <input type="password" id="ai-key" name="api_key" placeholder="sk-..." autocomplete="off" spellcheck="false" />
+                    <button type="button" class="btn-icon toggle-password" aria-label="비밀번호 표시 또는 숨기기">보기</button>
+                  </div>
+                </label>
+                <label class="field hidden" id="field-base-url">
+                  <span>서버 주소 (Ollama)</span>
+                  <input type="url" id="ai-base-url" name="base_url" placeholder="http://localhost:11434" autocomplete="url" spellcheck="false" />
+                </label>
+                <div class="action-row action-row-end">
+                  <button type="submit" class="btn btn-primary">AI 제공자 저장</button>
+                </div>
+              </form>
+            </section>
+
+            <section class="workspace-section">
+              <div class="section-header">
+                <p class="eyebrow">Workspace Defaults</p>
+                <h3>내보내기, 백업, 일반 설정</h3>
+                <p>문서 기본값과 백업 방식을 정리해 반복 작업을 줄일 수 있습니다.</p>
+              </div>
+              <div class="settings-stack">
+                <form id="form-export" class="settings-form">
+                  <h4>내보내기 기본값</h4>
+                  <label class="field">
+                    <span>기본 포맷</span>
+                    <select id="export-format" name="default_format">
+                      <option value="md">md</option>
+                      <option value="html">html</option>
+                      <option value="pdf">pdf</option>
+                      <option value="docx">docx</option>
+                      <option value="json">json</option>
+                      <option value="csv">csv</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>기본 템플릿</span>
+                    <select id="export-template" name="default_template">
+                      <option value="default">기본</option>
+                      <option value="compact">간단</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>출력 디렉터리</span>
+                    <input type="text" id="export-output-dir" name="output_dir" placeholder="비워두면 기본 경로 사용" autocomplete="off" />
+                  </label>
+                  <div class="action-row action-row-end">
+                    <button type="submit" class="btn btn-secondary">내보내기 기본값 저장</button>
+                  </div>
+                </form>
+
+                <form id="form-sync" class="settings-form">
+                  <h4>GitHub 백업</h4>
+                  <label class="field toggle-field">
+                    <span>동기화 활성화</span>
+                    <input type="checkbox" id="sync-enabled" name="enabled" />
+                  </label>
+                  <label class="field">
+                    <span>저장소 URL</span>
+                    <input type="text" id="sync-repo" name="repo_url" placeholder="https://github.com/username/repo" autocomplete="off" spellcheck="false" />
+                  </label>
+                  <label class="field">
+                    <span>브랜치</span>
+                    <input type="text" id="sync-branch" name="branch" placeholder="main" autocomplete="off" spellcheck="false" />
+                  </label>
+                  <div class="action-row action-row-end">
+                    <button type="submit" class="btn btn-secondary">백업 설정 저장</button>
+                  </div>
+                </form>
+
+                <form id="form-general" class="settings-form">
+                  <h4>일반 설정</h4>
+                  <label class="field">
+                    <span>기본 언어</span>
+                    <select id="general-lang" name="default_language">
+                      <option value="ko">ko</option>
+                      <option value="en">en</option>
+                      <option value="both">both</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>타임존</span>
+                    <input type="text" id="general-tz" name="timezone" placeholder="Asia/Seoul" autocomplete="off" spellcheck="false" />
+                  </label>
+                  <label class="field">
+                    <span>기본 AI 제공자</span>
+                    <select id="general-provider" name="default_ai_provider">
+                      <option value="">자동 선택</option>
+                    </select>
+                  </label>
+                  <div class="action-row action-row-end">
+                    <button type="submit" class="btn btn-secondary">일반 설정 저장</button>
+                  </div>
+                </form>
+              </div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
   </div>
 
   <div id="error-dialog" class="modal-shell" role="dialog" aria-modal="true" aria-labelledby="error-dialog-title" aria-hidden="true">
