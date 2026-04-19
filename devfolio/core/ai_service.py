@@ -127,6 +127,23 @@ _MAX_RETRIES = 2
 _RETRY_DELAY = 2.0  # 초 (일반 오류용)
 _RATE_LIMIT_RETRY_DELAY = 65.0  # 초 (rate limit 전용 — RPM 윈도우 넘김)
 
+# API 키 없이 사용 가능한 기본 내장 provider (pollinations.ai)
+_POLLINATIONS_BASE_URL = "https://text.pollinations.ai/openai"
+_POLLINATIONS_BUILTIN: "AIProviderConfig | None" = None  # lazy init (순환 참조 방지)
+
+
+def _builtin_provider() -> "AIProviderConfig":
+    global _POLLINATIONS_BUILTIN
+    if _POLLINATIONS_BUILTIN is None:
+        _POLLINATIONS_BUILTIN = AIProviderConfig(
+            name="pollinations",
+            model="openai-fast",
+            key_stored=False,
+            base_url=_POLLINATIONS_BASE_URL,
+        )
+    return _POLLINATIONS_BUILTIN
+
+
 _GENERATION_MODEL_ALIASES: dict[str, dict[str, str]] = {
     # Gemini stable snapshot -> generation-safe stable alias
     "gemini": {
@@ -165,6 +182,10 @@ _GENERATION_SAFE_MODEL_REGISTRY: dict[str, tuple[str, ...]] = {
         "deepseek/deepseek-r1:free",
         "microsoft/phi-4:free",
         "qwen/qwen3-235b-a22b:free",
+    ),
+    # API 키 불필요 — pollinations.ai 기본 내장 (출처: text.pollinations.ai/models)
+    "pollinations": (
+        "openai-fast",   # GPT-OSS 20B, Anonymous 접근 가능
     ),
 }
 
@@ -353,7 +374,9 @@ class AIService:
     def _get_provider(self, provider_name: Optional[str] = None) -> AIProviderConfig:
         name = provider_name or self.config.default_ai_provider
         if not name:
-            raise DevfolioAINotConfiguredError()
+            # 설정된 provider가 없으면 API 키 불필요한 pollinations 기본 사용
+            logger.info("AI provider 미설정 — 기본 내장 provider(pollinations) 사용")
+            return _builtin_provider()
         provider = self.config.get_provider(name)
         if not provider:
             raise DevfolioAIError(
@@ -371,6 +394,8 @@ class AIService:
             "ollama": f"ollama/{model_name}",
             "groq": f"groq/{model_name}",
             "openrouter": f"openrouter/{model_name}",
+            # pollinations: OpenAI-compatible endpoint → openai/ 프리픽스, base_url로 라우팅
+            "pollinations": f"openai/{model_name}",
         }
         return mapping.get(provider_name, model_name)
 
@@ -389,7 +414,9 @@ class AIService:
 
     def _set_env_key(self, provider: AIProviderConfig) -> None:
         """API 키를 환경 변수에 설정 (litellm이 읽도록)."""
-        if provider.name == "ollama":
+        if provider.name in ("ollama", "pollinations"):
+            # 키 불필요 — litellm이 base_url 있을 때 dummy 키 허용
+            os.environ.setdefault("OPENAI_API_KEY", "pollinations-free")
             return
         api_key = get_api_key(provider.name)
         if not api_key:

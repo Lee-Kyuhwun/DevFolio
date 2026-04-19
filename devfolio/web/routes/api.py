@@ -172,12 +172,13 @@ def _env_var_name(provider: str) -> str:
 
 def _default_model_name(provider: str) -> str:
     mapping = {
+        "pollinations": "openai-fast",
+        "groq": "llama-3.3-70b-versatile",
+        "openrouter": "meta-llama/llama-3.3-70b-instruct:free",
         "anthropic": "claude-sonnet-4-20250514",
         "openai": "gpt-4o",
         "gemini": "gemini-3.1-flash-lite-preview",
         "ollama": "llama3.2",
-        "groq": "llama-3.3-70b-versatile",
-        "openrouter": "meta-llama/llama-3.3-70b-instruct:free",
     }
     return mapping.get(provider, "")
 
@@ -943,6 +944,13 @@ def list_ai_models(
         data = _fetch(f"{url}/api/tags")
         model_ids = [m.get("name", m.get("model", "")) for m in data.get("models", [])]
         model_ids = [m for m in model_ids if m]
+
+    elif provider == "pollinations":
+        data = _fetch("https://text.pollinations.ai/models")
+        if isinstance(data, list):
+            model_ids = [m.get("name", "") for m in data if m.get("name")]
+        else:
+            model_ids = ["openai-fast"]
 
     elif provider == "groq":
         if not key:

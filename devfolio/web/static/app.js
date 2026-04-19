@@ -23,6 +23,7 @@ const state = {
 };
 
 const DEFAULT_MODELS = {
+  pollinations: 'openai-fast',
   groq: 'llama-3.3-70b-versatile',
   openrouter: 'meta-llama/llama-3.3-70b-instruct:free',
   gemini: 'gemini-3.1-flash-lite-preview',
@@ -939,7 +940,8 @@ function syncProviderForm() {
   if (!select) return;
 
   const isOllama = select.value === 'ollama';
-  apiField.classList.toggle('hidden', isOllama);
+  const isBuiltin = select.value === 'pollinations';
+  apiField.classList.toggle('hidden', isOllama || isBuiltin);
   baseUrlField.classList.toggle('hidden', !isOllama);
 }
 
