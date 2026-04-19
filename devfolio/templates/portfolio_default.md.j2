@@ -23,6 +23,16 @@
 | **팀 규모** | {{ project.team_size }}명 |
 | **기술 스택** | {{ project.tech_stack | join(', ') }} |
 
+## 기술 스택 구성
+
+{{ describe_tech_stack(project) }}
+
+## 아키텍처
+
+```mermaid
+{{ build_architecture_diagram(project) }}
+```
+
 {% if project.tasks %}
 {% for task in project.tasks %}
 **{{ task.name }}**

@@ -73,6 +73,12 @@ class TestHtmlExport:
         content = path.read_text(encoding="utf-8")
         assert "<style>" in content
 
+    def test_html_bootstraps_mermaid_renderer(self, engine, tmp_exports):
+        path = engine.export_html("```mermaid\ngraph TD\nA-->B\n```", "diagrammed")
+        content = path.read_text(encoding="utf-8")
+        assert "cdn.jsdelivr.net/npm/mermaid" in content
+        assert "language-mermaid" in content or "graph TD" in content
+
 
 class TestDocxExport:
     def test_creates_docx_file(self, engine, tmp_exports):

@@ -1,5 +1,7 @@
 """Markdown / PDF / DOCX / HTML / CSV 내보내기 엔진."""
 
+from __future__ import annotations
+
 import csv
 import html as html_mod
 import io
@@ -53,6 +55,39 @@ body { background-color: #f0f0f0; }
 }
 a { color: #0f3460; text-decoration: none; }
 a:hover { text-decoration: underline; }
+.mermaid {
+    margin: 18px 0;
+    padding: 12px;
+    border-radius: 14px;
+    background: #faf7f2;
+    overflow-x: auto;
+}
+"""
+
+_MERMAID_BOOTSTRAP = """
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+  document.addEventListener("DOMContentLoaded", async () => {
+    if (typeof mermaid === "undefined") return;
+    mermaid.initialize({ startOnLoad: false, securityLevel: "loose" });
+    const blocks = document.querySelectorAll("pre code.language-mermaid");
+    let index = 0;
+    for (const code of blocks) {
+      const pre = code.closest("pre");
+      if (!pre) continue;
+      const container = document.createElement("div");
+      container.className = "mermaid";
+      container.id = `devfolio-mermaid-${index++}`;
+      container.textContent = code.textContent;
+      pre.replaceWith(container);
+    }
+    try {
+      await mermaid.run({ querySelector: ".mermaid" });
+    } catch (error) {
+      console.warn("Mermaid render failed", error);
+    }
+  });
+</script>
 """
 
 
@@ -100,6 +135,7 @@ class ExportEngine:
 <div class="container">
 {html_body}
 </div>
+{_MERMAID_BOOTSTRAP}
 </body>
 </html>"""
 

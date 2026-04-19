@@ -164,6 +164,36 @@ function showToast(message, type = 'success') {
   toastTimer = setTimeout(() => toast.classList.remove('show'), 3200);
 }
 
+let mermaidInitialized = false;
+
+async function renderMermaidDiagrams(root = document) {
+  if (typeof mermaid === 'undefined') return;
+  if (!mermaidInitialized) {
+    mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' });
+    mermaidInitialized = true;
+  }
+
+  const blocks = root.querySelectorAll('pre code.language-mermaid');
+  if (!blocks.length) return;
+
+  let index = 0;
+  blocks.forEach(code => {
+    const pre = code.closest('pre');
+    if (!pre) return;
+    const container = document.createElement('div');
+    container.className = 'mermaid';
+    container.id = `preview-mermaid-${Date.now()}-${index += 1}`;
+    container.textContent = code.textContent;
+    pre.replaceWith(container);
+  });
+
+  try {
+    await mermaid.run({ querySelector: '.mermaid' });
+  } catch (error) {
+    console.warn('Mermaid render failed', error);
+  }
+}
+
 function normalizeUiError(error, fallbackMessage = '요청 처리 중 오류가 발생했습니다.') {
   if (error instanceof Error && error.message) {
     return error.message;
@@ -1148,6 +1178,7 @@ function renderPreviewOutput() {
   }
   output.innerHTML = state.lastPreview.html;
   meta.textContent = `${state.lastPreview.doc_type} · ${state.lastPreview.project_count}개 프로젝트 · 템플릿: ${state.lastPreview.template}`;
+  renderMermaidDiagrams(output).catch(error => console.warn('Preview mermaid render failed', error));
 }
 
 function syncPreviewState() {
