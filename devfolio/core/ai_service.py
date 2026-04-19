@@ -140,13 +140,15 @@ _GENERATION_SAFE_MODEL_REGISTRY: dict[str, tuple[str, ...]] = {
         "claude-haiku-4-5-20251001",
     ),
     "openai": ("gpt-4o", "gpt-4o-mini", "gpt-4-turbo"),
+    # 무료 등급 우선 정렬 (출처: ai.google.dev/gemini-api/docs/pricing)
     "gemini": (
-        "gemini-2.5-flash",
-        "gemini-2.5-flash-lite",
-        "gemini-2.0-flash",
-        "gemini-2.0-flash-lite",
-        "gemini-1.5-flash",
-        "gemini-1.5-pro",
+        "gemini-2.5-flash",        # 무료
+        "gemini-2.5-flash-lite",   # 무료
+        "gemini-2.0-flash",        # 무료
+        "gemini-2.0-flash-lite",   # 무료
+        "gemini-2.5-pro",          # 유료
+        "gemini-1.5-flash",        # 유료
+        "gemini-1.5-pro",          # 유료
     ),
 }
 

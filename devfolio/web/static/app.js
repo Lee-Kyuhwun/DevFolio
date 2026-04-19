@@ -30,15 +30,19 @@ const DEFAULT_MODELS = {
 };
 
 // Gemini 모델 ID prefix → 사람이 읽기 쉬운 이름 + 무료 여부
-// API는 versioned ID(예: gemini-2.0-flash-001)를 반환하므로 prefix 매칭 사용
+// 출처: https://ai.google.dev/gemini-api/docs/pricing (무료 등급 기준)
+// prefix 순서가 중요: 더 구체적인 prefix를 앞에 배치
 const GEMINI_MODEL_INFO = [
-  { prefix: 'gemini-2.0-flash-lite', label: 'Gemini 2 Flash Lite', free: true },
-  { prefix: 'gemini-2.0-flash',      label: 'Gemini 2 Flash',      free: true },
+  { prefix: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite', free: true },
+  { prefix: 'gemini-3-flash',        label: 'Gemini 3 Flash',        free: true },
   { prefix: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite', free: true },
-  { prefix: 'gemini-2.5-flash',      label: 'Gemini 2.5 Flash',    free: false },
-  { prefix: 'gemini-2.5-pro',        label: 'Gemini 2.5 Pro',      free: false },
-  { prefix: 'gemini-1.5-flash',      label: 'Gemini 1.5 Flash',    free: false },
-  { prefix: 'gemini-1.5-pro',        label: 'Gemini 1.5 Pro',      free: false },
+  { prefix: 'gemini-2.5-flash',      label: 'Gemini 2.5 Flash',      free: true },
+  { prefix: 'gemini-2.5-pro',        label: 'Gemini 2.5 Pro',        free: false },
+  { prefix: 'gemini-2.0-flash-lite', label: 'Gemini 2 Flash Lite',   free: true },
+  { prefix: 'gemini-2.0-flash',      label: 'Gemini 2 Flash',        free: true },
+  { prefix: 'gemini-1.5-flash',      label: 'Gemini 1.5 Flash',      free: false },
+  { prefix: 'gemini-1.5-pro',        label: 'Gemini 1.5 Pro',        free: false },
+  { prefix: 'gemma',                 label: 'Gemma',                 free: true },
 ];
 
 function geminiModelLabel(modelId) {
