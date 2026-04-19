@@ -125,9 +125,11 @@ _MAX_RETRIES = 3
 _RETRY_DELAY = 2.0  # 초
 
 _MODEL_ALIASES: dict[str, dict[str, str]] = {
+    # versioned ID → litellm alias (litellm은 alias만 인식, versioned ID 불가)
     "gemini": {
-        "gemini-2.0-flash": "gemini-2.0-flash-001",
-        "gemini-2.0-flash-lite": "gemini-2.0-flash-lite-001",
+        "gemini-2.0-flash-001": "gemini-2.0-flash",
+        "gemini-2.0-flash-lite-001": "gemini-2.0-flash-lite",
+        "gemini-2.5-flash-lite-001": "gemini-2.5-flash-lite",
     }
 }
 
@@ -136,7 +138,16 @@ def normalize_provider_model_name(provider_name: str, model_name: str) -> str:
     normalized = (model_name or "").strip().removeprefix("models/")
     if not normalized:
         return normalized
-    return _MODEL_ALIASES.get(provider_name, {}).get(normalized, normalized)
+    # 명시적 alias 매핑 우선 적용
+    explicit = _MODEL_ALIASES.get(provider_name, {}).get(normalized)
+    if explicit:
+        return explicit
+    # Gemini: 알 수 없는 versioned suffix(-NNN)를 제거해 alias로 변환
+    if provider_name == "gemini":
+        alias = re.sub(r"-\d{3}$", "", normalized)
+        if alias != normalized:
+            return alias
+    return normalized
 
 
 class EvidenceTask(BaseModel):
@@ -247,21 +258,13 @@ class AIService:
         return mapping.get(provider.name, model_name)
 
     def _runtime_model_candidates(self, provider: AIProviderConfig) -> list[str]:
+        # normalize로 litellm alias를 얻고 원본도 폴백으로 유지
         normalized = normalize_provider_model_name(provider.name, provider.model)
         candidates: list[str] = []
-        for candidate in [provider.model.strip(), normalized]:
+        for candidate in [normalized, provider.model.strip()]:
             candidate = candidate.removeprefix("models/")
             if candidate and candidate not in candidates:
                 candidates.append(candidate)
-
-        if provider.name == "gemini":
-            if normalized and normalized not in candidates:
-                candidates.append(normalized)
-            if normalized and not re.search(r"-\d{3}$", normalized):
-                snapshot = f"{normalized}-001"
-                if snapshot not in candidates:
-                    candidates.append(snapshot)
-
         return candidates
 
     def _set_env_key(self, provider: AIProviderConfig) -> None:
