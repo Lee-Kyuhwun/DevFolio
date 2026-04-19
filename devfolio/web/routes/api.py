@@ -857,24 +857,12 @@ def list_ai_models(
         data = _fetch(
             f"https://generativelanguage.googleapis.com/v1beta/models?key={key}&pageSize=100",
         )
-        versioned = [
+        # API가 반환한 versioned ID만 사용 (alias 주입 없음 — litellm 호환성 보장)
+        models = [
             m["name"].removeprefix("models/")
             for m in data.get("models", [])
             if "generateContent" in m.get("supportedGenerationMethods", [])
         ]
-        # stable alias 주입: versioned ID(예: gemini-2.0-flash-001)가 있으면
-        # 짧은 alias(gemini-2.0-flash)를 목록 맨 앞에 추가
-        _ALIASES = [
-            ("gemini-2.0-flash", "gemini-2.0-flash-"),
-            ("gemini-2.0-flash-lite", "gemini-2.0-flash-lite-"),
-            ("gemini-2.5-flash-lite", "gemini-2.5-flash-lite-"),
-        ]
-        aliases_to_add: list[str] = []
-        versioned_set = set(versioned)
-        for alias, prefix in _ALIASES:
-            if alias not in versioned_set and any(v.startswith(prefix) for v in versioned):
-                aliases_to_add.append(alias)
-        models = aliases_to_add + versioned
 
     elif provider == "ollama":
         url = (base_url or "http://localhost:11434").rstrip("/")

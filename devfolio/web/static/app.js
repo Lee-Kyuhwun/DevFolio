@@ -25,17 +25,27 @@ const state = {
 const DEFAULT_MODELS = {
   anthropic: 'claude-sonnet-4-20250514',
   openai: 'gpt-4o',
-  gemini: 'gemini-2.5-flash-preview-04-17',
+  gemini: 'gemini-2.0-flash-lite-001',
   ollama: 'llama3.2',
 };
 
-// Gemini 무료 티어에서 RPD 무제한인 모델 (Google AI Studio 기준, alias + versioned ID 포함)
-const GEMINI_FREE_MODELS = new Set([
-  'gemini-2.0-flash',
-  'gemini-2.0-flash-lite',
-  'gemini-2.0-flash-exp',
-  'gemini-2.5-flash-lite',
-]);
+// Gemini 모델 ID prefix → 사람이 읽기 쉬운 이름 + 무료 여부
+// API는 versioned ID(예: gemini-2.0-flash-001)를 반환하므로 prefix 매칭 사용
+const GEMINI_MODEL_INFO = [
+  { prefix: 'gemini-2.0-flash-lite', label: 'Gemini 2 Flash Lite', free: true },
+  { prefix: 'gemini-2.0-flash',      label: 'Gemini 2 Flash',      free: true },
+  { prefix: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite', free: true },
+  { prefix: 'gemini-2.5-flash',      label: 'Gemini 2.5 Flash',    free: false },
+  { prefix: 'gemini-2.5-pro',        label: 'Gemini 2.5 Pro',      free: false },
+  { prefix: 'gemini-1.5-flash',      label: 'Gemini 1.5 Flash',    free: false },
+  { prefix: 'gemini-1.5-pro',        label: 'Gemini 1.5 Pro',      free: false },
+];
+
+function geminiModelLabel(modelId) {
+  const info = GEMINI_MODEL_INFO.find(i => modelId.startsWith(i.prefix));
+  if (!info) return modelId;
+  return info.free ? `${modelId} (무료)` : modelId;
+}
 
 let toastTimer = null;
 
@@ -503,12 +513,8 @@ async function loadModelsForProvider() {
       return;
     }
     const defaultModel = DEFAULT_MODELS[provider] || '';
-    const isGeminiFree = m => provider === 'gemini' && (
-      GEMINI_FREE_MODELS.has(m) ||
-      [...GEMINI_FREE_MODELS].some(free => m.startsWith(free + '-'))
-    );
     modelSelect.innerHTML = models.map(m => {
-      const label = isGeminiFree(m) ? `${m} (무료)` : m;
+      const label = provider === 'gemini' ? geminiModelLabel(m) : m;
       return `<option value="${escHtml(m)}"${m === defaultModel ? ' selected' : ''}>${escHtml(label)}</option>`;
     }).join('');
   } catch (err) {
