@@ -23,7 +23,7 @@ RUN pip install --no-cache-dir \
     "rich>=13.7.0,<15.0" \
     "pydantic>=2.0.0,<3.0" \
     "platformdirs>=4.0.0,<5.0" \
-    "litellm>=1.40.0" \
+    "litellm>=1.60.0" \
     "weasyprint>=62.0" \
     "markdown>=3.6" \
     "python-docx>=1.1.0" \
