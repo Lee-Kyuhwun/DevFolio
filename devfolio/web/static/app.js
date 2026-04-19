@@ -29,11 +29,12 @@ const DEFAULT_MODELS = {
   ollama: 'llama3.2',
 };
 
-// Gemini 무료 티어에서 RPD 무제한인 모델 (Google AI Studio 기준)
+// Gemini 무료 티어에서 RPD 무제한인 모델 (Google AI Studio 기준, alias + versioned ID 포함)
 const GEMINI_FREE_MODELS = new Set([
   'gemini-2.0-flash',
   'gemini-2.0-flash-lite',
   'gemini-2.0-flash-exp',
+  'gemini-2.5-flash-lite',
 ]);
 
 let toastTimer = null;
@@ -502,10 +503,12 @@ async function loadModelsForProvider() {
       return;
     }
     const defaultModel = DEFAULT_MODELS[provider] || '';
+    const isGeminiFree = m => provider === 'gemini' && (
+      GEMINI_FREE_MODELS.has(m) ||
+      [...GEMINI_FREE_MODELS].some(free => m.startsWith(free + '-'))
+    );
     modelSelect.innerHTML = models.map(m => {
-      const label = (provider === 'gemini' && GEMINI_FREE_MODELS.has(m))
-        ? `${m} (무료)`
-        : m;
+      const label = isGeminiFree(m) ? `${m} (무료)` : m;
       return `<option value="${escHtml(m)}"${m === defaultModel ? ' selected' : ''}>${escHtml(label)}</option>`;
     }).join('');
   } catch (err) {
