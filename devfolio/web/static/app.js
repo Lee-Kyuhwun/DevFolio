@@ -25,23 +25,22 @@ const state = {
 const DEFAULT_MODELS = {
   anthropic: 'claude-sonnet-4-20250514',
   openai: 'gpt-4o',
-  gemini: 'gemini-2.5-flash-lite',
+  gemini: 'gemini-3.1-flash-lite-preview',
   ollama: 'llama3.2',
 };
 
 // Gemini 모델 ID prefix → 사람이 읽기 쉬운 이름 + 무료 여부
 // 출처: https://ai.google.dev/gemini-api/docs/pricing (무료 등급 기준)
 // prefix 순서가 중요: 더 구체적인 prefix를 앞에 배치
-// gemini-2.0-flash / gemini-2.0-flash-lite: 2026년 3월 retire → 목록에서 제거
 const GEMINI_MODEL_INFO = [
-  { prefix: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite', free: true },
-  { prefix: 'gemini-3-flash',        label: 'Gemini 3 Flash',        free: true },
-  { prefix: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite', free: true },
-  { prefix: 'gemini-2.5-flash',      label: 'Gemini 2.5 Flash',      free: true },
-  { prefix: 'gemini-2.5-pro',        label: 'Gemini 2.5 Pro',        free: false },
-  { prefix: 'gemini-1.5-flash',      label: 'Gemini 1.5 Flash',      free: false },
-  { prefix: 'gemini-1.5-pro',        label: 'Gemini 1.5 Pro',        free: false },
-  { prefix: 'gemma',                 label: 'Gemma',                 free: true },
+  { prefix: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite Preview', free: true },
+  { prefix: 'gemini-3-flash-preview',        label: 'Gemini 3 Flash Preview',        free: true },
+  { prefix: 'gemini-2.5-flash-lite',         label: 'Gemini 2.5 Flash Lite',         free: true },
+  { prefix: 'gemini-2.5-flash',              label: 'Gemini 2.5 Flash',              free: true },
+  { prefix: 'gemini-2.5-pro',               label: 'Gemini 2.5 Pro',               free: true },
+  { prefix: 'gemini-1.5-flash',             label: 'Gemini 1.5 Flash',             free: false },
+  { prefix: 'gemini-1.5-pro',               label: 'Gemini 1.5 Pro',               free: false },
+  { prefix: 'gemma',                        label: 'Gemma',                        free: true },
 ];
 
 function geminiModelLabel(modelId) {
