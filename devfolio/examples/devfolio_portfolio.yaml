@@ -1,0 +1,139 @@
+id: devfolio
+name: DevFolio — 개발자 포트폴리오 자동화 도구
+type: side
+status: in_progress
+organization: ""
+period:
+  start: "2026-04"
+  end: null
+role: 풀스택 개발자 (단독)
+team_size: 1
+tech_stack:
+  - Python
+  - FastAPI
+  - Typer
+  - Rich
+  - Pydantic v2
+  - litellm
+  - ruamel.yaml
+  - Jinja2
+  - WeasyPrint
+  - JavaScript
+  - HTML/CSS
+  - Docker
+summary: >
+  Git 커밋 히스토리와 소스 코드를 분석해 개발자 포트폴리오·이력서를 자동 생성하는
+  로컬 퍼스트 CLI + 웹 스튜디오 도구.
+  Gemini·Groq 등 6개 AI 프로바이더를 지원하며, API 키 없이도 기본 AI 기능을 즉시 사용할 수 있다.
+tags:
+  - cli
+  - portfolio
+  - ai
+  - devtools
+  - python
+
+tasks:
+  - id: task_cli_core
+    name: CLI 엔진 및 로컬 스토리지 설계
+    period:
+      start: "2026-04"
+      end: null
+    problem: >
+      개발자들이 이직·승진 시마다 Word·Notion에 흩어진 프로젝트 경험을 다시 정리해야 했고,
+      한 번 작성한 내용을 다른 회사 지원용으로 재활용할 구조화된 포맷이 없었다.
+    solution: >
+      Typer 기반 CLI로 프로젝트·태스크를 YAML로 구조화 저장하고,
+      Pydantic v2 모델로 스키마 검증을 보장했다.
+      platformdirs로 macOS·Linux·Windows 각 OS의 표준 경로를 자동 선택하고,
+      ruamel.yaml로 주석을 보존한 채 읽고 쓸 수 있게 했다.
+      Jinja2 템플릿으로 동일 데이터에서 Markdown·PDF·DOCX·HTML·JSON·CSV
+      6가지 형식을 한 번에 내보낼 수 있도록 렌더링 파이프라인을 분리했다.
+    result: >
+      단일 YAML 파일로 프로젝트 전체 이력을 관리할 수 있게 됐고,
+      CLI 한 줄로 6가지 형식 내보내기가 가능해 지원 회사별로 포맷을 바꾸는 데 걸리는 시간이 없어졌다.
+      ruamel.yaml 사용으로 수동 편집 시 추가한 주석이 저장 후에도 유지된다.
+    tech_used:
+      - Python
+      - Typer
+      - Pydantic v2
+      - ruamel.yaml
+      - platformdirs
+      - Jinja2
+      - WeasyPrint
+    keywords:
+      - CLI
+      - 로컬 퍼스트
+      - YAML
+      - 구조화 데이터
+      - 멀티 포맷 내보내기
+
+  - id: task_web_studio
+    name: 웹 스튜디오 UI 및 Git 스캔 자동화
+    period:
+      start: "2026-04"
+      end: null
+    problem: >
+      CLI만으로는 비개발자나 처음 사용자가 데이터 입력 구조를 이해하기 어렵고,
+      실시간 미리보기 없이는 내보내기 전에 완성본을 확인할 방법이 없었다.
+      또한 수십 개의 커밋이 쌓인 저장소에서 핵심 기여를 수동으로 추출하는 것은
+      시간이 많이 걸렸다.
+    solution: >
+      FastAPI + 바닐라 JavaScript로 SPA 형태의 웹 스튜디오를 구현했다.
+      프로젝트 CRUD, AI 초안 생성, 실시간 Markdown 미리보기, 내보내기를
+      한 화면에서 처리하도록 설계했다.
+      외부 빌드 툴 없이 단일 HTML·JS·CSS 파일로 유지해 Docker 이미지를 최소화했다.
+      Git 저장소 경로 입력만으로 커밋 히스토리·언어 통계·핵심 파일을 분석해
+      포트폴리오 초안을 자동 생성하는 스캔 파이프라인을 추가했다.
+    result: >
+      브라우저만으로 프로젝트 등록부터 PDF 내보내기까지 완결되는 워크플로우를 제공한다.
+      Git 스캔으로 수동 입력 없이 커밋 작성자 필터링, 언어 비율, 주요 기여 파일을
+      자동 파악해 초안 생성 시간을 크게 단축했다.
+    tech_used:
+      - FastAPI
+      - Uvicorn
+      - JavaScript
+      - HTML/CSS
+      - Docker
+    keywords:
+      - 웹 UI
+      - SPA
+      - Git 스캔
+      - 실시간 미리보기
+
+  - id: task_ai_integration
+    name: 멀티 AI 프로바이더 통합 및 무료 기본 AI 내장
+    period:
+      start: "2026-04"
+      end: null
+    problem: >
+      AI 기반 초안 생성을 위해 특정 유료 API 키를 강제하면 진입 장벽이 높아지고,
+      무료 Gemini API는 RPM 한도(10~15회/분)·일일 한도(250~1,000회)가 낮아
+      테스트 중 쉽게 소진되는 문제가 있었다.
+      또한 Docker 컨테이너 환경에서 OS 키체인(keyring)이 동작하지 않아
+      서버 재시작 시 API 키가 유실됐다.
+    solution: >
+      litellm으로 Gemini·Groq·OpenRouter·Anthropic·OpenAI·Ollama를
+      동일 인터페이스로 추상화해 프로바이더 전환을 설정 변경만으로 처리했다.
+      API 키 없이도 pollinations.ai를 기본 내장 프로바이더로 사용해
+      설치 즉시 AI 기능을 체험할 수 있게 했다.
+      keyring 실패 시 설정 디렉터리의 api_keys.json에 폴백 저장해
+      서버 재시작 후에도 키가 유지되도록 했다.
+      Gemini 2.0 모델 retire(2026년 3월)에 대응해 모델 레지스트리를 최신화했고,
+      Rate limit 재시도 간격을 RPM 윈도우(65초)에 맞게 조정했다.
+    result: >
+      설정 없이 앱을 실행하는 즉시 AI 초안 생성이 작동하고,
+      Groq(14,400 req/일 무료)·Gemini 2.5 Flash Lite(1,000 req/일 무료) 등
+      무료 API 키 등록만으로 더 높은 품질의 결과물을 얻을 수 있다.
+    tech_used:
+      - litellm
+      - Gemini API
+      - Groq API
+      - OpenRouter
+      - pollinations.ai
+      - Python keyring
+    keywords:
+      - AI 통합
+      - litellm
+      - 무료 AI
+      - 멀티 프로바이더
+      - Rate limit 대응
