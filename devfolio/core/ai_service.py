@@ -27,16 +27,18 @@ logger = get_logger(__name__)
 _NO_PREAMBLE = "답변은 요청한 형식의 내용만 바로 작성하세요. 인사말, 서두, 복수 버전 제안, 작성 가이드 설명을 포함하지 마세요."
 
 _TASK_SYSTEM = f"""당신은 IT 개발자의 경력기술서 작성을 돕는 전문가입니다.
-STAR(Situation-Task-Action-Result) 구조를 따르되,
-채용 담당자가 한 눈에 파악할 수 있는 간결하고 임팩트 있는 개조식 문체로 작성하세요.
-숫자와 구체적인 지표를 최대한 활용하세요.
-문장은 동사로 시작하고 결과를 명확히 드러내세요.
+채용 담당자와 실무 리드가 함께 읽는다는 전제로,
+기능 나열이 아니라 책임 범위, 기술적 판단, 구현 방식, 운영상 효과가 드러나는 achievement bullet을 작성하세요.
+STAR(Situation-Task-Action-Result)를 참고하되 문장을 기계적으로 나누지 말고,
+한 줄 안에서 구현 사실과 결과를 자연스럽게 연결하세요.
+숫자와 구체적인 지표를 최대한 활용하고, 수치가 없으면 안정성·유지보수성·운영 효율 개선을 구체적으로 표현하세요.
 {_NO_PREAMBLE}"""
 
 _PROJECT_SYSTEM = f"""당신은 IT 개발자의 포트폴리오 문서 작성을 돕는 전문가입니다.
-주어진 프로젝트 정보를 바탕으로 채용 담당자에게 임팩트 있게 전달되는
-포트폴리오용 프로젝트 소개 문단을 작성하세요.
-기술적 성취와 비즈니스 임팩트를 균형 있게 서술하세요.
+채용 담당자와 실무 리드가 함께 읽는다는 전제로,
+주어진 프로젝트 정보를 바탕으로 책임 범위, 문제 맥락, 핵심 기술 판단, 구현 내용, 결과가 드러나는
+현업형 프로젝트 소개 문단을 작성하세요.
+기술 스택은 단순 나열하지 말고 어떤 문제 해결이나 개선과 연결되는지 문장 안에서 설명하세요.
 {_NO_PREAMBLE}"""
 
 _RESUME_SYSTEM = f"""당신은 IT 개발자의 경력기술서 전체 문서 작성을 돕는 전문가입니다.
@@ -68,6 +70,7 @@ _JD_MATCH_SYSTEM = """당신은 개발자 채용 전문가입니다.
 _INTAKE_SYSTEM = """당신은 개발자 포트폴리오 작성 도우미입니다.
 사용자가 자유롭게 적은 프로젝트 설명을 읽고, 포트폴리오 작성에 적합한 구조화 초안을 JSON으로 정리하세요.
 사실을 임의로 과장하지 말고, 불명확한 값은 빈 문자열이나 null로 남겨두세요.
+다만 서술 안에 암시된 역할 범위, 기능 단위 작업, 배포/운영/성능/안정성 신호는 최대한 구조화해서 추출하세요.
 반드시 JSON 객체만 반환하세요. 마크다운 코드블록은 사용하지 마세요."""
 
 # ---------------------------------------------------------------------------
@@ -89,6 +92,25 @@ def _strip_preamble(text: str) -> str:
     # "---\n**[작성 가이드]**" 이후 내용 제거
     text = re.sub(r'\n*-{3,}\s*\n\*{0,2}\[?작성\s*가이드\]?\*{0,2}.*$', '', text, flags=re.DOTALL)
     return text.strip()
+
+
+def _sentence_count(text: str) -> int:
+    normalized = re.sub(r"\s+", " ", text.strip())
+    if not normalized:
+        return 0
+    parts = [part.strip() for part in re.split(r'(?<=[.!?。！？])\s+', normalized) if part.strip()]
+    if len(parts) > 1:
+        return len(parts)
+    line_parts = [line.strip() for line in text.splitlines() if line.strip()]
+    return len(line_parts) if line_parts else 0
+
+
+def _extract_bullet_lines(text: str) -> list[str]:
+    return [
+        line.strip()
+        for line in text.splitlines()
+        if re.match(r'^\s*(?:[-*•]|\d+\.)\s+', line)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -272,6 +294,141 @@ class AIService:
             tasks=tasks,
         )
 
+    @staticmethod
+    def _join_values(values: list[str], fallback: str = "없음") -> str:
+        cleaned = [value.strip() for value in values if isinstance(value, str) and value.strip()]
+        return ", ".join(cleaned) if cleaned else fallback
+
+    @staticmethod
+    def _execution_scope(team_size: int) -> str:
+        return "단독 수행" if team_size <= 1 else f"{team_size}명 팀 내 담당"
+
+    def _portfolio_style_guide(self) -> str:
+        return """[현업형 작성 가이드]
+- 독자는 채용 담당자와 실무 리드입니다. 읽기 쉬우면서도 기술적 판단이 보여야 합니다.
+- 반드시 책임 범위, 문제 맥락, 핵심 기술 판단, 구현/개선 내용, 결과 또는 운영상 효과를 드러내세요.
+- 추상적 미사여구, 근거 없는 '최적화/혁신/완성도 확보', 의미 없는 기술 나열은 피하세요.
+- 같은 의미의 동사나 문장 구조를 반복하지 마세요."""
+
+    def _format_task_context(self, task: Task) -> str:
+        return "\n".join(
+            [
+                f"작업명: {task.name}",
+                f"기간: {task.period.display()}",
+                f"문제 상황: {task.problem or '명시되지 않음'}",
+                f"해결 방법: {task.solution or '명시되지 않음'}",
+                f"성과/영향: {task.result or '명시되지 않음'}",
+                f"사용 기술: {self._join_values(task.tech_used)}",
+                f"키워드: {self._join_values(task.keywords)}",
+            ]
+        )
+
+    def _format_project_context(self, project: Project) -> str:
+        task_lines = []
+        for index, task in enumerate(project.tasks, start=1):
+            task_lines.append(
+                "\n".join(
+                    [
+                        f"[Task {index}]",
+                        self._format_task_context(task),
+                    ]
+                )
+            )
+
+        tasks_section = "\n\n".join(task_lines) if task_lines else "작업 내역 없음"
+        return "\n".join(
+            [
+                f"프로젝트명: {project.name}",
+                f"프로젝트 유형: {project.type_display()} / 상태: {project.status_display()}",
+                f"기간: {project.period.display()}",
+                f"소속: {project.organization or '명시되지 않음'}",
+                f"역할: {project.role or '명시되지 않음'}",
+                f"수행 범위: {self._execution_scope(project.team_size)}",
+                f"기술 스택: {self._join_values(project.tech_stack)}",
+                f"태그: {self._join_values(project.tags)}",
+                f"기존 요약: {project.summary or '없음'}",
+                "",
+                "[주요 작업 내역]",
+                tasks_section,
+            ]
+        )
+
+    def _task_prompt_guide(self) -> str:
+        return "\n".join(
+            [
+                self._portfolio_style_guide(),
+                "[작업 bullet 규칙]",
+                "- bullet point 3~5개만 작성하세요.",
+                "- 각 bullet은 '행동 + 대상/문제 + 기술적 결정/구현 + 결과' 흐름을 따르세요.",
+                "- 작업명 자체를 반복하지 말고, 구현 사실과 효과를 한 줄 안에서 연결하세요.",
+                "- '기능을 개발했습니다', '안정성과 완성도를 높였습니다', '사용자 경험을 개선했습니다'처럼 근거 없는 문장을 쓰지 마세요.",
+            ]
+        )
+
+    def _project_prompt_guide(self) -> str:
+        return "\n".join(
+            [
+                self._portfolio_style_guide(),
+                "[프로젝트 소개 문단 규칙]",
+                "- 소개 문단은 4~6문장으로 작성하세요.",
+                "- 1문장: 프로젝트 성격과 본인 역할/책임 범위",
+                "- 2문장: 해결하려던 문제나 도메인 맥락",
+                "- 3~4문장: 핵심 기술적 실행 또는 개선 포인트",
+                "- 마지막 문장: 결과, 운영상 효과, 안정성/유지보수성 측면의 임팩트",
+                "- 기술 스택은 단순 나열하지 말고 어떤 문제 해결에 연결됐는지 문장 안에서 설명하세요.",
+            ]
+        )
+
+    def _intake_prompt_guide(self) -> str:
+        return "\n".join(
+            [
+                "[추출 우선순위]",
+                "- role, organization, team_size를 가능한 범위에서 추출하세요.",
+                "- task는 기능 단위 또는 책임 단위로 나누고 각 task에 problem, solution, result를 채우세요.",
+                "- tech_stack, tech_used, keywords는 서술에 등장하는 실제 기술/개념만 추출하세요.",
+                "- 배포, 운영, 성능, 안정성, 자동화, 모니터링 관련 단서는 우선적으로 구조화하세요.",
+            ]
+        )
+
+    def _call_with_quality_retry(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        provider_name: Optional[str],
+        validator,
+        retry_instruction: str,
+        failure_message: str,
+    ) -> str:
+        response = _strip_preamble(self._call(system_prompt, user_prompt, provider_name))
+        if validator(response):
+            return response
+
+        retry_prompt = (
+            f"{user_prompt}\n\n"
+            f"[추가 교정 지시]\n"
+            f"{retry_instruction}"
+        )
+        response = _strip_preamble(self._call(system_prompt, retry_prompt, provider_name))
+        if validator(response):
+            return response
+
+        raise DevfolioAIError(
+            failure_message,
+            hint="같은 작업을 다시 시도하거나 다른 AI Provider로 재생성해보세요.",
+        )
+
+    @staticmethod
+    def _is_good_project_summary(text: str) -> bool:
+        sentences = _sentence_count(text)
+        if sentences >= 4:
+            return True
+        return sentences >= 3 and len(text.strip()) >= 180
+
+    @staticmethod
+    def _is_good_task_bullets(text: str) -> bool:
+        bullet_lines = _extract_bullet_lines(text)
+        return 3 <= len(bullet_lines) <= 5
+
     # ------------------------------------------------------------------
     # 공개 API
     # ------------------------------------------------------------------
@@ -287,18 +444,23 @@ class AIService:
         if task.ai_generated_text and not force_refresh:
             return task.ai_generated_text
 
-        prompt = f"""다음 작업 내역을 경력기술서 bullet point로 변환해주세요.
+        prompt = f"""다음 작업 정보를 바탕으로 현업형 achievement bullet을 작성해주세요.
 
-작업명: {task.name}
-문제 상황: {task.problem}
-해결 방법: {task.solution}
-성과: {task.result}
-사용 기술: {", ".join(task.tech_used)}
+[작업 컨텍스트]
+{self._format_task_context(task)}
 
-{self._language_instruction(lang)}
-bullet point 3~5개만 반환하세요. 인사말이나 설명 없이 bullet point 목록만 작성하세요."""
+{self._task_prompt_guide()}
+언어 지시: {self._language_instruction(lang)}
+설명 없이 bullet point 목록만 반환하세요."""
 
-        return _strip_preamble(self._call(_TASK_SYSTEM, prompt, provider_name))
+        return self._call_with_quality_retry(
+            _TASK_SYSTEM,
+            prompt,
+            provider_name,
+            validator=self._is_good_task_bullets,
+            retry_instruction="반드시 bullet point 3~5개만 작성하고, 각 bullet은 구현 사실과 결과를 함께 드러내세요.",
+            failure_message="AI가 현업형 작업 bullet 형식을 충분히 지키지 못했습니다.",
+        )
 
     def generate_project_summary(
         self,
@@ -307,26 +469,23 @@ bullet point 3~5개만 반환하세요. 인사말이나 설명 없이 bullet poi
         provider_name: Optional[str] = None,
     ) -> str:
         """프로젝트 전체 요약 생성."""
-        tasks_text = "\n".join(
-            f"- {t.name}: {t.problem} → {t.solution} (결과: {t.result})"
-            for t in project.tasks
-        ) or "작업 내역 없음"
+        prompt = f"""다음 프로젝트 정보를 바탕으로 현업형 프로젝트 소개 문단을 작성해주세요.
 
-        prompt = f"""다음 프로젝트 정보를 바탕으로 포트폴리오용 소개 문단을 작성해주세요.
+[프로젝트 컨텍스트]
+{self._format_project_context(project)}
 
-프로젝트명: {project.name}
-기간: {project.period.display()}
-역할: {project.role}
-기술 스택: {", ".join(project.tech_stack)}
-한 줄 요약: {project.summary}
-
-주요 작업 내역:
-{tasks_text}
-
+{self._project_prompt_guide()}
 언어 지시: {self._language_instruction(lang)}
-소개 문단 텍스트만 3~5문장으로 반환하세요. 인사말이나 부연 설명 없이 본문만 작성하세요."""
+소개 문단 텍스트만 반환하세요. 인사말이나 부연 설명 없이 본문만 작성하세요."""
 
-        return _strip_preamble(self._call(_PROJECT_SYSTEM, prompt, provider_name))
+        return self._call_with_quality_retry(
+            _PROJECT_SYSTEM,
+            prompt,
+            provider_name,
+            validator=self._is_good_project_summary,
+            retry_instruction="문단을 4~6문장으로 보강하고, 책임 범위·문제 맥락·핵심 구현·결과가 모두 드러나게 다시 작성하세요.",
+            failure_message="AI가 프로젝트 소개 문단을 충분한 밀도로 생성하지 못했습니다.",
+        )
 
     def generate_full_resume(
         self,
@@ -381,7 +540,11 @@ bullet point 3~5개만 반환하세요. 인사말이나 설명 없이 bullet poi
 - tech_stack, tags, tasks, tech_used, keywords는 항상 배열로 반환하세요.
 - tasks 각 항목은 name, period, problem, solution, result, tech_used, keywords, ai_generated_text 필드를 모두 포함하세요.
 - team_size를 알 수 없으면 1을 사용하세요.
+- summary는 과장된 마케팅 문구보다 프로젝트 성격과 역할이 드러나는 짧은 초안으로 작성하세요.
+- 자유 텍스트에 운영, 배포, 성능, 안정성, 자동화 관련 단서가 있으면 적절한 task나 keywords에 반영하세요.
 - 응답은 JSON 객체만 반환하세요.
+
+{self._intake_prompt_guide()}
 
 출력 스키마:
 {{

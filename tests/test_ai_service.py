@@ -138,7 +138,7 @@ class TestAPIKey:
 class TestGenerateTaskText:
     def test_calls_ai_for_new_task(self):
         service = AIService(make_config())
-        service._call = MagicMock(return_value="- 블루그린 배포로 다운타임 0 달성")
+        service._call = MagicMock(return_value="- 블루그린 배포 전략을 적용해 다운타임을 제거했습니다.\n- Jenkins와 ECS 배포 파이프라인을 연결해 배포 시간을 단축했습니다.\n- 운영 배포 절차를 표준화해 장애 대응 부담을 줄였습니다.")
         task = make_task()
 
         result = service.generate_task_text(task, lang="ko")
@@ -157,12 +157,12 @@ class TestGenerateTaskText:
 
     def test_force_refresh_ignores_cache(self):
         service = AIService(make_config())
-        service._call = MagicMock(return_value="새로 생성된 문구")
+        service._call = MagicMock(return_value="- 새 bullet 1입니다.\n- 새 bullet 2입니다.\n- 새 bullet 3입니다.")
         task = make_task()
         task = task.model_copy(update={"ai_generated_text": "캐시된 문구"})
 
         result = service.generate_task_text(task, force_refresh=True)
-        assert result == "새로 생성된 문구"
+        assert "새 bullet 1" in result
         service._call.assert_called_once()
 
     def test_prompt_contains_task_fields(self):
@@ -171,7 +171,7 @@ class TestGenerateTaskText:
 
         def capture(system, user, provider=None):
             captured["user"] = user
-            return "결과"
+            return "- 결과 1\n- 결과 2\n- 결과 3"
 
         service._call = capture
         task = make_task()
@@ -180,6 +180,20 @@ class TestGenerateTaskText:
         assert task.problem in captured["user"]
         assert task.solution in captured["user"]
         assert task.result in captured["user"]
+        assert "행동 + 대상/문제 + 기술적 결정/구현 + 결과" in captured["user"]
+        assert "작업명 자체를 반복하지 말고" in captured["user"]
+
+    def test_retries_when_task_result_is_not_bullets(self):
+        service = AIService(make_config())
+        service._call = MagicMock(side_effect=[
+            "문단으로만 작성된 응답입니다.",
+            "- 배포 자동화를 구축해 다운타임을 제거했습니다.\n- Jenkins와 ECS 배포 전략을 연결해 배포 시간을 줄였습니다.\n- 운영 배포 절차를 표준화해 유지보수성을 높였습니다.",
+        ])
+
+        result = service.generate_task_text(make_task(), lang="ko")
+
+        assert result.startswith("- ")
+        assert service._call.call_count == 2
 
 
 # ---------------------------------------------------------------------------
@@ -189,9 +203,9 @@ class TestGenerateTaskText:
 class TestGenerateProjectSummary:
     def test_returns_ai_result(self):
         service = AIService(make_config())
-        service._call = MagicMock(return_value="프로젝트 요약 문단")
+        service._call = MagicMock(return_value="첫째 문장입니다. 둘째 문장입니다. 셋째 문장입니다. 넷째 문장입니다.")
         result = service.generate_project_summary(make_project(), lang="ko")
-        assert result == "프로젝트 요약 문단"
+        assert "넷째 문장입니다." in result
 
     def test_includes_tasks_in_prompt(self):
         service = AIService(make_config())
@@ -199,11 +213,25 @@ class TestGenerateProjectSummary:
 
         def capture(system, user, provider=None):
             captured["user"] = user
-            return "ok"
+            return "첫째 문장입니다. 둘째 문장입니다. 셋째 문장입니다. 넷째 문장입니다."
 
         service._call = capture
         service.generate_project_summary(make_project(), lang="ko")
         assert "블루그린 배포 구축" in captured["user"]
+        assert "수행 범위" in captured["user"]
+        assert "기술 스택은 단순 나열하지 말고" in captured["user"]
+
+    def test_retries_when_summary_is_too_short(self):
+        service = AIService(make_config())
+        service._call = MagicMock(side_effect=[
+            "짧은 문장입니다.",
+            "첫째 문장입니다. 둘째 문장입니다. 셋째 문장입니다. 넷째 문장입니다.",
+        ])
+
+        result = service.generate_project_summary(make_project(), lang="ko")
+
+        assert "넷째 문장" in result
+        assert service._call.call_count == 2
 
 
 class TestGenerateProjectDraft:
@@ -251,6 +279,34 @@ class TestGenerateProjectDraft:
         with pytest.raises(DevfolioAIError, match="JSON"):
             service.generate_project_draft("원본 텍스트")
 
+    def test_prompt_mentions_operational_signals_and_structure(self):
+        service = AIService(make_config())
+        captured: dict = {}
+
+        def capture(system, user, provider=None):
+            captured["user"] = user
+            return """
+{
+  "name": "AI 초안 프로젝트",
+  "type": "company",
+  "status": "done",
+  "organization": "",
+  "period": {"start": null, "end": null},
+  "role": "",
+  "team_size": 1,
+  "tech_stack": [],
+  "summary": "",
+  "tags": [],
+  "tasks": []
+}
+"""
+
+        service._call = capture
+        service.generate_project_draft("배포 자동화와 성능 개선을 진행했습니다.", lang="ko")
+
+        assert "배포, 운영, 성능, 안정성, 자동화" in captured["user"]
+        assert "role, organization, team_size" in captured["user"]
+
 
 class TestDraftAugmentation:
     def test_generate_draft_summary_uses_existing_project_summary_flow(self):
@@ -260,11 +316,11 @@ class TestDraftAugmentation:
             tech_stack=["Python"],
             tasks=[TaskDraft(name="작업", result="성과")],
         )
-        service._call = MagicMock(return_value="생성된 요약")
+        service._call = MagicMock(return_value="첫째 문장입니다. 둘째 문장입니다. 셋째 문장입니다. 넷째 문장입니다.")
 
         result = service.generate_draft_project_summary(draft, lang="ko")
 
-        assert result == "생성된 요약"
+        assert "넷째 문장입니다." in result
         service._call.assert_called_once()
 
     def test_generate_draft_task_texts_updates_each_task(self):
