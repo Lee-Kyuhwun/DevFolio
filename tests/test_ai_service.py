@@ -105,6 +105,16 @@ class TestProviderConfig:
         provider = service.config.get_provider("ollama")
         assert service._model_string(provider) == "ollama/llama3.2"
 
+    def test_model_string_normalizes_legacy_gemini_alias(self):
+        config = Config()
+        config.default_ai_provider = "gemini"
+        config.ai_providers = [
+            AIProviderConfig(name="gemini", model="gemini-2.0-flash")
+        ]
+        service = AIService(config)
+        provider = service.config.get_provider("gemini")
+        assert service._model_string(provider) == "gemini/gemini-2.0-flash-001"
+
 
 # ---------------------------------------------------------------------------
 # API 키 처리
@@ -405,6 +415,36 @@ class TestRetryLogic:
 
         # 재시도 없이 즉시 실패
         assert fake_litellm.completion.call_count == 1
+
+    def test_gemini_not_found_falls_back_to_versioned_snapshot(self):
+        config = Config()
+        config.default_ai_provider = "gemini"
+        config.ai_providers = [
+            AIProviderConfig(name="gemini", model="gemini-2.0-flash", key_stored=True)
+        ]
+        service = AIService(config)
+        fake_litellm = MagicMock()
+
+        class FakeNotFoundError(Exception):
+            pass
+
+        FakeNotFoundError.__name__ = "NotFoundError"
+
+        def completion_side_effect(**kwargs):
+            if kwargs["model"] == "gemini/gemini-2.0-flash":
+                raise FakeNotFoundError("missing")
+            response = MagicMock()
+            response.choices = [MagicMock(message=MagicMock(content="ok"))]
+            return response
+
+        fake_litellm.completion.side_effect = completion_side_effect
+
+        with patch("devfolio.core.ai_service.get_api_key", return_value="AIza-test"), \
+             patch.dict("sys.modules", {"litellm": fake_litellm}):
+            result = service._call("system", "user", "gemini")
+
+        assert result == "ok"
+        assert fake_litellm.completion.call_count >= 1
 
 
 # ---------------------------------------------------------------------------

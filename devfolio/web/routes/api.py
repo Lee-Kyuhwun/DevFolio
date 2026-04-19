@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ValidationError
 
-from devfolio.core.ai_service import AIService
+from devfolio.core.ai_service import AIService, normalize_provider_model_name
 from devfolio.core.export_engine import ExportEngine
 from devfolio.core.project_manager import ProjectManager
 from devfolio.core.storage import EXPORTS_DIR, load_config, save_config
@@ -122,7 +122,7 @@ def _build_provider_list(cfg) -> list[dict[str, Any]]:
         result.append(
             {
                 "name": provider.name,
-                "model": provider.model,
+                "model": normalize_provider_model_name(provider.name, provider.model),
                 "key_stored": provider.key_stored,
                 "key_masked": masked,
                 "base_url": provider.base_url,
@@ -468,7 +468,10 @@ def upsert_ai_provider(body: AIProviderCreate) -> dict[str, str]:
 
     provider = AIProviderConfig(
         name=body.name,
-        model=(body.model or _default_model_name(body.name)).strip(),
+        model=normalize_provider_model_name(
+            body.name,
+            (body.model or _default_model_name(body.name)).strip(),
+        ),
         key_stored=key_stored,
         base_url=body.base_url or None,
     )

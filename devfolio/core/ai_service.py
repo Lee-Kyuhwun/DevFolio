@@ -120,6 +120,20 @@ def _extract_bullet_lines(text: str) -> list[str]:
 _MAX_RETRIES = 3
 _RETRY_DELAY = 2.0  # 초
 
+_MODEL_ALIASES: dict[str, dict[str, str]] = {
+    "gemini": {
+        "gemini-2.0-flash": "gemini-2.0-flash-001",
+        "gemini-2.0-flash-lite": "gemini-2.0-flash-lite-001",
+    }
+}
+
+
+def normalize_provider_model_name(provider_name: str, model_name: str) -> str:
+    normalized = (model_name or "").strip().removeprefix("models/")
+    if not normalized:
+        return normalized
+    return _MODEL_ALIASES.get(provider_name, {}).get(normalized, normalized)
+
 
 class AIService:
     def __init__(self, config: Config):
@@ -143,13 +157,32 @@ class AIService:
 
     def _model_string(self, provider: AIProviderConfig) -> str:
         """litellm 모델 문자열 반환."""
+        model_name = normalize_provider_model_name(provider.name, provider.model)
         mapping = {
-            "anthropic": f"anthropic/{provider.model}",
-            "openai": provider.model,
-            "gemini": f"gemini/{provider.model}",
-            "ollama": f"ollama/{provider.model}",
+            "anthropic": f"anthropic/{model_name}",
+            "openai": model_name,
+            "gemini": f"gemini/{model_name}",
+            "ollama": f"ollama/{model_name}",
         }
-        return mapping.get(provider.name, provider.model)
+        return mapping.get(provider.name, model_name)
+
+    def _runtime_model_candidates(self, provider: AIProviderConfig) -> list[str]:
+        normalized = normalize_provider_model_name(provider.name, provider.model)
+        candidates: list[str] = []
+        for candidate in [provider.model.strip(), normalized]:
+            candidate = candidate.removeprefix("models/")
+            if candidate and candidate not in candidates:
+                candidates.append(candidate)
+
+        if provider.name == "gemini":
+            if normalized and normalized not in candidates:
+                candidates.append(normalized)
+            if normalized and not re.search(r"-\d{3}$", normalized):
+                snapshot = f"{normalized}-001"
+                if snapshot not in candidates:
+                    candidates.append(snapshot)
+
+        return candidates
 
     def _set_env_key(self, provider: AIProviderConfig) -> None:
         """API 키를 환경 변수에 설정 (litellm이 읽도록)."""
@@ -185,7 +218,6 @@ class AIService:
         self._set_env_key(provider)
 
         kwargs: dict = {
-            "model": self._model_string(provider),
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -195,41 +227,63 @@ class AIService:
             kwargs["api_base"] = provider.base_url
 
         last_error: Exception = RuntimeError("알 수 없는 오류")
-        for attempt in range(1, _MAX_RETRIES + 1):
-            try:
-                logger.debug("AI 호출 시도 %d/%d (model=%s)", attempt, _MAX_RETRIES, kwargs["model"])
-                response = litellm.completion(**kwargs)
-                return response.choices[0].message.content or ""
-            except Exception as e:
-                err_class = type(e).__name__
-                err_str = str(e)
-                if "AuthenticationError" in err_class or "Unauthorized" in err_class:
-                    raise DevfolioAIAuthError(provider.name) from e
-                if "NotFoundError" in err_class or ('"code": 404' in err_str and "NOT_FOUND" in err_str):
-                    raise DevfolioAIError(
-                        f"모델을 찾을 수 없습니다: {provider.model}",
-                        hint="설정 탭에서 모델 목록을 새로고침(↻)하고 다른 모델을 선택한 뒤 저장하세요.",
-                    ) from e
-                # quota 한도가 0인 경우 — 재시도 없이 즉시 안내
-                if "limit: 0" in err_str or "free_tier_requests" in err_str:
-                    raise DevfolioAIError(
-                        f"{provider.name} 무료 티어 할당량이 0입니다.",
-                        hint=(
-                            "Google AI Studio는 결제 수단을 등록해야 무료 quota가 활성화됩니다. "
-                            "https://aistudio.google.com 에서 결제 정보를 등록하거나 "
-                            "다른 AI 제공자(Anthropic 등)로 전환하세요."
-                        ),
-                    ) from e
-                if "RateLimitError" in err_class or "RESOURCE_EXHAUSTED" in err_str:
+        model_candidates = self._runtime_model_candidates(provider)
+        for model_index, runtime_model in enumerate(model_candidates, start=1):
+            kwargs["model"] = self._model_string(
+                provider.model_copy(update={"model": runtime_model})
+            )
+            for attempt in range(1, _MAX_RETRIES + 1):
+                try:
+                    logger.debug(
+                        "AI 호출 시도 %d/%d (model=%s, candidate=%d/%d)",
+                        attempt,
+                        _MAX_RETRIES,
+                        kwargs["model"],
+                        model_index,
+                        len(model_candidates),
+                    )
+                    response = litellm.completion(**kwargs)
+                    return response.choices[0].message.content or ""
+                except Exception as e:
+                    err_class = type(e).__name__
+                    err_str = str(e)
+                    if "AuthenticationError" in err_class or "Unauthorized" in err_class:
+                        raise DevfolioAIAuthError(provider.name) from e
+                    if "NotFoundError" in err_class or ('"code": 404' in err_str and "NOT_FOUND" in err_str):
+                        last_error = e
+                        if model_index < len(model_candidates):
+                            logger.warning(
+                                "모델을 찾지 못해 대체 후보로 재시도합니다: requested=%s fallback=%s",
+                                provider.model,
+                                model_candidates[model_index],
+                            )
+                            break
+                        raise DevfolioAIError(
+                            f"모델을 찾을 수 없습니다: {provider.model}",
+                            hint="설정 탭에서 모델 목록을 새로고침(↻)하고 다른 모델을 선택한 뒤 저장하세요.",
+                        ) from e
+                    # quota 한도가 0인 경우 — 재시도 없이 즉시 안내
+                    if "limit: 0" in err_str or "free_tier_requests" in err_str:
+                        raise DevfolioAIError(
+                            f"{provider.name} 무료 티어 할당량이 0입니다.",
+                            hint=(
+                                "Google AI Studio는 결제 수단을 등록해야 무료 quota가 활성화됩니다. "
+                                "https://aistudio.google.com 에서 결제 정보를 등록하거나 "
+                                "다른 AI 제공자(Anthropic 등)로 전환하세요."
+                            ),
+                        ) from e
+                    if "RateLimitError" in err_class or "RESOURCE_EXHAUSTED" in err_str:
+                        if attempt < _MAX_RETRIES:
+                            logger.warning("Rate limit 발생, %0.1f초 후 재시도 (%d/%d)", _RETRY_DELAY * attempt, attempt, _MAX_RETRIES)
+                            time.sleep(_RETRY_DELAY * attempt)
+                            continue
+                        raise DevfolioAIRateLimitError(provider.name) from e
+                    last_error = e
+                    logger.warning("AI 호출 실패 (%d/%d): %s", attempt, _MAX_RETRIES, e)
                     if attempt < _MAX_RETRIES:
-                        logger.warning("Rate limit 발생, %0.1f초 후 재시도 (%d/%d)", _RETRY_DELAY * attempt, attempt, _MAX_RETRIES)
-                        time.sleep(_RETRY_DELAY * attempt)
+                        time.sleep(_RETRY_DELAY)
                         continue
-                    raise DevfolioAIRateLimitError(provider.name) from e
-                last_error = e
-                logger.warning("AI 호출 실패 (%d/%d): %s", attempt, _MAX_RETRIES, e)
-                if attempt < _MAX_RETRIES:
-                    time.sleep(_RETRY_DELAY)
+                    break
         raise DevfolioAIError(str(last_error)) from last_error
 
     @staticmethod

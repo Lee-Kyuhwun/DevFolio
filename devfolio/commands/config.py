@@ -20,7 +20,7 @@ console = Console()
 _PROVIDER_MODELS: dict[str, list[str]] = {
     "anthropic": ["claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-haiku-4-5-20251001"],
     "openai": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
-    "gemini": ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.0-flash"],
+    "gemini": ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.0-flash-001"],
     "ollama": ["llama3.2", "llama3.1", "mistral", "deepseek-coder"],
 }
 
