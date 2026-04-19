@@ -603,6 +603,15 @@ function bindSettingsForms() {
     if (!data.api_key) delete data.api_key;
     if (!data.base_url) delete data.base_url;
 
+    // 모델이 비어있으면 현재 select 값을 직접 읽어 보완
+    if (!data.model) {
+      data.model = document.getElementById('ai-model')?.value || '';
+    }
+    if (!data.model) {
+      showToast('모델을 선택하세요. ↻ 버튼으로 모델 목록을 먼저 불러오세요.', 'error');
+      return;
+    }
+
     await runUserAction(button, '저장 중...', async () => {
       await apiPost('/api/config/ai', data);
       state.config = await apiGet('/api/config');
@@ -676,6 +685,11 @@ async function loadInitialData() {
     renderPreviewOutput();
     syncProviderForm();
     updateGuideSteps();
+    // 저장된 기본 제공자가 있으면 모델 목록 백그라운드 자동 로드
+    const defaultP = state.config?.general?.default_ai_provider;
+    if (defaultP && (state.config.ai_providers || []).some(p => p.name === defaultP)) {
+      loadModelsForProvider().catch(() => {});
+    }
     const initialized = document.body.dataset.initialized === 'true';
     if (!initialized) switchTab('guide');
   } catch (error) {
@@ -723,6 +737,29 @@ function applyConfigToForms() {
   document.getElementById('general-provider').value = general.default_ai_provider || '';
 
   document.getElementById('intake-lang').value = general.default_language || 'ko';
+
+  // 현재 저장된 AI 제공자·모델을 폼에 반영
+  const defaultProvider = general.default_ai_provider;
+  if (defaultProvider) {
+    const aiNameEl = document.getElementById('ai-name');
+    if (aiNameEl) aiNameEl.value = defaultProvider;
+    syncProviderForm();
+    const savedProvider = (state.config.ai_providers || []).find(p => p.name === defaultProvider);
+    if (savedProvider?.model) {
+      const modelEl = document.getElementById('ai-model');
+      if (modelEl) {
+        // 현재 저장된 모델을 옵션으로 추가 (목록 로드 전 임시)
+        if (![...modelEl.options].some(o => o.value === savedProvider.model)) {
+          const opt = document.createElement('option');
+          opt.value = savedProvider.model;
+          const label = defaultProvider === 'gemini' ? geminiModelLabel(savedProvider.model) : savedProvider.model;
+          opt.textContent = label;
+          modelEl.appendChild(opt);
+        }
+        modelEl.value = savedProvider.model;
+      }
+    }
+  }
   state.preview.template = exportConfig.default_template || 'default';
   renderPreviewControls();
 }
