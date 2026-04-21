@@ -180,6 +180,9 @@ def show_config() -> None:
     console.print(f"  버전: {config.version}")
     console.print(f"  기본 AI Provider: {config.default_ai_provider or '없음'}")
     console.print(f"  기본 언어: {config.default_language}")
+    console.print(f"  추론 전략: {config.reasoning.strategy}")
+    console.print(f"  추론 샘플 수: {config.reasoning.samples}")
+    console.print(f"  리뷰 Provider: {config.reasoning.judge_provider or '기본 생성 Provider와 동일'}")
     console.print(f"  기본 출력 포맷: {config.export.default_format}")
     console.print(f"  출력 디렉터리: {config.export.output_dir}")
     console.print(f"\n  [bold]사용자 정보[/bold]")
@@ -198,6 +201,9 @@ def set_default(
     format: Optional[str] = typer.Option(None, "--format", help="기본 출력 포맷 (pdf/docx/md/html)"),
     lang: Optional[str] = typer.Option(None, "--lang", help="기본 언어 (ko/en/both)"),
     provider: Optional[str] = typer.Option(None, "--provider", help="기본 AI Provider"),
+    reasoning_strategy: Optional[str] = typer.Option(None, "--reasoning-strategy", help="추론 전략 (single/best_of_n)"),
+    reasoning_samples: Optional[int] = typer.Option(None, "--reasoning-samples", min=1, max=5, help="best-of-N 후보 수"),
+    judge_provider: Optional[str] = typer.Option(None, "--judge-provider", help="리뷰/재선택용 AI Provider"),
 ):
     """기본값 설정."""
     config = load_config()
@@ -225,8 +231,33 @@ def set_default(
         config.default_ai_provider = provider
         changed = True
 
+    if reasoning_strategy:
+        if reasoning_strategy not in {"single", "best_of_n"}:
+            console.print(f"[red]오류:[/red] 유효하지 않은 추론 전략: {reasoning_strategy}")
+            raise typer.Exit(1)
+        config.reasoning.strategy = reasoning_strategy
+        changed = True
+
+    if reasoning_samples is not None:
+        config.reasoning.samples = reasoning_samples
+        if reasoning_samples > 1 and config.reasoning.strategy == "single":
+            config.reasoning.strategy = "best_of_n"
+        elif reasoning_samples == 1 and reasoning_strategy is None:
+            config.reasoning.strategy = "single"
+        elif reasoning_samples == 1 and reasoning_strategy == "best_of_n":
+            console.print("[red]오류:[/red] best_of_n 전략은 샘플 수가 2 이상이어야 합니다.")
+            raise typer.Exit(1)
+        changed = True
+
+    if judge_provider is not None:
+        if judge_provider and not config.get_provider(judge_provider):
+            console.print(f"[red]오류:[/red] 등록되지 않은 Provider: {judge_provider}")
+            raise typer.Exit(1)
+        config.reasoning.judge_provider = judge_provider
+        changed = True
+
     if changed:
         save_config(config)
         console.print("[bold green]✓ 기본값이 업데이트되었습니다.[/bold green]")
     else:
-        console.print("[yellow]변경할 항목을 --format, --lang, --provider 옵션으로 지정하세요.[/yellow]")
+        console.print("[yellow]변경할 항목을 옵션으로 지정하세요.[/yellow]")

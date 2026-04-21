@@ -388,6 +388,15 @@ class ReviewResult(BaseModel):
     revision_instructions: list[str] = Field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class ReviewedCandidate:
+    draft: str
+    review: ReviewResult
+    score: int
+    is_valid: bool
+    sample_index: int
+
+
 @dataclass
 class GenerationProfile:
     mode: str
@@ -913,19 +922,43 @@ class AIService:
             return "반드시 Markdown 섹션을 유지하고, 프로젝트 개요·문제 정의·사용자 흐름·기술 스택 및 선정 이유·아키텍처·핵심 기능·문제 해결 사례·결과 및 성과·회고를 모두 포함하세요."
         return "출력 계약을 정확히 지켜 다시 작성하세요."
 
-    def generate_with_review(
+    def _resolve_reasoning_plan(self, samples: Optional[int] = None) -> tuple[str, int]:
+        configured_strategy = self.config.reasoning.strategy or "single"
+        configured_samples = self.config.reasoning.samples or 1
+        sample_count = samples if samples is not None else configured_samples
+        sample_count = max(1, min(sample_count, 5))
+        strategy = "best_of_n" if sample_count > 1 else configured_strategy
+        if strategy == "best_of_n" and sample_count < 2:
+            strategy = "single"
+        return strategy, sample_count
+
+    def _review_provider_name(self, provider_name: Optional[str]) -> Optional[str]:
+        judge_provider = (self.config.reasoning.judge_provider or "").strip()
+        return judge_provider or provider_name
+
+    @staticmethod
+    def _review_score(review: ReviewResult, is_valid: bool) -> int:
+        weights = {
+            "factuality": 5,
+            "specificity": 3,
+            "result_orientation": 3,
+            "hiring_relevance": 2,
+            "redundancy": 1,
+            "output_contract": 4,
+        }
+        weighted = sum(review.scores.get(key, 0) * weight for key, weight in weights.items())
+        return weighted + (12 if review.passed else 0) + (8 if is_valid else 0)
+
+    def _generate_reviewed_candidate(
         self,
         *,
+        prompt_pack: PromptPack,
         evidence: PortfolioEvidence,
         profile: GenerationProfile,
-        provider_name: Optional[str] = None,
-    ) -> tuple[str, ReviewResult]:
-        prompt_pack = self._prompt_pack("ko")
-        user_prompt = self._render_generation_prompt(prompt_pack, evidence, profile)
-        writer_messages = [
-            {"role": "system", "content": prompt_pack.system_prompt},
-            {"role": "user", "content": user_prompt},
-        ]
+        provider_name: Optional[str],
+        writer_messages: list[dict[str, str]],
+        sample_index: int,
+    ) -> ReviewedCandidate:
         draft = _strip_preamble(
             self._call_messages(
                 writer_messages,
@@ -939,13 +972,74 @@ class AIService:
             evidence,
             draft,
             profile,
-            provider_name,
+            self._review_provider_name(provider_name),
         )
-        if review.passed and self._validate_generated_output(profile.mode, draft):
-            return draft, review
+        is_valid = self._validate_generated_output(profile.mode, draft)
+        return ReviewedCandidate(
+            draft=draft,
+            review=review,
+            score=self._review_score(review, is_valid),
+            is_valid=is_valid,
+            sample_index=sample_index,
+        )
+
+    def generate_with_review(
+        self,
+        *,
+        evidence: PortfolioEvidence,
+        profile: GenerationProfile,
+        provider_name: Optional[str] = None,
+        samples: Optional[int] = None,
+    ) -> tuple[str, ReviewResult]:
+        prompt_pack = self._prompt_pack("ko")
+        user_prompt = self._render_generation_prompt(prompt_pack, evidence, profile)
+        writer_messages = [
+            {"role": "system", "content": prompt_pack.system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        strategy, sample_count = self._resolve_reasoning_plan(samples)
+        best_candidate: ReviewedCandidate | None = None
+
+        if strategy == "best_of_n":
+            for sample_index in range(1, sample_count + 1):
+                candidate = self._generate_reviewed_candidate(
+                    prompt_pack=prompt_pack,
+                    evidence=evidence,
+                    profile=profile,
+                    provider_name=provider_name,
+                    writer_messages=writer_messages,
+                    sample_index=sample_index,
+                )
+                if best_candidate is None or (
+                    candidate.score,
+                    candidate.review.passed,
+                    candidate.is_valid,
+                    -len(candidate.review.issues),
+                ) > (
+                    best_candidate.score,
+                    best_candidate.review.passed,
+                    best_candidate.is_valid,
+                    -len(best_candidate.review.issues),
+                ):
+                    best_candidate = candidate
+        else:
+            best_candidate = self._generate_reviewed_candidate(
+                prompt_pack=prompt_pack,
+                evidence=evidence,
+                profile=profile,
+                provider_name=provider_name,
+                writer_messages=writer_messages,
+                sample_index=1,
+            )
+
+        if best_candidate is None:
+            raise DevfolioAIError("AI 후보 초안을 생성하지 못했습니다.")
+
+        if best_candidate.review.passed and best_candidate.is_valid:
+            return best_candidate.draft, best_candidate.review
 
         revision_payload = json.dumps(
-            review.model_dump(by_alias=True),
+            best_candidate.review.model_dump(by_alias=True),
             ensure_ascii=False,
             indent=2,
         )
@@ -974,7 +1068,7 @@ class AIService:
                 "AI가 출력 형식을 충분히 지키지 못했습니다.",
                 hint="같은 작업을 다시 시도하거나 다른 AI Provider로 재생성해보세요.",
             )
-        return revised, review
+        return revised, best_candidate.review
 
     # ------------------------------------------------------------------
     # 공개 API
@@ -986,6 +1080,7 @@ class AIService:
         lang: str = "ko",
         provider_name: Optional[str] = None,
         force_refresh: bool = False,
+        samples: Optional[int] = None,
     ) -> str:
         """작업 내역 → 경력기술서 bullet point."""
         if task.ai_generated_text and not force_refresh:
@@ -1001,6 +1096,7 @@ class AIService:
             evidence=evidence,
             profile=profile,
             provider_name=provider_name,
+            samples=samples,
         )
         return result
 
@@ -1009,6 +1105,7 @@ class AIService:
         project: Project,
         lang: str = "ko",
         provider_name: Optional[str] = None,
+        samples: Optional[int] = None,
     ) -> str:
         """프로젝트 전체 요약 생성."""
         evidence = self.build_evidence(project=project)
@@ -1021,6 +1118,7 @@ class AIService:
             evidence=evidence,
             profile=profile,
             provider_name=provider_name,
+            samples=samples,
         )
         return result
 
@@ -1029,6 +1127,7 @@ class AIService:
         project: Project,
         lang: str = "ko",
         provider_name: Optional[str] = None,
+        samples: Optional[int] = None,
     ) -> str:
         """프로젝트 전체를 케이스 스터디형 Markdown으로 생성한다."""
         evidence = self.build_evidence(project=project)
@@ -1041,6 +1140,7 @@ class AIService:
             evidence=evidence,
             profile=profile,
             provider_name=provider_name,
+            samples=samples,
         )
         return result
 
@@ -1303,12 +1403,14 @@ class AIService:
         draft: ProjectDraft,
         lang: str = "ko",
         provider_name: Optional[str] = None,
+        samples: Optional[int] = None,
     ) -> str:
         """저장 전 초안 기준 프로젝트 요약을 생성한다."""
         return self.generate_project_summary(
             self._draft_project_to_project(draft),
             lang=lang,
             provider_name=provider_name,
+            samples=samples,
         )
 
     def generate_draft_task_texts(
@@ -1317,6 +1419,7 @@ class AIService:
         lang: str = "ko",
         provider_name: Optional[str] = None,
         force_refresh: bool = True,
+        samples: Optional[int] = None,
     ) -> ProjectDraft:
         """저장 전 초안 기준으로 작업 bullet을 일괄 생성한다."""
         if not draft.tasks:
@@ -1343,6 +1446,7 @@ class AIService:
                 lang=lang,
                 provider_name=provider_name,
                 force_refresh=force_refresh,
+                samples=samples,
             )
             updated_tasks.append(task.model_copy(update={"ai_generated_text": generated}))
 

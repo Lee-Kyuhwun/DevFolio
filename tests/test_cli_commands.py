@@ -155,6 +155,30 @@ def test_ai_generate_project_can_save_summary(cli_store):
     assert manager.get_project("AI 저장 테스트").summary == "저장된 AI 요약"
 
 
+def test_ai_generate_project_passes_sample_override(cli_store):
+    manager = ProjectManager()
+    manager.create_project(name="AI 샘플 테스트", period_start="2024-01")
+
+    config = storage.load_config()
+    config.default_ai_provider = "anthropic"
+    config.ai_providers = [
+        AIProviderConfig(name="anthropic", model="claude-sonnet-4-20250514", key_stored=True)
+    ]
+    storage.save_config(config)
+
+    with patch(
+        "devfolio.commands.ai.AIService.generate_project_summary",
+        return_value="샘플 기반 요약",
+    ) as mocked:
+        result = runner.invoke(
+            app,
+            ["ai", "generate", "project", "AI 샘플 테스트", "--samples", "3", "--save-summary"],
+        )
+
+    assert result.exit_code == 0, result.stdout
+    assert mocked.call_args.kwargs["samples"] == 3
+
+
 def test_serve_reload_uses_uvicorn_factory_mode():
     run_calls = []
     fake_uvicorn = SimpleNamespace(run=lambda *args, **kwargs: run_calls.append((args, kwargs)))

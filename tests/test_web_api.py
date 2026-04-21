@@ -156,12 +156,54 @@ def test_get_config_keeps_display_model_and_reports_generation_fallback(client):
     assert payload["general"]["default_ai_generation_model"] == "gemini-2.0-flash"
     assert payload["general"]["default_ai_generation_status"] == "fallback"
     assert payload["general"]["default_ai_generation_warning"]
+    assert payload["general"]["reasoning_strategy"] == "single"
+    assert payload["general"]["reasoning_samples"] == 1
+    assert payload["general"]["judge_provider"] == ""
     assert payload["ai_providers"][0]["display_model"] == "gemini-2.0-flash-001"
     assert payload["ai_providers"][0]["generation_model"] == "gemini-2.0-flash"
     assert payload["ai_providers"][0]["generation_warning"]
 
     reloaded = storage.load_config()
     assert reloaded.ai_providers[0].model == "gemini-2.0-flash-001"
+
+
+def test_update_general_persists_reasoning_settings(client):
+    cfg = storage.load_config()
+    cfg.default_ai_provider = "anthropic"
+    cfg.upsert_provider(
+        AIProviderConfig(
+            name="anthropic",
+            model="claude-sonnet-4-20250514",
+            key_stored=True,
+        )
+    )
+    cfg.upsert_provider(
+        AIProviderConfig(
+            name="openai",
+            model="gpt-4o",
+            key_stored=True,
+        )
+    )
+    storage.save_config(cfg)
+
+    response = client.put(
+        "/api/config/general",
+        json={
+            "default_language": "ko",
+            "timezone": "Asia/Seoul",
+            "default_ai_provider": "anthropic",
+            "reasoning_strategy": "single",
+            "reasoning_samples": 3,
+            "judge_provider": "openai",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+
+    reloaded = storage.load_config()
+    assert reloaded.reasoning.strategy == "best_of_n"
+    assert reloaded.reasoning.samples == 3
+    assert reloaded.reasoning.judge_provider == "openai"
 
 
 def test_upsert_ai_provider_exposes_runtime_env_when_keyring_unavailable(client):

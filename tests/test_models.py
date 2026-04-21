@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from devfolio.models.config import AIProviderConfig, Config, ExportConfig, SyncConfig, UserConfig
+from devfolio.models.config import AIProviderConfig, Config, ExportConfig, ReasoningConfig, SyncConfig, UserConfig
 from devfolio.models.draft import DraftPreviewRequest, ProjectDraft, TaskDraft
 from devfolio.models.project import Period, Project, Task
 
@@ -171,6 +171,7 @@ class TestConfig:
         assert c.version == "1.0"
         assert c.default_language == "ko"
         assert c.ai_providers == []
+        assert c.reasoning == ReasoningConfig()
         assert c.sync.enabled is False
         assert c.sync.branch == "main"
 
@@ -202,5 +203,10 @@ class TestConfig:
         c.sync = SyncConfig(enabled=True, repo_url="https://github.com/example/devfolio.git")
         data = c.model_dump()
         assert data["default_language"] == "en"
+        assert data["reasoning"]["strategy"] == "single"
         assert data["user"]["name"] == "홍길동"
         assert data["sync"]["enabled"] is True
+
+    def test_reasoning_config_validates_bounds(self):
+        with pytest.raises(ValidationError):
+            ReasoningConfig(strategy="best_of_n", samples=0)

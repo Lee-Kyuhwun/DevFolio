@@ -38,6 +38,7 @@ def generate_task(
     lang: str = typer.Option("ko", "--lang", "-l", help="언어 (ko/en/both)"),
     provider: Optional[str] = typer.Option(None, "--provider", help="AI Provider 오버라이드"),
     refresh: bool = typer.Option(False, "--refresh", "-r", help="캐시 무시하고 재생성"),
+    samples: Optional[int] = typer.Option(None, "--samples", min=1, max=5, help="best-of-N 후보 수"),
 ):
     """작업 내역 → 경력기술서 bullet point 생성."""
     check_init()
@@ -69,6 +70,7 @@ def generate_task(
                 lang=lang,
                 provider_name=provider or config.default_ai_provider,
                 force_refresh=refresh,
+                samples=samples,
             )
         except Exception as e:
             console.print(f"[red]오류:[/red] {e}")
@@ -87,6 +89,7 @@ def generate_project(
     project: str = typer.Argument(..., help="프로젝트명"),
     lang: str = typer.Option("ko", "--lang", "-l", help="언어 (ko/en/both)"),
     provider: Optional[str] = typer.Option(None, "--provider", help="AI Provider 오버라이드"),
+    samples: Optional[int] = typer.Option(None, "--samples", min=1, max=5, help="best-of-N 후보 수"),
     save_summary: bool = typer.Option(
         False,
         "--save-summary",
@@ -110,6 +113,7 @@ def generate_project(
                 project=proj,
                 lang=lang,
                 provider_name=provider or config.default_ai_provider,
+                samples=samples,
             )
         except Exception as e:
             console.print(f"[red]오류:[/red] {e}")

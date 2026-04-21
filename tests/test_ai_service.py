@@ -291,6 +291,44 @@ class TestGenerateTaskText:
         assert "장애 대응 흐름" in result
         assert service._call_messages.call_count == 3
 
+    def test_best_of_n_selects_highest_scoring_candidate(self):
+        service = AIService(make_config())
+        service.config.reasoning.strategy = "best_of_n"
+        service.config.reasoning.samples = 3
+        service._call_messages = MagicMock(side_effect=[
+            "- 후보 1\n- 후보 1\n- 후보 1\n- 후보 1",
+            '{"pass": false, "scores": {"factuality": 5, "specificity": 1, "result_orientation": 1, "hiring_relevance": 1, "redundancy": 4, "output_contract": 5}, "issues": ["추상적 표현"], "missing_points": [], "revision_instructions": []}',
+            "- 후보 2\n- 후보 2\n- 후보 2\n- 후보 2",
+            '{"pass": true, "scores": {"factuality": 5, "specificity": 5, "result_orientation": 5, "hiring_relevance": 5, "redundancy": 4, "output_contract": 5}, "issues": [], "missing_points": [], "revision_instructions": []}',
+            "- 후보 3\n- 후보 3\n- 후보 3\n- 후보 3",
+            '{"pass": true, "scores": {"factuality": 5, "specificity": 3, "result_orientation": 3, "hiring_relevance": 3, "redundancy": 4, "output_contract": 5}, "issues": [], "missing_points": [], "revision_instructions": []}',
+        ])
+
+        result = service.generate_task_text(make_task(), lang="ko")
+
+        assert "후보 2" in result
+        assert service._call_messages.call_count == 6
+
+    def test_review_can_use_dedicated_judge_provider(self):
+        config = make_config()
+        config.upsert_provider(AIProviderConfig(name="openai", model="gpt-4o", key_stored=True))
+        config.reasoning.judge_provider = "openai"
+        service = AIService(config)
+        providers: list[str | None] = []
+
+        def capture(messages, provider_name=None, temperature=None, max_tokens=None, json_mode=False):
+            providers.append(provider_name)
+            if len(providers) == 1:
+                return "- 결과 1\n- 결과 2\n- 결과 3\n- 결과 4"
+            return '{"pass": true, "scores": {"factuality": 5, "output_contract": 5}, "issues": [], "missing_points": [], "revision_instructions": []}'
+
+        service._call_messages = capture
+
+        result = service.generate_task_text(make_task(), lang="ko")
+
+        assert "결과 1" in result
+        assert providers == [None, "openai"]
+
 
 # ---------------------------------------------------------------------------
 # 프로젝트 요약 생성

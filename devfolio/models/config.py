@@ -118,6 +118,18 @@ class SyncConfig(BaseModel):
         return v
 
 
+class ReasoningConfig(BaseModel):
+    """추론 시점 성능 튜닝 설정.
+
+    [Spring 비교]
+      AI 생성 파이프라인의 runtime 옵션을 담는 하위 설정 블록.
+    """
+
+    strategy: str = Field(default="single", pattern="^(single|best_of_n)$")
+    samples: int = Field(default=1, ge=1, le=5)
+    judge_provider: str = Field(default="")
+
+
 class Config(BaseModel):
     """전체 설정 루트 모델.
 
@@ -142,6 +154,7 @@ class Config(BaseModel):
     # default_factory=ExportConfig : 값이 없으면 ExportConfig() 를 생성.
     # [Spring] @NestedConfigurationProperty 필드의 기본값과 동일한 개념.
     export: ExportConfig = Field(default_factory=ExportConfig)
+    reasoning: ReasoningConfig = Field(default_factory=ReasoningConfig)
     user: UserConfig = Field(default_factory=UserConfig)
     sync: SyncConfig = Field(default_factory=SyncConfig)
 

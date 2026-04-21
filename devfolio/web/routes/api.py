@@ -23,7 +23,7 @@ from devfolio.core.project_manager import ProjectManager
 from devfolio.core.storage import EXPORTS_DIR, load_config, save_config
 from devfolio.core.template_engine import TemplateEngine
 from devfolio.exceptions import DevfolioError, DevfolioProjectNotFoundError
-from devfolio.models.config import AIProviderConfig, ExportConfig, SyncConfig, UserConfig
+from devfolio.models.config import AIProviderConfig, ExportConfig, ReasoningConfig, SyncConfig, UserConfig
 from devfolio.models.draft import DraftPreviewRequest, ProjectDraft
 from devfolio.utils.security import (
     delete_api_key,
@@ -63,6 +63,9 @@ class GeneralConfigUpdate(BaseModel):
     default_language: str = "ko"
     timezone: str = "Asia/Seoul"
     default_ai_provider: str = ""
+    reasoning_strategy: str = "single"
+    reasoning_samples: int = 1
+    judge_provider: str = ""
 
 
 class AIProviderCreate(BaseModel):
@@ -91,11 +94,13 @@ class DraftAIRequest(BaseModel):
     draft: ProjectDraft
     lang: str = "ko"
     provider: Optional[str] = None
+    samples: Optional[int] = None
 
 
 class SavedAIRequest(BaseModel):
     lang: str = "ko"
     provider: Optional[str] = None
+    samples: Optional[int] = None
 
 
 # ---------------------------------------------------------------------------
@@ -428,6 +433,9 @@ def get_config() -> dict[str, Any]:
             "default_language": cfg.default_language,
             "timezone": cfg.timezone,
             "default_ai_provider": cfg.default_ai_provider,
+            "reasoning_strategy": cfg.reasoning.strategy,
+            "reasoning_samples": cfg.reasoning.samples,
+            "judge_provider": cfg.reasoning.judge_provider,
             "default_ai_generation_model": default_resolution.generation_model if default_resolution else "",
             "default_ai_generation_status": default_resolution.status if default_resolution else "unavailable",
             "default_ai_generation_warning": default_resolution.warning if default_resolution else "",
@@ -479,6 +487,22 @@ def update_general(body: GeneralConfigUpdate) -> dict[str, str]:
     cfg = load_config()
     if body.default_language not in ("ko", "en", "both"):
         raise HTTPException(status_code=422, detail="언어는 ko, en, both 중 하나여야 합니다.")
+    try:
+        cfg.reasoning = ReasoningConfig.model_validate(
+            {
+                "strategy": body.reasoning_strategy,
+                "samples": body.reasoning_samples,
+                "judge_provider": body.judge_provider,
+            }
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if cfg.reasoning.samples > 1 and cfg.reasoning.strategy == "single":
+        cfg.reasoning = cfg.reasoning.model_copy(update={"strategy": "best_of_n"})
+    if cfg.reasoning.strategy == "best_of_n" and cfg.reasoning.samples < 2:
+        raise HTTPException(status_code=422, detail="best_of_n 전략은 샘플 수가 2 이상이어야 합니다.")
+    if cfg.reasoning.judge_provider and not cfg.get_provider(cfg.reasoning.judge_provider):
+        raise HTTPException(status_code=422, detail="judge_provider 는 등록된 AI Provider 여야 합니다.")
     cfg.default_language = body.default_language
     cfg.timezone = body.timezone
     cfg.default_ai_provider = body.default_ai_provider
@@ -778,6 +802,7 @@ def generate_draft_summary(body: DraftAIRequest) -> dict[str, Any]:
             draft=body.draft,
             lang=body.lang,
             provider_name=body.provider,
+            samples=body.samples,
         )
     except DevfolioError as exc:
         _raise_from_devfolio(exc)
@@ -793,6 +818,7 @@ def generate_draft_task_bullets(body: DraftAIRequest) -> dict[str, Any]:
             draft=body.draft,
             lang=body.lang,
             provider_name=body.provider,
+            samples=body.samples,
         )
     except DevfolioError as exc:
         _raise_from_devfolio(exc)
@@ -808,6 +834,7 @@ def generate_project_summary(project_id: str, body: SavedAIRequest) -> dict[str,
             project=project,
             lang=body.lang,
             provider_name=body.provider,
+            samples=body.samples,
         )
         updated = pm.save_project_summary(project.id, summary)
     except DevfolioProjectNotFoundError as exc:
@@ -827,6 +854,7 @@ def generate_project_task_bullets(project_id: str, body: SavedAIRequest) -> dict
             draft=draft,
             lang=body.lang,
             provider_name=body.provider,
+            samples=body.samples,
         )
         updated_project = pm.save_project_draft(updated_draft, project_id=project.id)
     except DevfolioProjectNotFoundError as exc:
