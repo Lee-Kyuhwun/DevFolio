@@ -836,5 +836,6 @@ _BUILTIN_PORTFOLIO_DEFAULT = """\
 # 반드시 상수 선언 후에 위치해야 함
 _BUILTIN_FALLBACK: dict[str, str] = {
     "resume": _BUILTIN_RESUME_DEFAULT,
+    "career": _BUILTIN_RESUME_DEFAULT,
     "portfolio": _BUILTIN_PORTFOLIO_DEFAULT,
 }

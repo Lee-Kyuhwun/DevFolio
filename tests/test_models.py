@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from devfolio.models.config import AIProviderConfig, Config, ExportConfig, ReasoningConfig, SyncConfig, UserConfig
-from devfolio.models.draft import DraftPreviewRequest, ProjectDraft, TaskDraft
+from devfolio.models.draft import DraftPreviewRequest, ExperienceDraft, ProjectDraft, TaskDraft
 from devfolio.models.project import Period, Project, Task
 
 
@@ -135,6 +135,13 @@ class TestProject:
         assert restored.name == original.name
         assert restored.period.start == original.period.start
 
+    def test_project_derives_studio_meta_from_legacy_type(self):
+        project = Project(id="legacy", name="Legacy", type="side", team_size=2)
+        assert project.studio_meta.experience_kind == "personal"
+        assert project.studio_meta.priority == 3
+        assert project.studio_meta.document_targets == []
+        assert project.studio_meta.collaboration is True
+
 
 # ---------------------------------------------------------------------------
 # Draft models
@@ -159,6 +166,28 @@ class TestDraftModels:
     def test_preview_request_accepts_saved_source_without_draft(self):
         request = DraftPreviewRequest(source="saved", project_ids=["alpha"])
         assert request.project_ids == ["alpha"]
+
+    def test_preview_request_accepts_career_doc_type(self):
+        request = DraftPreviewRequest(source="saved", project_ids=["alpha"], doc_type="career")
+        assert request.doc_type == "career"
+
+    def test_experience_draft_defaults_and_round_trip_fields(self):
+        experience = ExperienceDraft(
+            title="토이 프로젝트",
+            type="toy",
+            team_size=1,
+            studio_meta={
+                "experience_kind": "toy",
+                "priority": 4,
+                "document_targets": ["portfolio"],
+                "collaboration": False,
+                "extra_links": [{"label": "Demo", "url": "https://example.com"}],
+            },
+        )
+        assert experience.studio_meta.experience_kind == "toy"
+        assert experience.studio_meta.priority == 4
+        assert experience.studio_meta.document_targets == ["portfolio"]
+        assert experience.studio_meta.extra_links[0].label == "Demo"
 
 
 # ---------------------------------------------------------------------------

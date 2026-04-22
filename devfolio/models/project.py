@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 
 # Optional[X] = "X 이거나 None". Java 의 @Nullable 또는 Optional<X> 와 같은 의미.
-from typing import Optional
+from typing import Literal, Optional
 
 # BaseModel    : Pydantic 의 핵심 클래스. 이 클래스를 상속하면 자동으로
 #                __init__ / 타입 검증 / model_dump(JSON 변환) 등이 생긴다.
@@ -23,7 +23,27 @@ from typing import Optional
 #                [Spring] @Column + @JsonProperty + @Size 를 합쳐 놓은 것.
 # field_validator : 특정 필드에 커스텀 검증 로직을 추가하는 데코레이터(어노테이션).
 #                [Spring] @ConstraintValidator / @Pattern / @AssertTrue 와 동일.
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+_EXPERIENCE_KIND_BY_PROJECT_TYPE = {
+    "company": "work",
+    "side": "personal",
+    "course": "study",
+}
+
+
+def derive_experience_kind(project_type: str) -> str:
+    return _EXPERIENCE_KIND_BY_PROJECT_TYPE.get(project_type, "work")
+
+
+def default_studio_meta_payload(project_type: str, team_size: int) -> dict:
+    return {
+        "experience_kind": derive_experience_kind(project_type),
+        "priority": 3,
+        "document_targets": [],
+        "collaboration": team_size > 1,
+        "extra_links": [],
+    }
 
 
 class Period(BaseModel):
@@ -181,6 +201,24 @@ class ProjectAssets(BaseModel):
     diagrams: list[AssetItem] = Field(default_factory=list)
 
 
+class StudioExtraLink(BaseModel):
+    label: str = Field(default="", description="추가 링크 라벨")
+    url: str = Field(default="", description="추가 링크 URL")
+
+
+class ProjectStudioMeta(BaseModel):
+    experience_kind: Literal["work", "personal", "study", "toy"] = Field(default="work")
+    priority: int = Field(default=3, ge=1, le=5)
+    document_targets: list[Literal["resume", "career", "portfolio"]] = Field(default_factory=list)
+    collaboration: bool = Field(default=False)
+    extra_links: list[StudioExtraLink] = Field(default_factory=list)
+
+    @field_validator("document_targets")
+    @classmethod
+    def dedupe_document_targets(cls, values: list[str]) -> list[str]:
+        return list(dict.fromkeys(values or []))
+
+
 class Task(BaseModel):
     """프로젝트 내 세부 작업 내역.
 
@@ -251,6 +289,7 @@ class Project(BaseModel):
     results: ProjectResults = Field(default_factory=ProjectResults)
     retrospective: ProjectRetrospective = Field(default_factory=ProjectRetrospective)
     assets: ProjectAssets = Field(default_factory=ProjectAssets)
+    studio_meta: ProjectStudioMeta = Field(default_factory=ProjectStudioMeta)
     tags: list[str] = Field(default_factory=list, description="태그")
     tasks: list[Task] = Field(default_factory=list, description="작업 내역 목록")
 
@@ -259,6 +298,20 @@ class Project(BaseModel):
     last_commit_sha: str = Field(default="", description="마지막으로 스캔한 커밋 SHA")
     # dict : Java 의 Map<String, Object> (어떤 타입이든 담을 수 있는 범용 맵)
     scan_metrics: dict = Field(default_factory=dict, description="git scan 지표 캐시")
+
+    @model_validator(mode="before")
+    @classmethod
+    def ensure_studio_meta_defaults(cls, data):
+        if not isinstance(data, dict):
+            return data
+        if "studio_meta" not in data or data.get("studio_meta") is None:
+            payload = dict(data)
+            payload["studio_meta"] = default_studio_meta_payload(
+                str(payload.get("type") or "company"),
+                int(payload.get("team_size") or 1),
+            )
+            return payload
+        return data
 
     def type_display(self) -> str:
         # dict literal : Java 의 Map.of("key", "value") 와 동일.

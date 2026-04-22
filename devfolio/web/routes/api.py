@@ -24,7 +24,12 @@ from devfolio.core.storage import EXPORTS_DIR, load_config, save_config
 from devfolio.core.template_engine import TemplateEngine
 from devfolio.exceptions import DevfolioError, DevfolioProjectNotFoundError
 from devfolio.models.config import AIProviderConfig, ExportConfig, ReasoningConfig, SyncConfig, UserConfig
-from devfolio.models.draft import DraftPreviewRequest, ProjectDraft
+from devfolio.models.draft import DraftPreviewRequest, ExperienceDraft, ProjectDraft
+from devfolio.web.experience_mapper import (
+    experience_from_project_draft,
+    project_draft_from_experience,
+    summarize_experiences,
+)
 from devfolio.utils.security import (
     delete_api_key,
     get_api_key,
@@ -200,7 +205,7 @@ def _scan_repo_path_candidates(raw_path: str) -> list[Path]:
 
     # Docker에서 호스트 홈 경로(/Users/<name>/..., /home/<name>/...)를 /home/user/...로 변환
     if len(parts) >= 4 and parts[1] in {"Users", "home"}:
-        mapped = docker_repo_root.joinpath(*parts[3:]).resolve(strict=False)
+        mapped = docker_repo_root.joinpath(*parts[3:])
         candidates.append(mapped)
 
     unique: list[Path] = []
@@ -304,6 +309,11 @@ def _draft_payload(project) -> dict[str, Any]:
     return pm.draft_from_project(project).model_dump(exclude_none=False)
 
 
+def _experience_payload(project) -> dict[str, Any]:
+    draft = pm.draft_from_project(project)
+    return experience_from_project_draft(draft).model_dump(exclude_none=False)
+
+
 def _resolve_projects(request: DraftPreviewRequest):
     if request.source == "draft":
         return [pm.project_from_draft(request.draft_project, transient=True)]
@@ -368,6 +378,7 @@ def _export_document(request: DraftPreviewRequest) -> dict[str, Any]:
 
     supported_formats = {
         "resume": {"md", "html", "pdf", "docx", "json", "csv"},
+        "career": {"md", "html", "pdf", "docx", "json", "csv"},
         "portfolio": {"md", "html", "pdf", "csv"},
     }
     if fmt not in supported_formats[request.doc_type]:
@@ -777,6 +788,49 @@ def delete_project(project_id: str) -> dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
+# Experience CRUD
+# ---------------------------------------------------------------------------
+
+@router.get("/experiences")
+def list_experiences() -> dict[str, Any]:
+    experiences = [experience_from_project_draft(pm.draft_from_project(project)) for project in pm.list_projects()]
+    return {
+        "status": "ok",
+        "experiences": [experience.model_dump(exclude_none=False) for experience in experiences],
+        "summary": summarize_experiences(experiences).model_dump(),
+    }
+
+
+@router.post("/experiences")
+def create_experience(body: ExperienceDraft) -> dict[str, Any]:
+    try:
+        project = pm.save_project_draft(project_draft_from_experience(body))
+    except DevfolioError as exc:
+        _raise_from_devfolio(exc)
+    return {"status": "ok", "experience": _experience_payload(project)}
+
+
+@router.put("/experiences/{project_id}")
+def update_experience(project_id: str, body: ExperienceDraft) -> dict[str, Any]:
+    try:
+        project = pm.save_project_draft(project_draft_from_experience(body), project_id=project_id)
+    except DevfolioProjectNotFoundError as exc:
+        _raise_from_devfolio(exc, status_code=404)
+    except DevfolioError as exc:
+        _raise_from_devfolio(exc)
+    return {"status": "ok", "experience": _experience_payload(project)}
+
+
+@router.delete("/experiences/{project_id}")
+def delete_experience(project_id: str) -> dict[str, str]:
+    try:
+        pm.delete_project(project_id)
+    except DevfolioProjectNotFoundError as exc:
+        _raise_from_devfolio(exc, status_code=404)
+    return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
 # AI Intake / Draft / Saved project augmentation
 # ---------------------------------------------------------------------------
 
@@ -864,6 +918,45 @@ def generate_project_task_bullets(project_id: str, body: SavedAIRequest) -> dict
     return {"status": "ok", "project": _draft_payload(updated_project)}
 
 
+@router.post("/experiences/{project_id}/generate-summary")
+def generate_experience_summary(project_id: str, body: SavedAIRequest) -> dict[str, Any]:
+    try:
+        project = pm.get_project_or_raise(project_id)
+        cfg = _load_config_with_normalized_models()
+        summary = AIService(cfg).generate_project_summary(
+            project=project,
+            lang=body.lang,
+            provider_name=body.provider,
+            samples=body.samples,
+        )
+        updated = pm.save_project_summary(project.id, summary)
+    except DevfolioProjectNotFoundError as exc:
+        _raise_from_devfolio(exc, status_code=404)
+    except DevfolioError as exc:
+        _raise_from_devfolio(exc)
+    return {"status": "ok", "experience": _experience_payload(updated)}
+
+
+@router.post("/experiences/{project_id}/generate-task-bullets")
+def generate_experience_task_bullets(project_id: str, body: SavedAIRequest) -> dict[str, Any]:
+    try:
+        project = pm.get_project_or_raise(project_id)
+        draft = pm.draft_from_project(project)
+        cfg = _load_config_with_normalized_models()
+        updated_draft = AIService(cfg).generate_draft_task_texts(
+            draft=draft,
+            lang=body.lang,
+            provider_name=body.provider,
+            samples=body.samples,
+        )
+        updated_project = pm.save_project_draft(updated_draft, project_id=project.id)
+    except DevfolioProjectNotFoundError as exc:
+        _raise_from_devfolio(exc, status_code=404)
+    except DevfolioError as exc:
+        _raise_from_devfolio(exc)
+    return {"status": "ok", "experience": _experience_payload(updated_project)}
+
+
 # ---------------------------------------------------------------------------
 # Preview / Export
 # ---------------------------------------------------------------------------
@@ -886,6 +979,15 @@ def preview_portfolio(body: DraftPreviewRequest) -> dict[str, Any]:
         _raise_from_devfolio(exc)
 
 
+@router.post("/preview/career")
+def preview_career(body: DraftPreviewRequest) -> dict[str, Any]:
+    request = body.model_copy(update={"doc_type": "career"})
+    try:
+        return _preview_response(request)
+    except DevfolioError as exc:
+        _raise_from_devfolio(exc)
+
+
 @router.post("/export/resume")
 def export_resume(body: DraftPreviewRequest) -> dict[str, Any]:
     request = body.model_copy(update={"doc_type": "resume"})
@@ -898,6 +1000,15 @@ def export_resume(body: DraftPreviewRequest) -> dict[str, Any]:
 @router.post("/export/portfolio")
 def export_portfolio(body: DraftPreviewRequest) -> dict[str, Any]:
     request = body.model_copy(update={"doc_type": "portfolio"})
+    try:
+        return _export_document(request)
+    except DevfolioError as exc:
+        _raise_from_devfolio(exc)
+
+
+@router.post("/export/career")
+def export_career(body: DraftPreviewRequest) -> dict[str, Any]:
+    request = body.model_copy(update={"doc_type": "career"})
     try:
         return _export_document(request)
     except DevfolioError as exc:

@@ -5,6 +5,7 @@ import pytest
 
 from devfolio.core.project_manager import ProjectManager
 from devfolio.exceptions import DevfolioProjectNotFoundError, DevfolioTaskNotFoundError
+from devfolio.models.draft import ProjectDraft
 from devfolio.models.project import Period, Project, Task
 
 
@@ -134,6 +135,28 @@ class TestUpdateProject:
     def test_update_nonexistent_raises(self, pm):
         with pytest.raises(DevfolioProjectNotFoundError):
             pm.update_project("없는 프로젝트", summary="...")
+
+    def test_project_draft_round_trip_preserves_studio_meta(self, pm):
+        draft = ProjectDraft(
+            name="Studio Meta 유지",
+            type="side",
+            team_size=1,
+            studio_meta={
+                "experience_kind": "toy",
+                "priority": 5,
+                "document_targets": ["portfolio"],
+                "collaboration": False,
+                "extra_links": [{"label": "Demo", "url": "https://example.com"}],
+            },
+        )
+
+        saved = pm.save_project_draft(draft)
+        restored = pm.draft_from_project(saved)
+
+        assert restored.studio_meta.experience_kind == "toy"
+        assert restored.studio_meta.priority == 5
+        assert restored.studio_meta.document_targets == ["portfolio"]
+        assert restored.studio_meta.extra_links[0].url == "https://example.com"
 
 
 class TestRenameProject:

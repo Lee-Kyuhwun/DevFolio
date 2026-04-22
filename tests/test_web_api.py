@@ -8,10 +8,12 @@ from unittest.mock import patch
 import pytest
 
 from devfolio.core import storage
+from devfolio.core.ai_service import resolve_generation_model
 from devfolio.core.project_manager import ProjectManager
 from devfolio.exceptions import DevfolioError
 from devfolio.models.config import AIProviderConfig, Config
 from devfolio.models.draft import ProjectDraft, TaskDraft
+from devfolio.models.project import Project
 
 fastapi = pytest.importorskip("fastapi")
 TestClient = pytest.importorskip("fastapi.testclient").TestClient
@@ -89,13 +91,10 @@ def test_index_renders_portfolio_studio_shell(client):
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "Portfolio Studio" in response.text
-    assert "Home" in response.text
-    assert "Compose" in response.text
-    assert "Library" in response.text
-    assert "Preview" in response.text
-    assert "Settings" in response.text
-    assert "백엔드 개발자 포트폴리오를 구조화하고 문서까지 완성하는 로컬 우선 스튜디오" in response.text
+    assert "DevFolio v2 Studio" in response.text
+    assert "/static/studio_v2.css" in response.text
+    assert "/static/studio_v2.js" in response.text
+    assert "JavaScript가 필요합니다" in response.text
 
 
 def test_upsert_ai_provider_uses_default_model_when_omitted(client):
@@ -131,10 +130,11 @@ def test_upsert_ai_provider_preserves_display_model_and_exposes_generation_model
     listed = client.get("/api/config")
     assert listed.status_code == 200, listed.text
     providers = listed.json()["ai_providers"]
+    resolution = resolve_generation_model("gemini", "gemini-2.0-flash-001")
     assert providers[0]["name"] == "gemini"
     assert providers[0]["display_model"] == "gemini-2.0-flash-001"
-    assert providers[0]["generation_model"] == "gemini-2.0-flash"
-    assert providers[0]["generation_status"] == "fallback"
+    assert providers[0]["generation_model"] == resolution.generation_model
+    assert providers[0]["generation_status"] == resolution.status
 
 
 def test_get_config_keeps_display_model_and_reports_generation_fallback(client):
@@ -153,15 +153,16 @@ def test_get_config_keeps_display_model_and_reports_generation_fallback(client):
 
     assert response.status_code == 200, response.text
     payload = response.json()
-    assert payload["general"]["default_ai_generation_model"] == "gemini-2.0-flash"
-    assert payload["general"]["default_ai_generation_status"] == "fallback"
-    assert payload["general"]["default_ai_generation_warning"]
+    resolution = resolve_generation_model("gemini", "gemini-2.0-flash-001")
+    assert payload["general"]["default_ai_generation_model"] == resolution.generation_model
+    assert payload["general"]["default_ai_generation_status"] == resolution.status
+    assert payload["general"]["default_ai_generation_warning"] == resolution.warning
     assert payload["general"]["reasoning_strategy"] == "single"
     assert payload["general"]["reasoning_samples"] == 1
     assert payload["general"]["judge_provider"] == ""
     assert payload["ai_providers"][0]["display_model"] == "gemini-2.0-flash-001"
-    assert payload["ai_providers"][0]["generation_model"] == "gemini-2.0-flash"
-    assert payload["ai_providers"][0]["generation_warning"]
+    assert payload["ai_providers"][0]["generation_model"] == resolution.generation_model
+    assert payload["ai_providers"][0]["generation_warning"] == resolution.warning
 
     reloaded = storage.load_config()
     assert reloaded.ai_providers[0].model == "gemini-2.0-flash-001"
@@ -298,6 +299,77 @@ def test_projects_crud_round_trip(client):
     assert client.get("/api/projects").json()["projects"] == []
 
 
+def test_experiences_crud_round_trip(client):
+    create = client.post(
+        "/api/experiences",
+        json={
+            "title": "결제 MSA 전환",
+            "type": "work",
+            "status": "done",
+            "organization": "DevFolio",
+            "period": {"start": "2024-01", "end": "2024-03"},
+            "role": "백엔드",
+            "team_size": 3,
+            "tech_stack": ["Python", "FastAPI"],
+            "summary": "서비스 경계를 분리했습니다.",
+            "studio_meta": {
+                "experience_kind": "work",
+                "priority": 5,
+                "document_targets": ["resume", "career"],
+                "collaboration": True,
+                "extra_links": [{"label": "Readme", "url": "https://example.com/readme"}],
+            },
+            "tasks": [
+                {
+                    "name": "도메인 분리",
+                    "period": {"start": "2024-01", "end": "2024-02"},
+                    "problem": "배포 영향도가 큼",
+                    "solution": "서비스를 분리함",
+                    "result": "릴리즈 범위 축소",
+                    "tech_used": ["FastAPI"],
+                    "keywords": ["msa"],
+                    "ai_generated_text": "",
+                }
+            ],
+        },
+    )
+
+    assert create.status_code == 200, create.text
+    experience = create.json()["experience"]
+    assert experience["title"] == "결제 MSA 전환"
+    assert experience["type"] == "work"
+    assert experience["studio_meta"]["document_targets"] == ["resume", "career"]
+
+    update = client.put(
+        f"/api/experiences/{experience['id']}",
+        json={
+            **experience,
+            "title": "결제 MSA 전환 개선",
+            "type": "toy",
+            "studio_meta": {
+                **experience["studio_meta"],
+                "experience_kind": "toy",
+                "document_targets": ["portfolio"],
+            },
+        },
+    )
+    assert update.status_code == 200, update.text
+    updated = update.json()["experience"]
+    assert updated["title"] == "결제 MSA 전환 개선"
+    assert updated["type"] == "toy"
+    assert updated["studio_meta"]["document_targets"] == ["portfolio"]
+
+    listed = client.get("/api/experiences")
+    assert listed.status_code == 200, listed.text
+    payload = listed.json()
+    assert payload["summary"]["by_type"]["toy"] == 1
+    assert payload["summary"]["by_document"]["portfolio"] == 1
+
+    deleted = client.delete(f"/api/experiences/{updated['id']}")
+    assert deleted.status_code == 200, deleted.text
+    assert client.get("/api/experiences").json()["experiences"] == []
+
+
 def test_preview_resume_accepts_unsaved_draft(client):
     response = client.post(
         "/api/preview/resume",
@@ -337,6 +409,65 @@ def test_preview_resume_accepts_unsaved_draft(client):
     assert payload["project_count"] == 1
     assert "드래프트 프로젝트" in payload["markdown"]
     assert "저장 전 미리보기 테스트" in payload["html"]
+
+
+def test_preview_and_export_career_supported(client):
+    create = client.post(
+        "/api/projects",
+        json={
+            "name": "커리어 문서 테스트",
+            "type": "company",
+            "status": "done",
+            "organization": "DevFolio",
+            "period": {"start": "2024-01", "end": "2024-02"},
+            "role": "백엔드",
+            "team_size": 2,
+            "tech_stack": ["Python", "FastAPI"],
+            "summary": "커리어 템플릿 검증",
+            "tasks": [
+                {
+                    "name": "문서 구조 설계",
+                    "period": {"start": "2024-01", "end": "2024-02"},
+                    "problem": "문서 종류 부족",
+                    "solution": "career 템플릿 추가",
+                    "result": "미리보기와 export 지원",
+                    "tech_used": ["Jinja2"],
+                    "keywords": ["career"],
+                    "ai_generated_text": "",
+                }
+            ],
+        },
+    )
+    project_id = create.json()["project"]["id"]
+
+    preview = client.post(
+        "/api/preview/career",
+        json={
+            "source": "saved",
+            "project_ids": [project_id],
+            "template": "compact",
+            "format": "html",
+        },
+    )
+    assert preview.status_code == 200, preview.text
+    preview_payload = preview.json()
+    assert preview_payload["doc_type"] == "career"
+    assert "커리어 문서 테스트" in preview_payload["markdown"]
+
+    export = client.post(
+        "/api/export/career",
+        json={
+            "source": "saved",
+            "project_ids": [project_id],
+            "template": "compact",
+            "format": "docx",
+        },
+    )
+    assert export.status_code == 200, export.text
+    export_payload = export.json()
+    assert export_payload["doc_type"] == "career"
+    assert export_payload["format"] == "docx"
+    assert export_payload["path"].endswith(".docx")
 
 
 def test_preview_portfolio_renders_ai_generated_task_text(client):
@@ -431,6 +562,26 @@ def test_preview_portfolio_renders_ai_generated_task_text(client):
     assert "문제 해결 사례" in payload["markdown"]
     assert "회고" in payload["markdown"]
     assert "```mermaid" in payload["markdown"]
+
+
+def test_experiences_endpoint_restores_legacy_studio_meta_defaults(client):
+    manager = ProjectManager()
+    legacy = Project(
+        id="legacy_project",
+        name="레거시 프로젝트",
+        type="side",
+        team_size=2,
+        tech_stack=["Python"],
+    )
+    storage.save_project(legacy)
+
+    response = client.get("/api/experiences")
+
+    assert response.status_code == 200, response.text
+    experience = response.json()["experiences"][0]
+    assert experience["type"] == "personal"
+    assert experience["studio_meta"]["experience_kind"] == "personal"
+    assert experience["studio_meta"]["collaboration"] is True
 
 
 def test_intake_project_draft_endpoint_returns_structured_draft(client):

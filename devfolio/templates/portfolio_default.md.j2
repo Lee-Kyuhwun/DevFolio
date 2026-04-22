@@ -55,6 +55,23 @@
 
 {{ describe_features(project) }}
 
+{% if project.tasks %}
+## 주요 작업
+
+{% for task in project.tasks %}
+### {{ task.name }}
+
+{% if task.ai_generated_text %}
+{{ task.ai_generated_text }}
+{% else %}
+{% if task.problem %}- **문제**: {{ task.problem }}{% endif %}
+{% if task.solution %}- **해결**: {{ task.solution }}{% endif %}
+{% if task.result %}- **결과**: {{ task.result }}{% endif %}
+{% endif %}
+
+{% endfor %}
+{% endif %}
+
 ## 문제 해결 사례
 
 {{ describe_problem_solving_cases(project) }}

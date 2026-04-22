@@ -1,0 +1,80 @@
+{% extends "base.md.j2" %}
+
+{% block header %}
+# {{ user.name }} 경력기술서
+{% if user.email or user.github or user.blog %}
+{% if user.email %}{{ user.email }}{% endif %}{% if user.github %} · {{ user.github }}{% endif %}{% if user.blog %} · {{ user.blog }}{% endif %}
+{% endif %}
+
+{% if user.github or user.blog %}
+{% if user.github %}- GitHub: {{ user.github }}{% endif %}
+{% if user.blog %}- Blog: {{ user.blog }}{% endif %}
+{% endif %}
+
+---
+{% endblock header %}
+
+{% block projects %}
+## 프로젝트 경력
+
+{% for project in projects %}
+### {{ project.name }}
+
+| 항목 | 내용 |
+|------|------|
+| 기간 | {{ project.period.display() }} |
+| 유형 | {{ project.type_display() }} |
+| 소속 | {{ project.organization or "-" }} |
+| 역할 | {{ project.role or "-" }} |
+| 팀 규모 | {{ project.team_size }}명 |
+| 기술 스택 | {{ project.tech_stack | join(", ") if project.tech_stack else "-" }} |
+
+{% if project.one_line_summary %}
+> {{ project.one_line_summary }}
+{% endif %}
+
+#### 프로젝트 개요
+
+{{ project.summary or describe_project_purpose(project) }}
+
+#### 문제 정의
+
+{{ describe_problem_definition(project) }}
+
+#### 핵심 기여
+
+{% if project.tasks %}
+{% for task in project.tasks %}
+##### {{ task.name }}
+
+{% if task.ai_generated_text %}
+{{ task.ai_generated_text }}
+{% else %}
+{% if task.problem %}- 문제: {{ task.problem }}{% endif %}
+{% if task.solution %}- 해결: {{ task.solution }}{% endif %}
+{% if task.result %}- 결과: {{ task.result }}{% endif %}
+{% if task.tech_used %}- 사용 기술: {{ task.tech_used | join(", ") }}{% endif %}
+{% endif %}
+
+{% endfor %}
+{% else %}
+- 주요 작업 내역이 아직 정리되지 않았습니다.
+{% endif %}
+
+#### 문제 해결 사례
+
+{{ describe_problem_solving_cases(project) }}
+
+#### 결과 및 성과
+
+{{ summarize_project_outcomes(project) }}
+
+#### 회고
+
+{{ describe_retrospective(project) }}
+
+---
+{% endfor %}
+{% endblock projects %}
+
+{% block footer %}{% endblock footer %}

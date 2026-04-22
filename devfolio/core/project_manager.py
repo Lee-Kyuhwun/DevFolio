@@ -200,6 +200,7 @@ class ProjectManager:
             results=draft.results.model_copy(deep=True),
             retrospective=draft.retrospective.model_copy(deep=True),
             assets=draft.assets.model_copy(deep=True),
+            studio_meta=draft.studio_meta.model_copy(deep=True),
             tags=self._clean_string_list(draft.tags),
             tasks=tasks,
         )
@@ -255,6 +256,7 @@ class ProjectManager:
             results=updated_project.results,
             retrospective=updated_project.retrospective,
             assets=updated_project.assets,
+            studio_meta=updated_project.studio_meta,
             tags=updated_project.tags,
             tasks=updated_project.tasks,
         )
