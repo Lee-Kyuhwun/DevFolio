@@ -15,6 +15,7 @@ from pydantic import BaseModel, ValidationError
 
 from devfolio.core.ai_service import (
     AIService,
+    normalize_provider_base_url,
     normalize_provider_model_name,
     resolve_generation_model,
 )
@@ -129,6 +130,7 @@ def _build_provider_list(
     for provider in cfg.ai_providers:
         display_model = normalize_provider_model_name(provider.name, provider.model)
         resolution = resolve_generation_model(provider.name, provider.model)
+        base_url = normalize_provider_base_url(provider.name, provider.base_url)
         key = get_api_key(provider.name)
         if key:
             masked = mask_api_key(key)
@@ -147,7 +149,7 @@ def _build_provider_list(
                 "generation_warning": resolution.warning,
                 "key_stored": provider.key_stored,
                 "key_masked": masked,
-                "base_url": provider.base_url,
+                "base_url": base_url,
                 "is_default": provider.name == cfg.default_ai_provider,
                 "is_supported_for_generation": resolution.status != "unavailable",
             }
@@ -160,8 +162,17 @@ def _load_config_with_normalized_models():
     changed = False
     for index, provider in enumerate(cfg.ai_providers):
         normalized_model = normalize_provider_model_name(provider.name, provider.model)
-        if normalized_model and normalized_model != provider.model:
-            cfg.ai_providers[index] = provider.model_copy(update={"model": normalized_model})
+        normalized_base_url = normalize_provider_base_url(provider.name, provider.base_url)
+        if (
+            normalized_model
+            and normalized_model != provider.model
+        ) or normalized_base_url != provider.base_url:
+            cfg.ai_providers[index] = provider.model_copy(
+                update={
+                    "model": normalized_model,
+                    "base_url": normalized_base_url,
+                }
+            )
             changed = True
     if changed:
         save_config(cfg)
@@ -550,7 +561,7 @@ def upsert_ai_provider(body: AIProviderCreate) -> dict[str, str]:
             (body.model or _default_model_name(body.name)).strip(),
         ),
         key_stored=key_stored,
-        base_url=body.base_url or None,
+        base_url=normalize_provider_base_url(body.name, body.base_url),
     )
     cfg.upsert_provider(provider)
     if not cfg.default_ai_provider:
@@ -581,8 +592,9 @@ def test_ai_provider(name: str) -> dict[str, Any]:
     if not provider:
         raise HTTPException(status_code=404, detail=f"Provider '{name}'를 찾을 수 없습니다.")
 
+    NO_KEY_PROVIDERS = {"ollama", "pollinations"}
     key = get_api_key(name)
-    if not key and name != "ollama":
+    if not key and name not in NO_KEY_PROVIDERS:
         return {"status": "error", "message": "API 키가 설정되지 않았습니다."}
 
     try:
