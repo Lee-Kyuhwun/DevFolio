@@ -1,5 +1,7 @@
 """AI 서비스 단위 테스트 (litellm 모킹)."""
 
+from __future__ import annotations
+
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -668,3 +670,196 @@ class TestMatchJD:
             projects=[make_project()],
         )
         assert "Python, FastAPI, Docker" in captured["user"]
+
+
+# ---------------------------------------------------------------------------
+# s1_refine / hybrid / motivation (LLM 정확도 향상)
+# ---------------------------------------------------------------------------
+
+_PASS_REVIEW = (
+    '{"pass": true, "scores": {"factuality": 5, "specificity": 5, '
+    '"result_orientation": 5, "hiring_relevance": 5, "redundancy": 4, '
+    '"output_contract": 5, "naturalness": 5}, '
+    '"issues": [], "missing_points": [], "revision_instructions": []}'
+)
+
+
+def _review(pass_: bool, score: int, issues: list[str] | None = None) -> str:
+    import json as _json
+    return _json.dumps(
+        {
+            "pass": pass_,
+            "scores": {
+                "factuality": score,
+                "specificity": score,
+                "result_orientation": score,
+                "hiring_relevance": score,
+                "redundancy": score,
+                "output_contract": 5,
+                "naturalness": score,
+            },
+            "issues": issues or [],
+            "missing_points": [],
+            "revision_instructions": [],
+        }
+    )
+
+
+class TestS1Refine:
+    def test_runs_draft_plus_budget_passes_until_pass(self):
+        """draft 가 실패하면 refinement_budget 만큼 refine 을 반복한다."""
+        service = AIService(make_config())
+        service.config.reasoning.strategy = "s1_refine"
+        service.config.reasoning.refinement_budget = 3
+
+        service._call_messages = MagicMock(side_effect=[
+            "- 초안 1\n- 초안 1\n- 초안 1\n- 초안 1",
+            _review(False, 2, issues=["추상적"]),
+            "- 개선 1\n- 개선 1\n- 개선 1\n- 개선 1",
+            _review(False, 3, issues=["여전히 약함"]),
+            "- 최종 버전\n- 최종 버전\n- 최종 버전\n- 최종 버전",
+            _PASS_REVIEW,
+        ])
+
+        result = service.generate_task_text(make_task(), lang="ko")
+        assert "최종 버전" in result
+        # draft + refine×2 = 3 writer 호출 + 3 review 호출 = 6
+        assert service._call_messages.call_count == 6
+
+    def test_early_stops_on_plateau(self):
+        """점수 개선이 patience 회 연속 없으면 루프 종료, 이후 안전망 revision 1회만."""
+        service = AIService(make_config())
+        service.config.reasoning.strategy = "s1_refine"
+        service.config.reasoning.refinement_budget = 4
+        service.config.reasoning.early_stop_patience = 2
+
+        # draft 점수 3 → refine1 점수 2 (정체) → refine2 점수 2 (정체, patience 도달)
+        # → 안전망 revision 1회 (writer 만, review 없음)
+        service._call_messages = MagicMock(side_effect=[
+            "- 초안\n- 초안\n- 초안\n- 초안",
+            _review(False, 3),
+            "- 1차\n- 1차\n- 1차\n- 1차",
+            _review(False, 2),
+            "- 2차\n- 2차\n- 2차\n- 2차",
+            _review(False, 2),
+            # 안전망 revision 출력 (review 호출 없음)
+            "- 최종\n- 최종\n- 최종\n- 최종",
+        ])
+
+        result = service.generate_task_text(make_task(), lang="ko")
+        # 안전망 revision 결과가 반환됨 (검증 통과).
+        assert "최종" in result
+        # refine 4회 모두 돌지 않고 patience=2 에서 끊겨야 함.
+        # writer 3회 + review 3회 + 안전망 writer 1회 = 7
+        assert service._call_messages.call_count == 7
+
+    def test_refinement_budget_zero_falls_back_to_single(self):
+        service = AIService(make_config())
+        service.config.reasoning.strategy = "s1_refine"
+        service.config.reasoning.refinement_budget = 0
+
+        service._call_messages = MagicMock(side_effect=[
+            "- 결과 1\n- 결과 2\n- 결과 3\n- 결과 4",
+            _PASS_REVIEW,
+        ])
+        result = service.generate_task_text(make_task(), lang="ko")
+        assert "결과 1" in result
+        assert service._call_messages.call_count == 2
+
+
+class TestHybrid:
+    def test_refines_each_sample_and_picks_best(self):
+        service = AIService(make_config())
+        service.config.reasoning.strategy = "hybrid"
+        service.config.reasoning.samples = 2
+        service.config.reasoning.refinement_budget = 1
+
+        service._call_messages = MagicMock(side_effect=[
+            # sample 1 draft (약함)
+            "- S1\n- S1\n- S1\n- S1",
+            _review(False, 2),
+            # sample 1 refine
+            "- S1 개선\n- S1 개선\n- S1 개선\n- S1 개선",
+            _review(True, 4),
+            # sample 2 draft (바로 통과)
+            "- 최고 후보\n- 최고 후보\n- 최고 후보\n- 최고 후보",
+            _PASS_REVIEW,
+        ])
+
+        result = service.generate_task_text(make_task(), lang="ko")
+        # sample 2 가 가장 높은 점수 (naturalness 5 포함) 라 선택됨
+        assert "최고 후보" in result
+
+
+class TestMotivationValidator:
+    def test_rejects_slogan(self):
+        service = AIService(make_config())
+        slogan = (
+            "지역 첫 번째 포트폴리오 및 이력서 스튜디오 도구입니다. "
+            "개발자의 경력을 관리합니다. 다양한 형식을 생성합니다."
+        )
+        assert not service._validate_generated_output("project_motivation", slogan)
+
+    def test_rejects_product_intro_phrase(self):
+        service = AIService(make_config())
+        text = (
+            "개발자 경력 관리를 위한 도구입니다. 이 도구는 모든 것을 다룹니다. "
+            "간편하게 사용할 수 있습니다."
+        )
+        assert not service._validate_generated_output("project_motivation", text)
+
+    def test_accepts_natural_motivation(self):
+        service = AIService(make_config())
+        text = (
+            "개발자 경력 콘텐츠가 여러 곳에 흩어져 있어 이력서가 필요할 때마다 짜맞춰야 했다. "
+            "기존 템플릿 도구는 디자인 중심이라 채용 공고별로 재구성하는 작업이 수작업으로 남았다. "
+            "여러 포맷을 수동으로 동기화하다 보면 최신 경험이 한 문서에서만 갱신되곤 했다. "
+            "그래서 YAML 단일 소스에서 관리하고 필요한 포맷으로 재조립하는 CLI 를 만들었다."
+        )
+        assert service._validate_generated_output("project_motivation", text)
+
+    def test_rejects_wrong_sentence_count(self):
+        service = AIService(make_config())
+        too_short = "한 문장뿐입니다."
+        too_long = ". ".join(["문장"] * 8) + "."
+        assert not service._validate_generated_output("project_motivation", too_short)
+        assert not service._validate_generated_output("project_motivation", too_long)
+
+
+class TestReasoningPlan:
+    def test_single_strategy_default(self):
+        service = AIService(make_config())
+        plan = service._resolve_reasoning_plan()
+        assert plan.strategy == "single"
+        assert plan.sample_count == 1
+
+    def test_s1_refine_normalizes_sample_count(self):
+        service = AIService(make_config())
+        service.config.reasoning.strategy = "s1_refine"
+        service.config.reasoning.refinement_budget = 2
+        service.config.reasoning.samples = 3
+        plan = service._resolve_reasoning_plan()
+        assert plan.strategy == "s1_refine"
+        assert plan.sample_count == 1
+        assert plan.refinement_budget == 2
+
+    def test_s1_refine_with_zero_budget_downgrades(self):
+        service = AIService(make_config())
+        service.config.reasoning.strategy = "s1_refine"
+        service.config.reasoning.refinement_budget = 0
+        plan = service._resolve_reasoning_plan()
+        assert plan.strategy == "single"
+
+
+class TestEvidencePruning:
+    def test_empty_fields_not_in_prompt(self):
+        from devfolio.core.ai_service import _prune_empty
+        data = {"a": "", "b": [], "c": {}, "d": None, "e": "keep", "team_size": 0}
+        pruned = _prune_empty(data)
+        assert "a" not in pruned
+        assert "b" not in pruned
+        assert "c" not in pruned
+        assert "d" not in pruned
+        assert pruned["e"] == "keep"
+        # 숫자 0 은 유지 (team_size 같은 정상값).
+        assert pruned["team_size"] == 0

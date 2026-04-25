@@ -265,6 +265,12 @@ class ProjectManager:
         """프로젝트 요약(summary 필드)을 저장한다."""
         return self.update_project(name_or_id, summary=summary)
 
+    def save_project_background(self, name_or_id: str, background: str) -> Project:
+        """프로젝트 동기·배경(overview.background 필드)을 저장한다."""
+        project = self.get_project_or_raise(name_or_id)
+        new_overview = project.overview.model_copy(update={"background": background})
+        return self.update_project(name_or_id, overview=new_overview)
+
     # ------------------------------------------------------------------
     # 프로젝트 CRUD
     # ------------------------------------------------------------------

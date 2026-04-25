@@ -125,8 +125,13 @@ class ReasoningConfig(BaseModel):
       AI 생성 파이프라인의 runtime 옵션을 담는 하위 설정 블록.
     """
 
-    strategy: str = Field(default="single", pattern="^(single|best_of_n)$")
+    strategy: str = Field(
+        default="single",
+        pattern="^(single|best_of_n|s1_refine|hybrid)$",
+    )
     samples: int = Field(default=1, ge=1, le=5)
+    refinement_budget: int = Field(default=0, ge=0, le=4)
+    early_stop_patience: int = Field(default=2, ge=1, le=4)
     judge_provider: str = Field(default="")
 
 

@@ -8,6 +8,10 @@
 - hiring_relevance: 개발자 채용 관점에서 강점이 보이는가
 - redundancy: 반복 표현이 적은가
 - output_contract: {output_mode} 형식을 정확히 지켰는가
+- naturalness: 제품 슬로건·마케팅 문구 없이 실제 개발자가 쓴 글처럼 읽히는가
+  (체크: "올인원", "혁신적", "지역 첫 번째", "~을 위한 도구", "~ 스튜디오 도구" 같은 표현이 들어갔다면 감점)
+
+점수 스케일: 각 축 1~5 (5 = 완벽, 3 = 보통, 1 = 심각한 문제). pass 는 모든 축이 3 이상이고 naturalness 가 4 이상일 때만 true.
 
 반환 JSON 스키마:
 {{
@@ -18,7 +22,8 @@
     "result_orientation": 0,
     "hiring_relevance": 0,
     "redundancy": 0,
-    "output_contract": 0
+    "output_contract": 0,
+    "naturalness": 0
   }},
   "issues": [],
   "missing_points": [],

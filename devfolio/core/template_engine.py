@@ -163,43 +163,27 @@ def describe_tech_stack(project: Project) -> str:
 
 
 def describe_project_purpose(project: Project) -> str:
-    if project.overview.background or project.overview.problem or project.overview.goals:
+    """프로젝트 동기·문제 정의를 반환한다.
+
+    우선순위:
+      1. overview.background 가 채워져 있으면 그대로 사용 (AI 로 생성한 `devfolio ai generate-motivation`
+         결과가 여기에 저장됨).
+      2. background 는 없지만 problem/goals 가 있으면 해당 필드만 자연스럽게 연결.
+      3. 둘 다 없으면 summary 만 반환. 판박이 합성 문구는 만들지 않는다.
+         (이전 fallback 이 "지역 첫 번째..." 류의 어색한 결과를 만들었으므로 제거.)
+    """
+    if project.overview.background:
+        return project.overview.background.strip()
+
+    if project.overview.problem or project.overview.goals:
         parts: list[str] = []
-        if project.overview.background:
-            parts.append(project.overview.background.strip())
         if project.overview.problem:
             parts.append(f"핵심적으로는 {project.overview.problem.strip()} 문제를 해결하는 데 초점을 맞췄습니다.")
         if project.overview.goals:
             parts.append(f"주요 목표는 {', '.join(project.overview.goals[:3])}입니다.")
         return " ".join(parts)
 
-    summary = " ".join((project.summary or "").split())
-    problems = _task_texts(project, "problem")
-    results = _task_texts(project, "result")
-
-    sentences: list[str] = []
-    if summary:
-        if summary[-1] not in ".!?。！？":
-            summary += "."
-        sentences.append(summary)
-
-    if problems:
-        sentences.append(
-            f"이 프로젝트는 {', '.join(problems[:2])} 같은 문제를 줄이고, "
-            "사용자가 하나의 일관된 흐름 안에서 작업을 이어갈 수 있도록 설계했습니다."
-        )
-    else:
-        sentences.append(
-            "이 프로젝트는 흩어진 작업 과정을 구조화된 흐름으로 묶고, "
-            "같은 원천 데이터를 반복 재사용할 수 있는 기반을 만드는 데 목적이 있습니다."
-        )
-
-    if results:
-        sentences.append(
-            f"이를 통해 {', '.join(results[:2])} 같은 결과로 이어지는 제품 구조를 만들었습니다."
-        )
-
-    return " ".join(sentences)
+    return (project.summary or "").strip()
 
 
 def describe_problem_definition(project: Project) -> str:

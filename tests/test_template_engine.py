@@ -129,3 +129,43 @@ def test_project_single_template_includes_architecture_diagram():
     assert "Core Application" in rendered
     assert "문제 정의" in rendered
     assert "결과 및 성과" in rendered
+
+
+def test_describe_project_purpose_returns_background_when_present():
+    from devfolio.core.template_engine import describe_project_purpose
+
+    project = make_project()
+    result = describe_project_purpose(project)
+    assert result == project.overview.background.strip()
+
+
+def test_describe_project_purpose_no_synthetic_fallback_when_overview_empty():
+    """overview 가 비어 있을 때 "흩어진 작업 과정" 같은 판박이 문구를 만들지 않는다."""
+    from devfolio.core.template_engine import describe_project_purpose
+
+    project = make_project().model_copy(
+        update={
+            "overview": ProjectOverview(),
+            "summary": "간단한 요약입니다.",
+        }
+    )
+    result = describe_project_purpose(project)
+    assert "흩어진 작업 과정" not in result
+    assert "구조화된 흐름으로 묶고" not in result
+    assert result == "간단한 요약입니다."
+
+
+def test_describe_project_purpose_problem_only_falls_back_without_slogans():
+    from devfolio.core.template_engine import describe_project_purpose
+
+    project = make_project().model_copy(
+        update={
+            "overview": ProjectOverview(
+                problem="문서 재작성 비용이 반복해서 발생했습니다.",
+            ),
+            "summary": "",
+        }
+    )
+    result = describe_project_purpose(project)
+    assert "핵심적으로는" in result
+    assert "같은 원천 데이터" not in result

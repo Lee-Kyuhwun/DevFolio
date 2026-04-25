@@ -131,6 +131,65 @@ def generate_project(
         console.print("[bold green]✓ 프로젝트 요약이 저장되었습니다.[/bold green]")
 
 
+@generate_app.command("motivation")
+def generate_motivation(
+    project: str = typer.Argument(..., help="프로젝트명 또는 ID"),
+    lang: str = typer.Option("ko", "--lang", "-l", help="언어 (ko/en/both)"),
+    provider: Optional[str] = typer.Option(None, "--provider", help="AI Provider 오버라이드"),
+    samples: Optional[int] = typer.Option(None, "--samples", min=1, max=5, help="best-of-N 후보 수"),
+    save: bool = typer.Option(
+        False,
+        "--save",
+        help="생성한 동기 문단을 overview.background 에 즉시 저장",
+    ),
+):
+    """프로젝트 동기·문제 정의 문단 생성 (왜 만들었는지).
+
+    evidence 를 근거로 3~5문장 자연 문단을 만들어 overview.background 에 저장할 수 있다.
+    slogan 성 표현("스튜디오 도구", "올인원", "혁신적")은 validator 가 차단한다.
+    """
+    check_init()
+
+    proj = pm.get_project(project)
+    if not proj:
+        console.print(f"[red]오류:[/red] 프로젝트를 찾을 수 없습니다: [bold]{project}[/bold]")
+        raise typer.Exit(1)
+
+    service = _get_service()
+    config = load_config()
+
+    if proj.overview.background and not save:
+        console.print(
+            "[yellow]참고:[/yellow] 이미 overview.background 가 채워져 있습니다. "
+            "덮어쓰려면 생성 후 --save 또는 프롬프트에서 동의하세요.\n"
+        )
+
+    with console.status("[cyan]AI가 동기 문단을 생성하는 중...[/cyan]"):
+        try:
+            result, review = service.generate_project_motivation(
+                project=proj,
+                lang=lang,
+                provider_name=provider or config.default_ai_provider,
+                samples=samples,
+            )
+        except Exception as e:
+            console.print(f"[red]오류:[/red] {e}")
+            raise typer.Exit(1)
+
+    console.print("\n[bold green]── AI 생성 결과 ──[/bold green]\n")
+    console.print(result)
+    if review.issues:
+        console.print("\n[dim]리뷰어 메모: " + " / ".join(review.issues[:3]) + "[/dim]")
+
+    should_save = save or Confirm.ask(
+        "\n이 문단을 프로젝트 overview.background 에 저장하시겠습니까?",
+        default=save,
+    )
+    if should_save:
+        pm.save_project_background(proj.id, result)
+        console.print("[bold green]✓ overview.background 에 저장되었습니다.[/bold green]")
+
+
 @generate_app.command("resume")
 def generate_resume(
     lang: str = typer.Option("ko", "--lang", "-l", help="언어 (ko/en/both)"),

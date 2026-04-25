@@ -62,6 +62,25 @@ def _strip_foreign_chars(text: str) -> str:
     return _re.sub(r"  +", " ", cleaned).strip()
 
 
+def _prune_empty(data: Any) -> Any:
+    """dict/list 에서 비어 있는 값을 재귀적으로 제거한다.
+
+    evidence JSON 을 프롬프트에 주입할 때 null/빈 리스트/빈 dict/빈 문자열 필드를 제거해
+    신호 대 잡음비를 높이기 위함. team_size 같은 0 허용 숫자는 유지한다.
+    """
+    if isinstance(data, dict):
+        pruned: dict = {}
+        for key, value in data.items():
+            cleaned = _prune_empty(value)
+            if cleaned in (None, "", [], {}):
+                continue
+            pruned[key] = cleaned
+        return pruned
+    if isinstance(data, list):
+        return [_prune_empty(item) for item in data if _prune_empty(item) not in (None, "", [], {})]
+    return data
+
+
 def _strip_foreign_in_dict(data: dict | list | str) -> dict | list | str:
     """JSON 딕셔너리의 모든 문자열 값에 재귀적으로 외국어 필터를 적용한다."""
     if isinstance(data, str):
@@ -116,6 +135,27 @@ _JD_MATCH_SYSTEM = """당신은 개발자 채용 전문가입니다.
 3. 강조할 경험 추천
 4. 보완할 내용 제안
 을 구체적으로 알려주세요."""
+
+# Sequential budget-forcing 리파인 프롬프트 (s1-style).
+# 범용 LLM 에서는 reasoning 토큰 주입이 불가능하므로,
+# "다시 점검하라" 는 명시적 지시로 동등한 효과를 낸다.
+_REFINE_SIGNAL = """<wait_signal>
+잠깐. 최종본을 내놓기 전에 다시 점검한다.
+- 리뷰어가 지적한 issues 와 missing_points 를 하나씩 훑어본다.
+- evidence 에 있지만 초안에서 빠진 맥락·결과가 있는지 확인한다.
+- 같은 표현 반복, 약한 동사("담당했습니다", "진행했습니다"), 추상어 단독 사용이 있으면 고친다.
+- 출력 계약(bullet 수, 문장 수, 섹션 순서) 을 다시 센다.
+- 제품 슬로건·마케팅 문구("올인원", "혁신적", "~을 위한 도구")가 섞이지 않았는지 본다.
+</wait_signal>
+
+<revision_rules>
+- evidence 밖 사실은 절대 추가하지 않는다.
+- 리뷰의 revision_instructions 를 모두 반영한다.
+- {validation_feedback}
+</revision_rules>
+
+개선된 최종본만 출력한다. 사고 과정·해설은 출력하지 않는다."""
+
 
 _INTAKE_SYSTEM = """당신은 개발자 포트폴리오 작성 도우미입니다.
 사용자가 자유롭게 적은 프로젝트 설명을 읽고, 포트폴리오 작성에 적합한 구조화 초안을 JSON으로 정리하세요.
@@ -397,6 +437,23 @@ class ReviewedCandidate:
     sample_index: int
 
 
+@dataclass(frozen=True)
+class ReasoningPlan:
+    """generate_with_review 실행 계획.
+
+    strategy:
+      - "single": 1회 생성
+      - "best_of_n": sample_count 개 parallel draft → 최고 점수 반환
+      - "s1_refine": sequential budget forcing (draft → refine×N, early stop)
+      - "hybrid": sample_count 개 parallel draft → 각각 1회 refine → 최고 점수
+    """
+
+    strategy: str
+    sample_count: int
+    refinement_budget: int
+    patience: int
+
+
 @dataclass
 class GenerationProfile:
     mode: str
@@ -637,7 +694,10 @@ class AIService:
 
     @classmethod
     def _format_priority_keywords(cls, keywords: tuple[str, ...]) -> str:
-        return "\n".join(f"- {keyword}" for keyword in keywords)
+        cleaned = [k.strip() for k in keywords if k and k.strip()]
+        if not cleaned:
+            return "- (지정 없음: evidence 에서 자연스럽게 드러나는 축을 선택한다)"
+        return "\n".join(f"- {keyword}" for keyword in cleaned)
 
     def _call_messages(
         self,
@@ -849,8 +909,10 @@ class AIService:
         evidence: PortfolioEvidence,
         profile: GenerationProfile,
     ) -> str:
+        # 빈 필드를 제거해 프롬프트 신호 대 잡음비를 높인다.
+        evidence_payload = _prune_empty(evidence.model_dump(exclude_none=True))
         evidence_json = json.dumps(
-            evidence.model_dump(),
+            evidence_payload,
             ensure_ascii=False,
             indent=2,
         )
@@ -870,8 +932,9 @@ class AIService:
         profile: GenerationProfile,
         provider_name: Optional[str],
     ) -> ReviewResult:
+        evidence_payload = _prune_empty(evidence.model_dump(exclude_none=True))
         evidence_json = json.dumps(
-            evidence.model_dump(),
+            evidence_payload,
             ensure_ascii=False,
             indent=2,
         )
@@ -892,12 +955,31 @@ class AIService:
         )
         return ReviewResult.model_validate(self._extract_json(raw))
 
+    _MOTIVATION_BANNED_PHRASES: tuple[str, ...] = (
+        "올인원",
+        "지역 첫 번째",
+        "혁신적",
+        "을 위한 도구",
+        "를 위한 도구",
+        "을 위해 만들어진",
+        "를 위해 만들어진",
+    )
+
     def _validate_generated_output(self, mode: str, text: str) -> bool:
         if mode == "resume_bullets":
             return 4 <= len(_extract_bullet_lines(text)) <= 6
         if mode == "project_summary":
             sentences = _sentence_count(text)
             return 5 <= sentences <= 7
+        if mode == "project_motivation":
+            sentences = _sentence_count(text)
+            if not (3 <= sentences <= 5):
+                return False
+            if any(banned in text for banned in self._MOTIVATION_BANNED_PHRASES):
+                return False
+            if text.lstrip().startswith(("##", "- ", "* ")):
+                return False
+            return True
         if mode == "project_case_study":
             required_sections = (
                 "## 프로젝트 개요",
@@ -918,19 +1000,45 @@ class AIService:
             return "반드시 '- '로 시작하는 bullet 4~6개를 작성하고, 각 bullet에 행동·기술/맥락·결과를 모두 포함하며 너무 짧게 끝내지 마세요."
         if mode == "project_summary":
             return "반드시 5~7문장으로 작성하고, 책임 범위·문제 맥락·핵심 구현·기술 선택 이유·결과를 모두 포함하세요."
+        if mode == "project_motivation":
+            return (
+                "반드시 3~5문장 단일 문단으로 작성하고, 제품 소개가 아닌 동기·문제 진단을 담으세요. "
+                "'~을 위한 도구', '올인원', '혁신적', '지역 첫 번째' 같은 슬로건성 표현은 금지합니다."
+            )
         if mode == "project_case_study":
             return "반드시 Markdown 섹션을 유지하고, 프로젝트 개요·문제 정의·사용자 흐름·기술 스택 및 선정 이유·아키텍처·핵심 기능·문제 해결 사례·결과 및 성과·회고를 모두 포함하세요."
         return "출력 계약을 정확히 지켜 다시 작성하세요."
 
-    def _resolve_reasoning_plan(self, samples: Optional[int] = None) -> tuple[str, int]:
+    def _resolve_reasoning_plan(self, samples: Optional[int] = None) -> ReasoningPlan:
         configured_strategy = self.config.reasoning.strategy or "single"
         configured_samples = self.config.reasoning.samples or 1
         sample_count = samples if samples is not None else configured_samples
         sample_count = max(1, min(sample_count, 5))
-        strategy = "best_of_n" if sample_count > 1 else configured_strategy
-        if strategy == "best_of_n" and sample_count < 2:
+
+        refinement_budget = max(0, min(self.config.reasoning.refinement_budget or 0, 4))
+        patience = max(1, min(self.config.reasoning.early_stop_patience or 2, 4))
+
+        strategy = configured_strategy
+        if strategy == "s1_refine":
+            if refinement_budget == 0:
+                strategy = "single"
+            sample_count = 1
+        elif strategy == "hybrid":
+            if sample_count < 2 and refinement_budget == 0:
+                strategy = "single"
+            elif refinement_budget == 0:
+                strategy = "best_of_n"
+        elif sample_count > 1:
+            strategy = "best_of_n"
+        elif strategy == "best_of_n" and sample_count < 2:
             strategy = "single"
-        return strategy, sample_count
+
+        return ReasoningPlan(
+            strategy=strategy,
+            sample_count=sample_count,
+            refinement_budget=refinement_budget,
+            patience=patience,
+        )
 
     def _review_provider_name(self, provider_name: Optional[str]) -> Optional[str]:
         judge_provider = (self.config.reasoning.judge_provider or "").strip()
@@ -945,6 +1053,7 @@ class AIService:
             "hiring_relevance": 2,
             "redundancy": 1,
             "output_contract": 4,
+            "naturalness": 3,
         }
         weighted = sum(review.scores.get(key, 0) * weight for key, weight in weights.items())
         return weighted + (12 if review.passed else 0) + (8 if is_valid else 0)
@@ -983,6 +1092,196 @@ class AIService:
             sample_index=sample_index,
         )
 
+    @staticmethod
+    def _candidate_sort_key(candidate: ReviewedCandidate) -> tuple:
+        return (
+            candidate.score,
+            candidate.review.passed,
+            candidate.is_valid,
+            -len(candidate.review.issues),
+        )
+
+    def _is_better(self, new: ReviewedCandidate, best: Optional[ReviewedCandidate]) -> bool:
+        if best is None:
+            return True
+        return self._candidate_sort_key(new) > self._candidate_sort_key(best)
+
+    def _refine_candidate(
+        self,
+        *,
+        prompt_pack: PromptPack,
+        evidence: PortfolioEvidence,
+        profile: GenerationProfile,
+        provider_name: Optional[str],
+        user_prompt: str,
+        previous: ReviewedCandidate,
+        sample_index: int,
+    ) -> ReviewedCandidate:
+        """리뷰 피드백 + wait_signal 을 주입해 단일 draft 를 sequential 하게 개선한다."""
+        review_payload = json.dumps(
+            previous.review.model_dump(by_alias=True),
+            ensure_ascii=False,
+            indent=2,
+        )
+        refine_signal = _REFINE_SIGNAL.format(
+            validation_feedback=self._format_validation_feedback(profile.mode),
+        )
+        revised_user_prompt = (
+            f"{user_prompt}\n\n"
+            f"<previous_draft>\n{previous.draft}\n</previous_draft>\n\n"
+            f"<review_result>\n{review_payload}\n</review_result>\n\n"
+            f"{refine_signal}"
+        )
+        draft = _strip_preamble(
+            self._call_messages(
+                [
+                    {"role": "system", "content": prompt_pack.system_prompt},
+                    {"role": "user", "content": revised_user_prompt},
+                ],
+                provider_name=provider_name,
+                temperature=profile.temperature,
+                max_tokens=profile.max_tokens,
+            )
+        )
+        review = self._review_generated_text(
+            prompt_pack,
+            evidence,
+            draft,
+            profile,
+            self._review_provider_name(provider_name),
+        )
+        is_valid = self._validate_generated_output(profile.mode, draft)
+        return ReviewedCandidate(
+            draft=draft,
+            review=review,
+            score=self._review_score(review, is_valid),
+            is_valid=is_valid,
+            sample_index=sample_index,
+        )
+
+    def _run_best_of_n(
+        self,
+        *,
+        prompt_pack: PromptPack,
+        evidence: PortfolioEvidence,
+        profile: GenerationProfile,
+        provider_name: Optional[str],
+        writer_messages: list[dict[str, str]],
+        sample_count: int,
+    ) -> ReviewedCandidate:
+        best: Optional[ReviewedCandidate] = None
+        for sample_index in range(1, sample_count + 1):
+            candidate = self._generate_reviewed_candidate(
+                prompt_pack=prompt_pack,
+                evidence=evidence,
+                profile=profile,
+                provider_name=provider_name,
+                writer_messages=writer_messages,
+                sample_index=sample_index,
+            )
+            if self._is_better(candidate, best):
+                best = candidate
+        if best is None:
+            raise DevfolioAIError("AI 후보 초안을 생성하지 못했습니다.")
+        return best
+
+    def _run_s1_refine(
+        self,
+        *,
+        prompt_pack: PromptPack,
+        evidence: PortfolioEvidence,
+        profile: GenerationProfile,
+        provider_name: Optional[str],
+        writer_messages: list[dict[str, str]],
+        user_prompt: str,
+        refinement_budget: int,
+        patience: int,
+    ) -> ReviewedCandidate:
+        """Sequential budget forcing: draft → refine×N, 점수 정체 시 조기 종료."""
+        current = self._generate_reviewed_candidate(
+            prompt_pack=prompt_pack,
+            evidence=evidence,
+            profile=profile,
+            provider_name=provider_name,
+            writer_messages=writer_messages,
+            sample_index=1,
+        )
+        best = current
+        stagnant = 0
+
+        if current.review.passed and current.is_valid:
+            return current
+
+        for step in range(1, refinement_budget + 1):
+            refined = self._refine_candidate(
+                prompt_pack=prompt_pack,
+                evidence=evidence,
+                profile=profile,
+                provider_name=provider_name,
+                user_prompt=user_prompt,
+                previous=current,
+                sample_index=step + 1,
+            )
+            if self._is_better(refined, best):
+                best = refined
+                stagnant = 0
+            else:
+                stagnant += 1
+
+            current = refined
+
+            if refined.review.passed and refined.is_valid:
+                return refined
+            if stagnant >= patience:
+                break
+
+        return best
+
+    def _run_hybrid(
+        self,
+        *,
+        prompt_pack: PromptPack,
+        evidence: PortfolioEvidence,
+        profile: GenerationProfile,
+        provider_name: Optional[str],
+        writer_messages: list[dict[str, str]],
+        user_prompt: str,
+        sample_count: int,
+        refinement_budget: int,
+    ) -> ReviewedCandidate:
+        """Parallel sampling + 각 sample 에 sequential refine 1회."""
+        refine_steps = max(1, min(refinement_budget, 2))
+        best: Optional[ReviewedCandidate] = None
+        for sample_index in range(1, sample_count + 1):
+            candidate = self._generate_reviewed_candidate(
+                prompt_pack=prompt_pack,
+                evidence=evidence,
+                profile=profile,
+                provider_name=provider_name,
+                writer_messages=writer_messages,
+                sample_index=sample_index,
+            )
+            if not (candidate.review.passed and candidate.is_valid):
+                for step in range(1, refine_steps + 1):
+                    refined = self._refine_candidate(
+                        prompt_pack=prompt_pack,
+                        evidence=evidence,
+                        profile=profile,
+                        provider_name=provider_name,
+                        user_prompt=user_prompt,
+                        previous=candidate,
+                        sample_index=sample_index * 10 + step,
+                    )
+                    if self._is_better(refined, candidate):
+                        candidate = refined
+                    if refined.review.passed and refined.is_valid:
+                        break
+            if self._is_better(candidate, best):
+                best = candidate
+        if best is None:
+            raise DevfolioAIError("AI 후보 초안을 생성하지 못했습니다.")
+        return best
+
     def generate_with_review(
         self,
         *,
@@ -997,31 +1296,39 @@ class AIService:
             {"role": "system", "content": prompt_pack.system_prompt},
             {"role": "user", "content": user_prompt},
         ]
-        strategy, sample_count = self._resolve_reasoning_plan(samples)
-        best_candidate: ReviewedCandidate | None = None
+        plan = self._resolve_reasoning_plan(samples)
 
-        if strategy == "best_of_n":
-            for sample_index in range(1, sample_count + 1):
-                candidate = self._generate_reviewed_candidate(
-                    prompt_pack=prompt_pack,
-                    evidence=evidence,
-                    profile=profile,
-                    provider_name=provider_name,
-                    writer_messages=writer_messages,
-                    sample_index=sample_index,
-                )
-                if best_candidate is None or (
-                    candidate.score,
-                    candidate.review.passed,
-                    candidate.is_valid,
-                    -len(candidate.review.issues),
-                ) > (
-                    best_candidate.score,
-                    best_candidate.review.passed,
-                    best_candidate.is_valid,
-                    -len(best_candidate.review.issues),
-                ):
-                    best_candidate = candidate
+        if plan.strategy == "s1_refine":
+            best_candidate = self._run_s1_refine(
+                prompt_pack=prompt_pack,
+                evidence=evidence,
+                profile=profile,
+                provider_name=provider_name,
+                writer_messages=writer_messages,
+                user_prompt=user_prompt,
+                refinement_budget=plan.refinement_budget,
+                patience=plan.patience,
+            )
+        elif plan.strategy == "hybrid":
+            best_candidate = self._run_hybrid(
+                prompt_pack=prompt_pack,
+                evidence=evidence,
+                profile=profile,
+                provider_name=provider_name,
+                writer_messages=writer_messages,
+                user_prompt=user_prompt,
+                sample_count=plan.sample_count,
+                refinement_budget=plan.refinement_budget,
+            )
+        elif plan.strategy == "best_of_n":
+            best_candidate = self._run_best_of_n(
+                prompt_pack=prompt_pack,
+                evidence=evidence,
+                profile=profile,
+                provider_name=provider_name,
+                writer_messages=writer_messages,
+                sample_count=plan.sample_count,
+            )
         else:
             best_candidate = self._generate_reviewed_candidate(
                 prompt_pack=prompt_pack,
@@ -1038,6 +1345,9 @@ class AIService:
         if best_candidate.review.passed and best_candidate.is_valid:
             return best_candidate.draft, best_candidate.review
 
+        # 마지막 안전망: 최상 후보가 리뷰/검증을 모두 통과하지 못한 경우
+        # review 호출 없이 단일 revision 만 시도해 출력 계약을 맞춘다.
+        # (s1_refine/hybrid 는 내부에서 이미 refine 을 충분히 돌렸으므로 추가 review 비용은 불필요.)
         revision_payload = json.dumps(
             best_candidate.review.model_dump(by_alias=True),
             ensure_ascii=False,
@@ -1143,6 +1453,37 @@ class AIService:
             samples=samples,
         )
         return result
+
+    def generate_project_motivation(
+        self,
+        project: Project,
+        lang: str = "ko",
+        provider_name: Optional[str] = None,
+        samples: Optional[int] = None,
+    ) -> tuple[str, ReviewResult]:
+        """프로젝트 동기·문제 정의 문단을 생성한다.
+
+        overview.background 가 비어 있거나 판박이 문구가 들어가 있을 때
+        evidence 를 근거로 3~5문장 자연 문단을 만든다.
+        """
+        evidence = self.build_evidence(project=project)
+        profile = GenerationProfile(
+            mode="project_motivation",
+            language=lang,
+            temperature=0.4,
+            max_tokens=900,
+            priority_keywords=tuple(project.tags) if project.tags else (
+                "문제 맥락",
+                "기존 방식의 한계",
+                "만든 이유",
+            ),
+        )
+        return self.generate_with_review(
+            evidence=evidence,
+            profile=profile,
+            provider_name=provider_name,
+            samples=samples,
+        )
 
     def generate_full_resume(
         self,
