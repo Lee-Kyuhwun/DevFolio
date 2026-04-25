@@ -598,6 +598,22 @@ a {
   padding: 11px 12px;
 }
 
+.select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%239da7b3' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px;
+  padding-right: 36px;
+}
+
+.select option {
+  background: #1c2128;
+  color: #e6edf3;
+}
+
 .textarea {
   min-height: 120px;
   resize: vertical;
@@ -944,4 +960,197 @@ tbody tr:hover {
   .nav-note {
     display: none;
   }
+}
+
+/* Fix: suppress animation on same-screen re-renders */
+.screen.no-animate {
+  animation: none;
+}
+
+/* Loading overlay (AI generation) */
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(13, 17, 23, 0.82);
+  backdrop-filter: blur(4px);
+  display: grid;
+  place-items: center;
+}
+
+.loading-overlay-inner {
+  text-align: center;
+  padding: 36px 48px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  background: rgba(22, 27, 34, 0.98);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+  max-width: 400px;
+}
+
+.loading-overlay-inner strong {
+  display: block;
+  font-size: 16px;
+  margin-bottom: 8px;
+}
+
+.loading-overlay-inner p {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 14px;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(245, 166, 35, 0.18);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin: 0 auto 18px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* File browser modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  background: rgba(13, 17, 23, 0.78);
+  backdrop-filter: blur(4px);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.modal-box {
+  width: min(560px, 100%);
+  max-height: min(620px, 88vh);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  background: rgba(22, 27, 34, 0.99);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+}
+
+.modal-header h3 {
+  margin: 0;
+}
+
+.modal-body {
+  overflow: auto;
+  flex: 1;
+  padding: 10px 10px 4px;
+}
+
+.modal-footer {
+  padding: 12px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.modal-footer .path-display {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-2);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 7px 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.dir-entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 100ms ease;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  width: 100%;
+  text-align: left;
+  font-size: 13px;
+}
+
+.dir-entry:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.dir-entry.git-repo {
+  color: var(--green);
+}
+
+.dir-entry .dir-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dir-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  margin-bottom: 4px;
+  border-radius: 10px;
+  cursor: pointer;
+  color: var(--text-2);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  width: 100%;
+  text-align: left;
+  font-size: 12px;
+  transition: background 100ms ease;
+}
+
+.dir-breadcrumb:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.dir-roots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  margin-bottom: 6px;
+}
+
+/* input with action button inline */
+.input-with-action {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.input-with-action .input {
+  flex: 1;
+  min-width: 0;
 }
