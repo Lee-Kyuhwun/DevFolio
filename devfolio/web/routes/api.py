@@ -1153,6 +1153,37 @@ def list_ai_models(
 
 
 # ---------------------------------------------------------------------------
+# AI 로그
+# ---------------------------------------------------------------------------
+
+@router.get("/ai-logs")
+def get_ai_logs(limit: int = 100) -> dict[str, Any]:
+    from devfolio.core.storage import AI_LOG_FILE
+    if not AI_LOG_FILE.exists():
+        return {"logs": []}
+    lines = AI_LOG_FILE.read_text(encoding="utf-8").splitlines()
+    limit = max(1, min(limit, 500))
+    entries: list[dict] = []
+    for line in lines[-limit:]:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entries.append(json.loads(line))
+        except json.JSONDecodeError:
+            pass
+    return {"logs": entries, "total": len(lines)}
+
+
+@router.delete("/ai-logs")
+def clear_ai_logs() -> dict[str, str]:
+    from devfolio.core.storage import AI_LOG_FILE
+    if AI_LOG_FILE.exists():
+        AI_LOG_FILE.write_text("", encoding="utf-8")
+    return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
 # 파일 시스템 — 폴더 열기
 # ---------------------------------------------------------------------------
 

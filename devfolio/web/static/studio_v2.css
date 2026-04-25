@@ -1143,6 +1143,15 @@ tbody tr:hover {
   margin-bottom: 6px;
 }
 
+/* log table */
+.log-preview {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-2);
+  word-break: break-all;
+  max-width: 240px;
+}
+
 /* input with action button inline */
 .input-with-action {
   display: flex;

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -213,6 +214,61 @@ _MAX_RETRIES = 2
 # 짧은 간격 재시도는 quota만 낭비
 _RETRY_DELAY = 2.0  # 초 (일반 오류용)
 _RATE_LIMIT_RETRY_DELAY = 65.0  # 초 (rate limit 전용 — RPM 윈도우 넘김)
+_AI_LOG_MAX_ENTRIES = 500
+_AI_LOG_PREVIEW_CHARS = 400
+
+
+def _write_ai_log(
+    *,
+    provider: str,
+    model: str,
+    messages: list[dict],
+    response: str,
+    duration_ms: int,
+    ok: bool,
+    error: str | None = None,
+) -> None:
+    """AI 호출 결과를 JSONL 파일에 기록한다. 오류가 나도 조용히 무시한다."""
+    try:
+        from devfolio.core.storage import AI_LOG_FILE, DEVFOLIO_DATA_DIR
+        DEVFOLIO_DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+        system_preview = next(
+            (m.get("content", "")[:_AI_LOG_PREVIEW_CHARS] for m in messages if m.get("role") == "system"),
+            "",
+        )
+        user_preview = next(
+            (m.get("content", "")[:_AI_LOG_PREVIEW_CHARS] for m in messages if m.get("role") == "user"),
+            "",
+        )
+
+        entry = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "provider": provider,
+            "model": model,
+            "op": "call",
+            "prompt_chars": sum(len(m.get("content", "")) for m in messages),
+            "response_chars": len(response),
+            "duration_ms": duration_ms,
+            "ok": ok,
+            "error": error,
+            "system_preview": system_preview,
+            "user_preview": user_preview,
+            "response_preview": response[:_AI_LOG_PREVIEW_CHARS],
+        }
+
+        existing: list[str] = []
+        if AI_LOG_FILE.exists():
+            existing = AI_LOG_FILE.read_text(encoding="utf-8").splitlines()
+
+        existing.append(json.dumps(entry, ensure_ascii=False))
+        # 최대 항목 수 초과 시 오래된 것부터 제거
+        if len(existing) > _AI_LOG_MAX_ENTRIES:
+            existing = existing[-_AI_LOG_MAX_ENTRIES:]
+
+        AI_LOG_FILE.write_text("\n".join(existing) + "\n", encoding="utf-8")
+    except Exception:
+        pass  # 로그 실패가 메인 기능을 방해하지 않도록
 
 # API 키 없이 사용 가능한 기본 내장 provider (pollinations.ai)
 _POLLINATIONS_BASE_URL = "https://text.pollinations.ai/openai"
@@ -293,6 +349,15 @@ def _clean_provider_model_name(model_name: str) -> str:
 
 def normalize_provider_model_name(provider_name: str, model_name: str) -> str:
     return _clean_provider_model_name(model_name)
+
+
+def normalize_provider_base_url(provider_name: str, base_url: str | None) -> str | None:
+    normalized = (base_url or "").strip()
+    if normalized:
+        return normalized
+    if provider_name == "pollinations":
+        return _POLLINATIONS_BASE_URL
+    return None
 
 
 def is_legacy_provider_model(provider_name: str, model_name: str) -> bool:
@@ -508,6 +573,9 @@ class AIService:
                 f"등록되지 않은 Provider: {name}",
                 hint="`devfolio config ai list`로 등록된 Provider를 확인하세요.",
             )
+        normalized_base_url = normalize_provider_base_url(provider.name, provider.base_url)
+        if normalized_base_url != provider.base_url:
+            provider = provider.model_copy(update={"base_url": normalized_base_url})
         return provider
 
     @staticmethod
@@ -541,7 +609,8 @@ class AIService:
         """API 키를 환경 변수에 설정 (litellm이 읽도록)."""
         if provider.name in ("ollama", "pollinations"):
             # 키 불필요 — litellm이 base_url 있을 때 dummy 키 허용
-            os.environ.setdefault("OPENAI_API_KEY", "pollinations-free")
+            if not os.environ.get("OPENAI_API_KEY"):
+                os.environ["OPENAI_API_KEY"] = "pollinations-free"
             return
         api_key = get_api_key(provider.name)
         if not api_key:
@@ -735,6 +804,7 @@ class AIService:
         for model_index, runtime_model in enumerate(model_candidates, start=1):
             kwargs["model"] = self._provider_model_string(provider.name, runtime_model)
             for attempt in range(1, _MAX_RETRIES + 1):
+                t_start = time.monotonic()
                 try:
                     logger.debug(
                         "AI 호출 시도 %d/%d (model=%s, candidate=%d/%d)",
@@ -745,7 +815,16 @@ class AIService:
                         len(model_candidates),
                     )
                     response = litellm.completion(**kwargs)
-                    return response.choices[0].message.content or ""
+                    content = response.choices[0].message.content or ""
+                    _write_ai_log(
+                        provider=provider.name,
+                        model=kwargs["model"],
+                        messages=messages,
+                        response=content,
+                        duration_ms=int((time.monotonic() - t_start) * 1000),
+                        ok=True,
+                    )
+                    return content
                 except Exception as e:
                     err_class = type(e).__name__
                     err_str = str(e)
@@ -797,6 +876,15 @@ class AIService:
                         time.sleep(_RETRY_DELAY)
                         continue
                     break
+        _write_ai_log(
+            provider=provider.name,
+            model=kwargs.get("model", ""),
+            messages=messages,
+            response="",
+            duration_ms=int((time.monotonic() - t_start) * 1000),
+            ok=False,
+            error=str(last_error),
+        )
         raise DevfolioAIError(str(last_error)) from last_error
 
     def build_evidence(

@@ -74,6 +74,7 @@ EXPORTS_DIR = DEVFOLIO_DATA_DIR / "exports"
 TEMPLATES_DIR = DEVFOLIO_DATA_DIR / "templates"
 SYNC_REPO_DIR = DEVFOLIO_DATA_DIR / "sync_repo"
 SYNC_STATE_FILE = DEVFOLIO_DATA_DIR / "sync_state.json"
+AI_LOG_FILE = DEVFOLIO_DATA_DIR / "ai_logs.jsonl"
 
 # 레거시 경로 호환 — 이전 버전에서 ~/.devfolio/ 를 사용하던 사용자 지원.
 # Path.home() : 사용자 홈 디렉터리. [Spring] System.getProperty("user.home").
