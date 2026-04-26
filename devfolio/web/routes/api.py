@@ -581,8 +581,9 @@ def test_ai_provider(name: str) -> dict[str, Any]:
     if not provider:
         raise HTTPException(status_code=404, detail=f"Provider '{name}'를 찾을 수 없습니다.")
 
+    _NO_KEY_PROVIDERS = {"ollama", "pollinations"}
     key = get_api_key(name)
-    if not key and name != "ollama":
+    if not key and name not in _NO_KEY_PROVIDERS:
         return {"status": "error", "message": "API 키가 설정되지 않았습니다."}
 
     try:
@@ -1173,5 +1174,34 @@ def open_folder(path: str = "") -> dict[str, str]:
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"폴더를 열 수 없습니다: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# AI 로그
+# ---------------------------------------------------------------------------
+
+@router.get("/ai-logs")
+def get_ai_logs(limit: int = 100) -> dict[str, Any]:
+    from devfolio.core.storage import AI_LOG_FILE
+    if not AI_LOG_FILE.exists():
+        return {"entries": []}
+    lines = AI_LOG_FILE.read_text(encoding="utf-8").splitlines()
+    lines = [l for l in lines if l.strip()]
+    recent = lines[-limit:] if len(lines) > limit else lines
+    entries = []
+    for line in reversed(recent):
+        try:
+            entries.append(json.loads(line))
+        except Exception:
+            pass
+    return {"entries": entries}
+
+
+@router.delete("/ai-logs")
+def clear_ai_logs() -> dict[str, str]:
+    from devfolio.core.storage import AI_LOG_FILE
+    if AI_LOG_FILE.exists():
+        AI_LOG_FILE.write_text("", encoding="utf-8")
+    return {"status": "ok"}
 
     return {"status": "ok", "path": str(folder)}

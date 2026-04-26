@@ -32,6 +32,7 @@
     ai: { label: "AI", desc: "Provider 및 모델" },
     export: { label: "Export", desc: "기본 템플릿과 저장 경로" },
     general: { label: "General", desc: "언어, 타임존, reasoning" },
+    logs: { label: "AI Logs", desc: "요청·응답 기록" },
   };
   const COMMON_PROVIDERS = ["anthropic", "openai", "gemini", "groq", "openrouter", "ollama", "pollinations"];
   const PROJECT_TYPE_BY_EXPERIENCE_KIND = {
@@ -50,6 +51,7 @@
   let previewTimer = null;
   let toastTimer = null;
   let dragSectionId = "";
+  let lastRenderedScreen = "";
 
   const state = {
     initialized: document.body.dataset.initialized === "true",
@@ -96,6 +98,19 @@
       settingsTab: "profile",
       toast: null,
       searchFocus: false,
+      aiLoading: false,
+      aiLoadingMsg: "",
+      logs: [],
+      logsLoading: false,
+      fileBrowser: {
+        open: false,
+        targetField: "scan-repo-path",
+        currentPath: null,
+        parentPath: null,
+        entries: [],
+        roots: [],
+        loading: false,
+      },
     },
   };
 
@@ -434,6 +449,10 @@
     });
   }
 
+  function yieldToBrowser() {
+    return new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+  }
+
   function requestJson(path, options) {
     return fetch(path, {
       headers: {
@@ -668,6 +687,7 @@
     if (tab) {
       state.ui.settingsTab = tab;
       render();
+      if (tab === "logs") loadAiLogs();
       return;
     }
 
@@ -841,6 +861,37 @@
           break;
         case "use-format":
           state.currentDoc.format = target.getAttribute("data-value") || state.currentDoc.format;
+          render();
+          break;
+        case "open-file-browser":
+          state.ui.fileBrowser.open = true;
+          state.ui.fileBrowser.targetField = target.getAttribute("data-target") || "scan-repo-path";
+          await loadFileBrowserDir(null);
+          break;
+        case "file-browser-navigate":
+          await loadFileBrowserDir(target.getAttribute("data-path") || null);
+          break;
+        case "file-browser-parent":
+          await loadFileBrowserDir(state.ui.fileBrowser.parentPath);
+          break;
+        case "file-browser-select":
+          if (state.ui.fileBrowser.targetField === "scan-repo-path") {
+            state.importer.repoPath = state.ui.fileBrowser.currentPath || "";
+          }
+          state.ui.fileBrowser.open = false;
+          render();
+          break;
+        case "file-browser-close":
+          state.ui.fileBrowser.open = false;
+          render();
+          break;
+        case "refresh-ai-logs":
+          await loadAiLogs();
+          break;
+        case "clear-ai-logs":
+          await requestJson("/api/ai-logs", { method: "DELETE" });
+          state.ui.logs = [];
+          showToast("AI 로그를 삭제했습니다.", "ok");
           render();
           break;
         default:
@@ -1059,17 +1110,26 @@
       render();
       return;
     }
-    const payload = await requestJson("/api/intake/project-draft", {
-      method: "POST",
-      body: JSON.stringify({
-        raw_text: state.experienceForm.raw_text,
-        lang: (state.config && state.config.general && state.config.general.default_language) || "ko",
-      }),
-    });
-    state.experienceForm = projectDraftToExperience(payload.draft);
-    state.ui.formSection = "basics";
-    showToast("텍스트를 구조화해 초안을 채웠습니다.", "ok");
+    state.ui.aiLoading = true;
+    state.ui.aiLoadingMsg = "텍스트를 분석하고 있습니다...";
     render();
+    await yieldToBrowser();
+    try {
+      const payload = await requestJson("/api/intake/project-draft", {
+        method: "POST",
+        body: JSON.stringify({
+          raw_text: state.experienceForm.raw_text,
+          lang: (state.config && state.config.general && state.config.general.default_language) || "ko",
+        }),
+      });
+      state.experienceForm = projectDraftToExperience(payload.draft);
+      state.ui.formSection = "basics";
+      showToast("텍스트를 구조화해 초안을 채웠습니다.", "ok");
+    } finally {
+      state.ui.aiLoading = false;
+      state.ui.aiLoadingMsg = "";
+      render();
+    }
   }
 
   async function importFromScan() {
@@ -1078,74 +1138,101 @@
       render();
       return;
     }
-    const payload = await requestJson("/api/scan/git", {
-      method: "POST",
-      body: JSON.stringify({
-        repo_path: state.importer.repoPath.trim(),
-        author_email: state.importer.authorEmail.trim(),
-        refresh: true,
-        analyze: state.importer.analyze,
-        lang: (state.config && state.config.general && state.config.general.default_language) || "ko",
-      }),
-    });
-    state.experienceForm = scanPayloadToExperience(payload.payload || {});
-    state.ui.formSection = "basics";
-    showToast(payload.analyzed ? "Git 스캔과 AI 분석 결과를 불러왔습니다." : "Git 스캔 결과를 불러왔습니다.", "ok");
+    state.ui.aiLoading = true;
+    state.ui.aiLoadingMsg = state.importer.analyze ? "Git 스캔 및 AI 분석 중입니다..." : "Git 저장소를 스캔하고 있습니다...";
     render();
+    await yieldToBrowser();
+    try {
+      const payload = await requestJson("/api/scan/git", {
+        method: "POST",
+        body: JSON.stringify({
+          repo_path: state.importer.repoPath.trim(),
+          author_email: state.importer.authorEmail.trim(),
+          refresh: true,
+          analyze: state.importer.analyze,
+          lang: (state.config && state.config.general && state.config.general.default_language) || "ko",
+        }),
+      });
+      state.experienceForm = scanPayloadToExperience(payload.payload || {});
+      state.ui.formSection = "basics";
+      showToast(payload.analyzed ? "Git 스캔과 AI 분석 결과를 불러왔습니다." : "Git 스캔 결과를 불러왔습니다.", "ok");
+    } finally {
+      state.ui.aiLoading = false;
+      state.ui.aiLoadingMsg = "";
+      render();
+    }
   }
 
   async function generateSummaryForForm() {
     syncExperienceFormFromDom();
-    if (state.editingExperienceId) {
-      const payload = await requestJson(`/api/experiences/${encodeURIComponent(state.editingExperienceId)}/generate-summary`, {
-        method: "POST",
-        body: JSON.stringify({ lang: "ko" }),
-      });
-      const saved = normalizeExperience(payload.experience);
-      state.experienceForm = clone(saved);
-      const index = state.experiences.findIndex((experience) => experience.id === saved.id);
-      if (index >= 0) {
-        state.experiences.splice(index, 1, saved);
-      }
-    } else {
-      const payload = await requestJson("/api/draft/generate-summary", {
-        method: "POST",
-        body: JSON.stringify({
-          draft: experienceToProjectDraft(state.experienceForm),
-          lang: "ko",
-        }),
-      });
-      state.experienceForm = projectDraftToExperience(payload.draft);
-    }
-    showToast("요약을 생성했습니다.", "ok");
+    state.ui.aiLoading = true;
+    state.ui.aiLoadingMsg = "AI가 요약을 생성하고 있습니다...";
     render();
+    await yieldToBrowser();
+    try {
+      if (state.editingExperienceId) {
+        const payload = await requestJson(`/api/experiences/${encodeURIComponent(state.editingExperienceId)}/generate-summary`, {
+          method: "POST",
+          body: JSON.stringify({ lang: "ko" }),
+        });
+        const saved = normalizeExperience(payload.experience);
+        state.experienceForm = clone(saved);
+        const index = state.experiences.findIndex((experience) => experience.id === saved.id);
+        if (index >= 0) {
+          state.experiences.splice(index, 1, saved);
+        }
+      } else {
+        const payload = await requestJson("/api/draft/generate-summary", {
+          method: "POST",
+          body: JSON.stringify({
+            draft: experienceToProjectDraft(state.experienceForm),
+            lang: "ko",
+          }),
+        });
+        state.experienceForm = projectDraftToExperience(payload.draft);
+      }
+      showToast("요약을 생성했습니다.", "ok");
+    } finally {
+      state.ui.aiLoading = false;
+      state.ui.aiLoadingMsg = "";
+      render();
+    }
   }
 
   async function generateTaskBulletsForForm() {
     syncExperienceFormFromDom();
-    if (state.editingExperienceId) {
-      const payload = await requestJson(`/api/experiences/${encodeURIComponent(state.editingExperienceId)}/generate-task-bullets`, {
-        method: "POST",
-        body: JSON.stringify({ lang: "ko" }),
-      });
-      const saved = normalizeExperience(payload.experience);
-      state.experienceForm = clone(saved);
-      const index = state.experiences.findIndex((experience) => experience.id === saved.id);
-      if (index >= 0) {
-        state.experiences.splice(index, 1, saved);
-      }
-    } else {
-      const payload = await requestJson("/api/draft/generate-task-bullets", {
-        method: "POST",
-        body: JSON.stringify({
-          draft: experienceToProjectDraft(state.experienceForm),
-          lang: "ko",
-        }),
-      });
-      state.experienceForm = projectDraftToExperience(payload.draft);
-    }
-    showToast("작업 문구를 생성했습니다.", "ok");
+    state.ui.aiLoading = true;
+    state.ui.aiLoadingMsg = "AI가 작업 설명을 생성하고 있습니다...";
     render();
+    await yieldToBrowser();
+    try {
+      if (state.editingExperienceId) {
+        const payload = await requestJson(`/api/experiences/${encodeURIComponent(state.editingExperienceId)}/generate-task-bullets`, {
+          method: "POST",
+          body: JSON.stringify({ lang: "ko" }),
+        });
+        const saved = normalizeExperience(payload.experience);
+        state.experienceForm = clone(saved);
+        const index = state.experiences.findIndex((experience) => experience.id === saved.id);
+        if (index >= 0) {
+          state.experiences.splice(index, 1, saved);
+        }
+      } else {
+        const payload = await requestJson("/api/draft/generate-task-bullets", {
+          method: "POST",
+          body: JSON.stringify({
+            draft: experienceToProjectDraft(state.experienceForm),
+            lang: "ko",
+          }),
+        });
+        state.experienceForm = projectDraftToExperience(payload.draft);
+      }
+      showToast("작업 문구를 생성했습니다.", "ok");
+    } finally {
+      state.ui.aiLoading = false;
+      state.ui.aiLoadingMsg = "";
+      render();
+    }
   }
 
   function toggleGenerateSelection(experienceId) {
@@ -1316,6 +1403,9 @@
       return;
     }
 
+    const animateScreen = state.ui.screen !== lastRenderedScreen;
+    lastRenderedScreen = state.ui.screen;
+
     root.innerHTML = `
       <div class="studio-app">
         ${renderSidebar()}
@@ -1327,7 +1417,15 @@
         </div>
         ${renderToast()}
       </div>
+      ${renderLoadingOverlay()}
+      ${renderFileBrowserModal()}
     `;
+
+    if (!animateScreen) {
+      const screenEl = root.querySelector(".screen");
+      if (screenEl) screenEl.classList.add("no-animate");
+    }
+
     mountPreviewFrames();
     bindSectionDrag();
     if (state.ui.searchFocus) {
@@ -1868,7 +1966,10 @@
             <div class="eyebrow">Git Scan</div>
             <div class="field-stack">
               <span>저장소 경로</span>
-              <input id="scan-repo-path" class="input" type="text" value="${escapeHtml(state.importer.repoPath)}" placeholder="/Users/you/projects/my-repo" />
+              <div class="input-with-action">
+                <input id="scan-repo-path" class="input" type="text" value="${escapeHtml(state.importer.repoPath)}" placeholder="/Users/you/projects/my-repo" />
+                <button class="btn btn-secondary" data-action="open-file-browser" data-target="scan-repo-path" type="button">찾아보기</button>
+              </div>
             </div>
             <div class="field-grid" style="margin-top:12px;">
               <div class="field">
@@ -2581,6 +2682,8 @@
         return renderExportSettings();
       case "general":
         return renderGeneralSettings();
+      case "logs":
+        return renderLogsSettings();
       default:
         return renderProfileSettings();
     }
@@ -2787,10 +2890,167 @@
     `;
   }
 
+  function renderLogsSettings() {
+    const entries = state.ui.logs || [];
+    return `
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <div class="eyebrow">AI Logs</div>
+            <h3>요청·응답 기록</h3>
+          </div>
+          <div class="toolbar">
+            <button class="btn btn-secondary" data-action="refresh-ai-logs" type="button">${state.ui.logsLoading ? "로딩 중..." : "새로 고침"}</button>
+            <button class="btn btn-danger" data-action="clear-ai-logs" type="button">전체 삭제</button>
+          </div>
+        </div>
+        <div class="surface-list">
+          ${entries.length === 0
+            ? `<div class="empty-state"><p>${state.ui.logsLoading ? "로딩 중..." : "기록이 없습니다."}</p></div>`
+            : entries.map((entry) => renderLogEntry(entry)).join("")}
+        </div>
+      </section>
+    `;
+  }
+
+  function renderLogEntry(entry) {
+    const ts = entry.ts ? new Date(entry.ts).toLocaleString("ko-KR") : "";
+    const isCall = entry.op === "call";
+    const statusClass = entry.ok === false ? "tone-error" : entry.ok === true ? "tone-ok" : "tone-warn";
+    const statusLabel = entry.ok === false ? "실패" : entry.ok === true ? "성공" : entry.level || "INFO";
+    const details = isCall
+      ? `<span class="log-meta">${escapeHtml(entry.provider || "")} / ${escapeHtml(entry.model || "")} · ${entry.duration_ms || 0}ms · 입력 ${entry.prompt_chars || 0}자 · 출력 ${entry.response_chars || 0}자</span>`
+      : "";
+    const preview = isCall
+      ? (entry.error ? `<pre class="log-preview error">${escapeHtml(entry.error)}</pre>` : (entry.response_preview ? `<pre class="log-preview">${escapeHtml(entry.response_preview)}</pre>` : ""))
+      : `<pre class="log-preview">${escapeHtml(entry.message || "")}</pre>`;
+    return `
+      <div class="log-entry">
+        <div class="log-header">
+          <span class="log-badge ${statusClass}">${statusLabel}</span>
+          <span class="log-op">${isCall ? "AI 호출" : "로그"}</span>
+          ${details}
+          <span class="log-ts">${ts}</span>
+        </div>
+        ${preview}
+      </div>
+    `;
+  }
+
+  async function loadAiLogs() {
+    state.ui.logsLoading = true;
+    render();
+    try {
+      const data = await requestJson("/api/ai-logs?limit=100");
+      state.ui.logs = data.entries || [];
+    } finally {
+      state.ui.logsLoading = false;
+      render();
+    }
+  }
+
   function renderToast() {
     if (!state.ui.toast) {
       return "";
     }
     return `<div class="toast ${state.ui.toast.tone}">${escapeHtml(state.ui.toast.message)}</div>`;
+  }
+
+  function renderLoadingOverlay() {
+    const busy = state.generate.busy || state.ui.aiLoading;
+    if (!busy) return "";
+    const message = state.generate.busy
+      ? "문서 세션을 생성하고 있습니다..."
+      : (state.ui.aiLoadingMsg || "AI가 내용을 생성하고 있습니다...");
+    const sub = state.generate.busy
+      ? "선택한 경험을 기반으로 문서를 구성합니다. 잠시 기다려 주세요."
+      : "잠시 기다려 주세요.";
+    return `
+      <div class="loading-overlay">
+        <div class="loading-overlay-inner">
+          <div class="spinner"></div>
+          <strong>${escapeHtml(message)}</strong>
+          <p>${sub}</p>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderFileBrowserModal() {
+    const fb = state.ui.fileBrowser;
+    if (!fb.open) return "";
+    return `
+      <div class="modal-overlay" data-action="file-browser-close">
+        <div class="modal-box" data-action="">
+          <div class="modal-header">
+            <div>
+              <div class="eyebrow">폴더 선택</div>
+              <h3>저장소 경로 지정</h3>
+            </div>
+            <button class="btn btn-ghost" data-action="file-browser-close" type="button">✕</button>
+          </div>
+          <div class="modal-body">
+            ${fb.loading ? `<div class="empty-panel" style="min-height:160px;">불러오는 중...</div>` : renderFileBrowserEntries(fb)}
+          </div>
+          <div class="modal-footer">
+            <span class="path-display">${escapeHtml(fb.currentPath || "경로 없음")}</span>
+            <button class="btn btn-primary" data-action="file-browser-select" type="button">선택</button>
+            <button class="btn btn-ghost" data-action="file-browser-close" type="button">취소</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderFileBrowserEntries(fb) {
+    let html = "";
+
+    if (fb.roots.length > 0) {
+      html += `<div class="dir-roots">`;
+      fb.roots.forEach((root) => {
+        const name = root.split("/").pop() || root;
+        html += `<button class="btn btn-secondary" style="font-size:11px;padding:5px 10px;" data-action="file-browser-navigate" data-path="${escapeHtml(root)}" type="button">⌂ ${escapeHtml(name)}</button>`;
+      });
+      html += `</div>`;
+    }
+
+    if (fb.parentPath) {
+      html += `<button class="dir-breadcrumb" data-action="file-browser-parent" type="button">↑ 상위 폴더</button>`;
+    }
+
+    if (!fb.entries.length) {
+      return html + `<div class="empty-panel" style="min-height:120px;">하위 폴더가 없습니다.</div>`;
+    }
+
+    fb.entries.forEach((entry) => {
+      const isGit = entry.is_git_repo;
+      html += `
+        <button class="dir-entry ${isGit ? "git-repo" : ""}" data-action="file-browser-navigate" data-path="${escapeHtml(entry.path)}" type="button">
+          <span>${isGit ? "◈" : "▸"}</span>
+          <span class="dir-name">${escapeHtml(entry.name)}</span>
+          ${isGit ? `<span class="badge green" style="font-size:10px;margin-left:auto;">git</span>` : ""}
+        </button>
+      `;
+    });
+
+    return html;
+  }
+
+  async function loadFileBrowserDir(path) {
+    state.ui.fileBrowser.loading = true;
+    render();
+    try {
+      const query = path ? `?path=${encodeURIComponent(path)}` : "";
+      const payload = await requestJson(`/api/fs/directories${query}`);
+      state.ui.fileBrowser.currentPath = payload.current_path;
+      state.ui.fileBrowser.parentPath = payload.parent_path || null;
+      state.ui.fileBrowser.roots = payload.roots || [];
+      state.ui.fileBrowser.entries = payload.entries || [];
+    } catch (error) {
+      showToast(error.message || "디렉터리를 불러오지 못했습니다.", "error");
+    } finally {
+      state.ui.fileBrowser.loading = false;
+      render();
+    }
   }
 })();

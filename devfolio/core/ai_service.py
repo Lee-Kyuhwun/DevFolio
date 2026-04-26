@@ -213,6 +213,55 @@ _MAX_RETRIES = 2
 # 짧은 간격 재시도는 quota만 낭비
 _RETRY_DELAY = 2.0  # 초 (일반 오류용)
 _RATE_LIMIT_RETRY_DELAY = 65.0  # 초 (rate limit 전용 — RPM 윈도우 넘김)
+_AI_LOG_MAX_ENTRIES = 500
+_AI_LOG_PREVIEW_CHARS = 400
+
+
+def _write_ai_log(
+    *,
+    provider: str,
+    model: str,
+    messages: list[dict],
+    response: str,
+    duration_ms: int,
+    ok: bool,
+    error: str | None = None,
+) -> None:
+    try:
+        from datetime import datetime, timezone
+        from devfolio.core.storage import AI_LOG_FILE, DEVFOLIO_DATA_DIR
+        DEVFOLIO_DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+        system_msg = next((m.get("content", "") for m in messages if m.get("role") == "system"), "")
+        user_msg = next((m.get("content", "") for m in messages if m.get("role") == "user"), "")
+
+        entry = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "provider": provider,
+            "model": model,
+            "op": "call",
+            "prompt_chars": sum(len(m.get("content", "")) for m in messages),
+            "response_chars": len(response),
+            "duration_ms": duration_ms,
+            "ok": ok,
+            "error": error,
+            "system_preview": system_msg[:_AI_LOG_PREVIEW_CHARS],
+            "user_preview": user_msg[:_AI_LOG_PREVIEW_CHARS],
+            "response_preview": response[:_AI_LOG_PREVIEW_CHARS],
+        }
+
+        existing: list[str] = []
+        if AI_LOG_FILE.exists():
+            existing = AI_LOG_FILE.read_text(encoding="utf-8").splitlines()
+
+        existing.append(json.dumps(entry, ensure_ascii=False))
+        if len(existing) > _AI_LOG_MAX_ENTRIES:
+            existing = existing[-_AI_LOG_MAX_ENTRIES:]
+
+        AI_LOG_FILE.write_text("\n".join(existing) + "\n", encoding="utf-8")
+    except Exception:
+        pass
+
 
 # API 키 없이 사용 가능한 기본 내장 provider (pollinations.ai)
 _POLLINATIONS_BASE_URL = "https://text.pollinations.ai/openai"
@@ -731,6 +780,7 @@ class AIService:
             kwargs["api_base"] = provider.base_url
 
         last_error: Exception = RuntimeError("알 수 없는 오류")
+        t_start = time.monotonic()
         model_candidates = self._runtime_model_candidates(provider)
         for model_index, runtime_model in enumerate(model_candidates, start=1):
             kwargs["model"] = self._provider_model_string(provider.name, runtime_model)
@@ -744,8 +794,19 @@ class AIService:
                         model_index,
                         len(model_candidates),
                     )
+                    t_start = time.monotonic()
                     response = litellm.completion(**kwargs)
-                    return response.choices[0].message.content or ""
+                    t_end = time.monotonic()
+                    content = response.choices[0].message.content or ""
+                    _write_ai_log(
+                        provider=provider.name,
+                        model=kwargs["model"],
+                        messages=messages,
+                        response=content,
+                        duration_ms=int((t_end - t_start) * 1000),
+                        ok=True,
+                    )
+                    return content
                 except Exception as e:
                     err_class = type(e).__name__
                     err_str = str(e)
@@ -793,6 +854,15 @@ class AIService:
                         raise DevfolioAIRateLimitError(provider.name) from e
                     last_error = e
                     logger.warning("AI 호출 실패 (%d/%d): %s", attempt, _MAX_RETRIES, e)
+                    _write_ai_log(
+                        provider=provider.name,
+                        model=kwargs.get("model", "unknown"),
+                        messages=messages,
+                        response="",
+                        duration_ms=int((time.monotonic() - t_start) * 1000),
+                        ok=False,
+                        error=str(e),
+                    )
                     if attempt < _MAX_RETRIES:
                         time.sleep(_RETRY_DELAY)
                         continue
