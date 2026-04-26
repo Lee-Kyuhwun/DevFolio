@@ -845,18 +845,30 @@ class AIService:
             kwargs["model"] = self._provider_model_string(provider.name, runtime_model)
             for attempt in range(1, _MAX_RETRIES + 1):
                 try:
-                    logger.debug(
-                        "AI 호출 시도 %d/%d (model=%s, candidate=%d/%d)",
-                        attempt,
-                        _MAX_RETRIES,
-                        kwargs["model"],
-                        model_index,
-                        len(model_candidates),
+                    _sys = next((m.get("content", "") for m in messages if m.get("role") == "system"), "")
+                    _usr = next((m.get("content", "") for m in messages if m.get("role") == "user"), "")
+                    logger.info(
+                        "AI 요청 시작: model=%s attempt=%d/%d prompt_chars=%d json_mode=%s\n"
+                        "  [system] %.300s%s\n"
+                        "  [user]   %.600s%s",
+                        kwargs["model"], attempt, _MAX_RETRIES,
+                        sum(len(m.get("content", "")) for m in messages),
+                        json_mode,
+                        _sys.replace("\n", " "),
+                        "..." if len(_sys) > 300 else "",
+                        _usr.replace("\n", " "),
+                        "..." if len(_usr) > 600 else "",
                     )
                     t_start = time.monotonic()
                     response = litellm.completion(**kwargs)
                     t_end = time.monotonic()
                     content = response.choices[0].message.content or ""
+                    logger.info(
+                        "AI 응답 수신: model=%s duration=%dms response_chars=%d\n  [response] %.800s%s",
+                        kwargs["model"], int((t_end - t_start) * 1000), len(content),
+                        content.replace("\n", " "),
+                        "..." if len(content) > 800 else "",
+                    )
                     _write_ai_log(
                         provider=provider.name,
                         model=kwargs["model"],
@@ -867,6 +879,7 @@ class AIService:
                     )
                     return content
                 except Exception as e:
+                    import traceback as _tb
                     err_class = type(e).__name__
                     err_str = str(e)
                     if (
@@ -917,7 +930,10 @@ class AIService:
                             continue
                         raise DevfolioAIRateLimitError(provider.name) from e
                     last_error = e
-                    logger.warning("AI 호출 실패 (%d/%d): %s", attempt, _MAX_RETRIES, e)
+                    logger.warning(
+                        "AI 호출 실패 (%d/%d): %s\n%s",
+                        attempt, _MAX_RETRIES, e, _tb.format_exc(),
+                    )
                     _write_ai_log(
                         provider=provider.name,
                         model=kwargs.get("model", "unknown"),
@@ -1089,7 +1105,7 @@ class AIService:
             provider_name=provider_name,
             temperature=0.0,
             max_tokens=1200,
-            json_mode=True,
+            json_mode=False,
         )
         return ReviewResult.model_validate(self._extract_json(raw))
 
@@ -1828,7 +1844,7 @@ class AIService:
 </project_brief>"""
 
         payload = self._extract_json(
-            self._call(_INTAKE_SYSTEM, prompt, provider_name, json_mode=True)
+            self._call(_INTAKE_SYSTEM, prompt, provider_name, json_mode=False)
         )
         payload.setdefault("name", "")
         payload.setdefault("type", "company")
@@ -2073,7 +2089,7 @@ class AIService:
             f"반드시 위 스키마 형태의 JSON 객체만 반환하세요."
         )
 
-        raw = self._call(_CODE_ANALYSIS_SYSTEM, prompt, provider_name, json_mode=True)
+        raw = self._call(_CODE_ANALYSIS_SYSTEM, prompt, provider_name, json_mode=False)
         payload = self._extract_json(raw)
 
         # 필수 키 보장 (AI가 일부 생략할 경우 대비)
