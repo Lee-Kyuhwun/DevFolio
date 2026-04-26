@@ -1203,3 +1203,60 @@ tbody tr:hover {
 }
 
 .log-preview.error { color: #f85149; }
+
+/* AI 분석 실패 배너 */
+.ai-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(245, 166, 35, 0.1);
+  border: 1px solid rgba(245, 166, 35, 0.3);
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: #f5a623;
+}
+
+.ai-error-icon { font-size: 16px; flex-shrink: 0; }
+.ai-error-banner span:last-of-type { flex: 1; }
+.ai-error-banner .btn { flex-shrink: 0; margin-left: auto; }
+
+/* field hint — block display */
+label .field-hint {
+  display: block;
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
+/* section desc */
+.section-desc {
+  font-size: 12px;
+  color: var(--text-3);
+  margin: 0 0 10px;
+}
+
+/* Document target 설명 힌트 */
+.doc-target-hints {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.doc-target-hint {
+  font-size: 11px;
+  color: var(--text-3);
+  padding: 4px 8px;
+  border-radius: 4px;
+  opacity: 0.5;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.doc-target-hint.active {
+  opacity: 1;
+  color: var(--text-2);
+  background: rgba(255, 255, 255, 0.04);
+}

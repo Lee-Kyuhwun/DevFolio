@@ -2041,16 +2041,6 @@ class AIService:
             f"언어 비율: {langs_str}\n\n"
         )
 
-        # --- 커밋 히스토리 섹션 ---
-        commit_history_section = ""
-        commit_history = project_context.get("commit_history", "")
-        if commit_history:
-            commit_history_section = (
-                f"[커밋 히스토리 (최근 순)]\n"
-                f"이 히스토리에서 기술적 의사결정과 반복 개선 패턴을 찾아 problem_solving_cases로 추출하세요.\n"
-                f"{commit_history}\n\n"
-            )
-
         schema = """{
   "project_type": "웹 API | CLI 도구 | 라이브러리 | 모바일 앱 | ...",
   "purpose": "한 문장 핵심 목적",
@@ -2067,32 +2057,17 @@ class AIService:
       "tech_used": ["기술"],
       "result": "정성적 성과 — 무엇을 달성했는지 1~2문장. 커밋 수·LOC 같은 raw 통계 제외"
     }
-  ],
-  "problem_solving_cases": [
-    {
-      "title": "한 줄 사례 제목 — 'A 방식의 한계를 B로 해결' 형식으로 작성",
-      "situation": "어떤 상황·맥락에서 문제가 드러났는가 (1~2문장)",
-      "cause": "왜 기존 방식이 한계에 부딪혔는가 (구체적 원인)",
-      "action": "어떤 기술적 접근으로 해결했는가 (구현 방법)",
-      "decision_reason": "왜 다른 대안이 아닌 이 방식을 선택했는가 (트레이드오프 포함)",
-      "result": "어떤 개선이 있었는가 (정성·정량 모두)",
-      "metric": "수치 지표 (없으면 빈 문자열)",
-      "tech_used": ["관련 기술"]
-    }
   ]
 }"""
 
         lang_instr = self._language_instruction(lang)
         prompt = (
             f"다음 프로젝트 정보를 분석해 포트폴리오 초안을 JSON으로 작성해주세요.\n\n"
-            f"{git_section}{commit_history_section}{readme_section}{deps_section}{files_section}"
+            f"{git_section}{readme_section}{deps_section}{files_section}"
             f"[출력 스키마]\n{schema}\n\n"
             f"[중요 규칙]\n"
             f"- tasks는 2~3개로 제한하세요. 각 task는 프로젝트 내 독립적인 기능 영역을 나타냅니다.\n"
             f"- tasks의 result 필드에는 정성적 성과만 작성하세요. 커밋 수·LOC 수치는 포함하지 마세요.\n"
-            f"- problem_solving_cases는 1~3개 추출하세요. 커밋 히스토리에서 반복 개선·리팩토링·성능 개선 흐름을 우선 찾으세요.\n"
-            f"- problem_solving_cases의 title은 반드시 'A 한계 → B 해결' 또는 'A 방식에서 B로 전환' 형식으로 작성하세요.\n"
-            f"- problem_solving_cases의 decision_reason은 빈 문자열 금지 — 왜 이 접근을 선택했는지 반드시 서술하세요.\n"
             f"- 언어 지시: {lang_instr}\n"
             f"- 일본어(히라가나/가타카나/한자)·중국어 문자는 절대 사용 금지. 한국어와 영문 고유명사만 허용.\n"
             f"반드시 위 스키마 형태의 JSON 객체만 반환하세요."
@@ -2102,27 +2077,85 @@ class AIService:
         payload = self._extract_json(raw)
 
         # 필수 키 보장 (AI가 일부 생략할 경우 대비)
-        for key in (
-            "project_type",
-            "purpose",
-            "key_features",
-            "problem",
-            "solution",
-            "tech_stack",
-            "summary",
-            "tasks",
-            "problem_solving_cases",
-        ):
-            payload.setdefault(
-                key,
-                []
-                if key
-                in ("key_features", "tech_stack", "tasks", "problem_solving_cases")
-                else "",
-            )
+        for key in ("project_type", "purpose", "key_features", "problem", "solution", "tech_stack", "summary", "tasks"):
+            payload.setdefault(key, [] if key in ("key_features", "tech_stack", "tasks") else "")
+
+        # --- 2차 호출: 커밋 히스토리 기반 문제 해결 사례 추출 ---
+        # 별도 호출로 분리해 메인 분석 실패와 독립적으로 처리
+        commit_history = project_context.get("commit_history", "")
+        payload["problem_solving_cases"] = self._extract_problem_solving_cases(
+            commit_history=commit_history,
+            readme=project_context.get("readme", ""),
+            repo_name=repo_name,
+            lang=lang,
+            provider_name=provider_name,
+        )
 
         # 언어 지시를 무시한 모델 출력에서 일본어·중국어 문자 물리적 제거
         return _strip_foreign_in_dict(payload)
+
+    def _extract_problem_solving_cases(
+        self,
+        *,
+        commit_history: str,
+        readme: str,
+        repo_name: str,
+        lang: str = "ko",
+        provider_name: Optional[str] = None,
+    ) -> list[dict]:
+        """커밋 히스토리에서 기술적 판단 진화 사례를 추출한다.
+
+        메인 analyze_project_from_code 와 독립적으로 호출되어
+        실패 시 빈 리스트를 반환하고 메인 분석 결과를 유지한다.
+        """
+        if not commit_history:
+            return []
+
+        schema = """[
+  {
+    "title": "'A 방식의 한계를 B로 해결' 형식의 한 줄 제목",
+    "situation": "어떤 맥락에서 문제가 드러났는가 (1~2문장)",
+    "cause": "기존 방식이 한계에 부딪힌 구체적 원인",
+    "action": "어떤 기술적 접근으로 해결했는가",
+    "decision_reason": "왜 다른 대안이 아닌 이 방식을 선택했는가 (트레이드오프)",
+    "result": "어떤 개선이 있었는가",
+    "metric": "수치 지표 또는 빈 문자열",
+    "tech_used": ["관련 기술"]
+  }
+]"""
+        readme_snip = readme[:1500] if readme else ""
+        lang_instr = self._language_instruction(lang)
+        prompt = (
+            f"레포지토리: {repo_name}\n\n"
+            f"[커밋 히스토리 (최근 순)]\n{commit_history}\n\n"
+            + (f"[README 요약]\n{readme_snip}\n\n" if readme_snip else "")
+            + f"위 커밋 히스토리에서 기술적 판단이 드러나는 문제 해결 사례 1~3개를 JSON 배열로 추출하세요.\n"
+            f"추출 기준:\n"
+            f"- 단순 기능 추가(feat)가 아닌, 기존 방식의 한계로 인해 바꾼 것(refactor/fix/perf)을 우선\n"
+            f"- 동일 영역 여러 번 수정 = 점진적 개선 = 사례 후보\n"
+            f"- 커밋 흐름에서 'A 추가 → A 개선 → A 고도화' 패턴이 보이면 하나의 사례로 묶어 서술\n"
+            f"- decision_reason 필드는 반드시 채울 것\n"
+            f"- 언어 지시: {lang_instr}\n\n"
+            f"[출력 스키마]\n{schema}\n\n"
+            f"반드시 JSON 배열만 반환하세요. 다른 텍스트나 마크다운 금지."
+        )
+
+        try:
+            raw = self._call(_CODE_ANALYSIS_SYSTEM, prompt, provider_name, json_mode=False)
+            cleaned = raw.strip()
+            # 코드 펜스 제거
+            for fenced in re.finditer(r"```(?:json)?\s*(.*?)```", cleaned, re.DOTALL):
+                cleaned = fenced.group(1).strip()
+                break
+            # 배열 추출
+            arr_match = re.search(r"\[[\s\S]*\]", cleaned)
+            if arr_match:
+                result = json.loads(arr_match.group(0))
+                if isinstance(result, list):
+                    return [c for c in result if isinstance(c, dict)]
+        except Exception as exc:
+            logger.warning("문제 해결 사례 추출 실패 (빈 배열로 계속): %s", exc)
+        return []
 
     def test_connection(self, provider_name: Optional[str] = None) -> tuple[bool, str]:
         """AI Provider 연결 테스트."""

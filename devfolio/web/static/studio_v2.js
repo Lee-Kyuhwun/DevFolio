@@ -86,6 +86,7 @@
       repoPath: "",
       authorEmail: "",
       analyze: true,
+      aiError: null,
     },
     ui: {
       loading: true,
@@ -897,6 +898,10 @@
           state.ui.fileBrowser.open = false;
           render();
           break;
+        case "retry-ai-scan":
+          state.importer.aiError = null;
+          await importFromScan();
+          break;
         case "refresh-ai-logs":
           await loadAiLogs();
           break;
@@ -1166,8 +1171,13 @@
         }),
       });
       state.experienceForm = scanPayloadToExperience(payload.payload || {});
+      state.importer.aiError = payload.ai_error || null;
       state.ui.formSection = "basics";
-      showToast(payload.analyzed ? "Git 스캔과 AI 분석 결과를 불러왔습니다." : "Git 스캔 결과를 불러왔습니다.", "ok");
+      if (payload.ai_error) {
+        showToast("AI 분석 실패 — 기본 스캔 결과만 가져왔습니다. 아래에서 재시도할 수 있습니다.", "warn");
+      } else {
+        showToast(payload.analyzed ? "Git 스캔과 AI 분석 결과를 불러왔습니다." : "Git 스캔 결과를 불러왔습니다.", "ok");
+      }
     } finally {
       state.ui.aiLoading = false;
       state.ui.aiLoadingMsg = "";
@@ -2003,8 +2013,16 @@
   }
 
   function renderExperienceBasicsSection(form) {
+    const aiErrorBanner = state.importer.aiError
+      ? `<div class="ai-error-banner">
+          <span class="ai-error-icon">⚠</span>
+          <span>AI 분석 실패 — 기본 스캔 결과만 채워졌습니다. AI 재분석을 시도하거나 직접 입력하세요.</span>
+          <button class="btn btn-secondary" data-action="retry-ai-scan" type="button">AI 재분석</button>
+        </div>`
+      : "";
     return `
       <div class="section-block">
+        ${aiErrorBanner}
         <div class="eyebrow">Basics</div>
         <h3>경험의 기본 정보</h3>
         <p>문서에서 가장 먼저 읽히는 제목, 역할, 기간, 중요도, 문서 연결 대상을 정리합니다.</p>
@@ -2060,21 +2078,30 @@
           <label class="field">
             <span>협업 프로젝트</span>
             <input name="collaboration" type="checkbox"${checked(form.studio_meta.collaboration)} />
+            <span class="field-hint">체크 시 경력기술서에 팀 규모·협업 방식이 강조됩니다. 단독 프로젝트는 개인 기여와 전체 책임 범위가 전면에 부각됩니다.</span>
           </label>
         </div>
         <div class="section-block">
           <div class="eyebrow">Document Targets</div>
+          <p class="section-desc">이 경험을 포함할 문서 종류를 선택합니다. 선택된 문서 타입의 생성 화면에서만 이 경험이 나타납니다.</p>
           <div class="section-list">
             ${Object.keys(DOC_TYPES)
               .map(
                 (docType) => `
-                <label class="chip">
+                <label class="chip" title="${escapeHtml(DOC_TYPES[docType].desc)}">
                   <input name="document_target" type="checkbox" value="${docType}"${checked(form.studio_meta.document_targets.includes(docType))} />
                   ${docLabel(docType)}
                 </label>
               `
               )
               .join("")}
+          </div>
+          <div class="doc-target-hints">
+            ${Object.keys(DOC_TYPES).map((docType) => `
+              <div class="doc-target-hint ${form.studio_meta.document_targets.includes(docType) ? "active" : ""}">
+                <strong>${docLabel(docType)}</strong> — ${escapeHtml(DOC_TYPES[docType].desc)}
+              </div>
+            `).join("")}
           </div>
         </div>
       </div>

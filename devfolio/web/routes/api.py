@@ -1,4 +1,14 @@
-"""REST API 라우터 — Portfolio Studio + 설정 CRUD."""
+"""REST API 라우터 — Portfolio Studio + 설정 CRUD.
+
+[Spring 비교]
+  @RestController + DTO(BaseModel) + Service 호출을 FastAPI 스타일로 구현한 것.
+  DevfolioError(도메인 예외)를 HTTPException으로 변환해 프론트(UI)에 전달한다.
+
+[Python 문법 메모 — Java 개발자용]
+  - `BaseModel`은 요청/응답 DTO 역할(검증 포함)이며, Java의 Bean Validation(@Valid)과 유사하다.
+  - `model_copy(update={...})`는 “불변 업데이트”로, 기존 객체를 복사해 일부 필드만 바꾼다.
+  - `raise ... from exc`는 원인 예외(cause)를 보존해 디버깅을 돕는다.
+"""
 
 from __future__ import annotations
 
@@ -23,7 +33,13 @@ from devfolio.core.project_manager import ProjectManager
 from devfolio.core.storage import EXPORTS_DIR, load_config, save_config
 from devfolio.core.template_engine import TemplateEngine
 from devfolio.exceptions import DevfolioError, DevfolioProjectNotFoundError
-from devfolio.models.config import AIProviderConfig, ExportConfig, ReasoningConfig, SyncConfig, UserConfig
+from devfolio.models.config import (
+    AIProviderConfig,
+    ExportConfig,
+    ReasoningConfig,
+    SyncConfig,
+    UserConfig,
+)
 from devfolio.models.draft import DraftPreviewRequest, ExperienceDraft, ProjectDraft
 from devfolio.web.experience_mapper import (
     experience_from_project_draft,
@@ -44,6 +60,7 @@ pm = ProjectManager()
 # ---------------------------------------------------------------------------
 # Request / Response 모델
 # ---------------------------------------------------------------------------
+
 
 class UserConfigUpdate(BaseModel):
     name: str = ""
@@ -112,6 +129,7 @@ class SavedAIRequest(BaseModel):
 # 공용 헬퍼
 # ---------------------------------------------------------------------------
 
+
 def _format_error(exc: DevfolioError) -> str:
     if exc.hint:
         return f"{exc.message} ({exc.hint})"
@@ -119,6 +137,7 @@ def _format_error(exc: DevfolioError) -> str:
 
 
 def _raise_from_devfolio(exc: DevfolioError, status_code: int = 400) -> None:
+    # DevfolioError(message+hint) → HTTPException(detail)로 변환해 API 레이어에서 반환.
     raise HTTPException(status_code=status_code, detail=_format_error(exc)) from exc
 
 
@@ -161,7 +180,10 @@ def _load_config_with_normalized_models():
     for index, provider in enumerate(cfg.ai_providers):
         normalized_model = normalize_provider_model_name(provider.name, provider.model)
         if normalized_model and normalized_model != provider.model:
-            cfg.ai_providers[index] = provider.model_copy(update={"model": normalized_model})
+            # Pydantic model_copy(update=...): 객체를 직접 mutate하지 않고 새 객체로 교체한다.
+            cfg.ai_providers[index] = provider.model_copy(
+                update={"model": normalized_model}
+            )
             changed = True
     if changed:
         save_config(cfg)
@@ -198,7 +220,7 @@ def _scan_repo_path_candidates(raw_path: str) -> list[Path]:
     if not raw:
         return []
 
-    expanded = Path(raw).expanduser()
+    expanded = Path(raw).expanduser()  # "~" 홈 경로를 실제 Path로 확장.
     candidates: list[Path] = [expanded.resolve(strict=False)]
     docker_repo_root = Path(os.environ.get("DEVFOLIO_DOCKER_REPO_ROOT", "/home/user"))
     parts = expanded.parts
@@ -320,7 +342,10 @@ def _resolve_projects(request: DraftPreviewRequest):
 
     if request.project_ids:
         try:
-            projects = [pm.get_project_or_raise(project_id) for project_id in request.project_ids]
+            projects = [
+                pm.get_project_or_raise(project_id)
+                for project_id in request.project_ids
+            ]
         except DevfolioProjectNotFoundError as exc:
             _raise_from_devfolio(exc, status_code=404)
     else:
@@ -395,7 +420,11 @@ def _export_document(request: DraftPreviewRequest) -> dict[str, Any]:
         base.mkdir(parents=True, exist_ok=True)
         output_path = base / f"{filename}.json"
         output_path.write_text(
-            json.dumps([project.model_dump() for project in projects], ensure_ascii=False, indent=2),
+            json.dumps(
+                [project.model_dump() for project in projects],
+                ensure_ascii=False,
+                indent=2,
+            ),
             encoding="utf-8",
         )
     elif fmt == "csv":
@@ -423,12 +452,17 @@ def _export_document(request: DraftPreviewRequest) -> dict[str, Any]:
 # 전체 Config 조회
 # ---------------------------------------------------------------------------
 
+
 @router.get("/config")
 def get_config() -> dict[str, Any]:
     """전체 설정을 반환합니다 (API 키는 마스킹)."""
     cfg = _load_config_with_normalized_models()
     default_provider = next(
-        (provider for provider in cfg.ai_providers if provider.name == cfg.default_ai_provider),
+        (
+            provider
+            for provider in cfg.ai_providers
+            if provider.name == cfg.default_ai_provider
+        ),
         None,
     )
     default_resolution = (
@@ -447,9 +481,15 @@ def get_config() -> dict[str, Any]:
             "reasoning_strategy": cfg.reasoning.strategy,
             "reasoning_samples": cfg.reasoning.samples,
             "judge_provider": cfg.reasoning.judge_provider,
-            "default_ai_generation_model": default_resolution.generation_model if default_resolution else "",
-            "default_ai_generation_status": default_resolution.status if default_resolution else "unavailable",
-            "default_ai_generation_warning": default_resolution.warning if default_resolution else "",
+            "default_ai_generation_model": default_resolution.generation_model
+            if default_resolution
+            else "",
+            "default_ai_generation_status": default_resolution.status
+            if default_resolution
+            else "unavailable",
+            "default_ai_generation_warning": default_resolution.warning
+            if default_resolution
+            else "",
         },
         "ai_providers": _build_provider_list(cfg),
         "initialized": True,
@@ -459,6 +499,7 @@ def get_config() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # 사용자 프로필 / 일반 설정 / Export / Sync
 # ---------------------------------------------------------------------------
+
 
 @router.put("/config/user")
 def update_user(body: UserConfigUpdate) -> dict[str, str]:
@@ -497,7 +538,9 @@ def update_sync(body: SyncConfigUpdate) -> dict[str, str]:
 def update_general(body: GeneralConfigUpdate) -> dict[str, str]:
     cfg = load_config()
     if body.default_language not in ("ko", "en", "both"):
-        raise HTTPException(status_code=422, detail="언어는 ko, en, both 중 하나여야 합니다.")
+        raise HTTPException(
+            status_code=422, detail="언어는 ko, en, both 중 하나여야 합니다."
+        )
     try:
         cfg.reasoning = ReasoningConfig.model_validate(
             {
@@ -511,9 +554,15 @@ def update_general(body: GeneralConfigUpdate) -> dict[str, str]:
     if cfg.reasoning.samples > 1 and cfg.reasoning.strategy == "single":
         cfg.reasoning = cfg.reasoning.model_copy(update={"strategy": "best_of_n"})
     if cfg.reasoning.strategy == "best_of_n" and cfg.reasoning.samples < 2:
-        raise HTTPException(status_code=422, detail="best_of_n 전략은 샘플 수가 2 이상이어야 합니다.")
-    if cfg.reasoning.judge_provider and not cfg.get_provider(cfg.reasoning.judge_provider):
-        raise HTTPException(status_code=422, detail="judge_provider 는 등록된 AI Provider 여야 합니다.")
+        raise HTTPException(
+            status_code=422, detail="best_of_n 전략은 샘플 수가 2 이상이어야 합니다."
+        )
+    if cfg.reasoning.judge_provider and not cfg.get_provider(
+        cfg.reasoning.judge_provider
+    ):
+        raise HTTPException(
+            status_code=422, detail="judge_provider 는 등록된 AI Provider 여야 합니다."
+        )
     cfg.default_language = body.default_language
     cfg.timezone = body.timezone
     cfg.default_ai_provider = body.default_ai_provider
@@ -524,6 +573,7 @@ def update_general(body: GeneralConfigUpdate) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 # AI Provider CRUD
 # ---------------------------------------------------------------------------
+
 
 @router.get("/config/ai")
 def list_ai_providers() -> list[dict[str, Any]]:
@@ -563,9 +613,13 @@ def upsert_ai_provider(body: AIProviderCreate) -> dict[str, str]:
 def remove_ai_provider(name: str) -> dict[str, str]:
     cfg = load_config()
     before = len(cfg.ai_providers)
-    cfg.ai_providers = [provider for provider in cfg.ai_providers if provider.name != name]
+    cfg.ai_providers = [
+        provider for provider in cfg.ai_providers if provider.name != name
+    ]
     if len(cfg.ai_providers) == before:
-        raise HTTPException(status_code=404, detail=f"Provider '{name}'를 찾을 수 없습니다.")
+        raise HTTPException(
+            status_code=404, detail=f"Provider '{name}'를 찾을 수 없습니다."
+        )
 
     delete_api_key(name)
     if cfg.default_ai_provider == name:
@@ -579,7 +633,9 @@ def test_ai_provider(name: str) -> dict[str, Any]:
     cfg = _load_config_with_normalized_models()
     provider = cfg.get_provider(name)
     if not provider:
-        raise HTTPException(status_code=404, detail=f"Provider '{name}'를 찾을 수 없습니다.")
+        raise HTTPException(
+            status_code=404, detail=f"Provider '{name}'를 찾을 수 없습니다."
+        )
 
     _NO_KEY_PROVIDERS = {"ollama", "pollinations"}
     key = get_api_key(name)
@@ -602,11 +658,19 @@ def test_ai_provider(name: str) -> dict[str, Any]:
 # Directory Browser
 # ---------------------------------------------------------------------------
 
+
 @router.get("/fs/directories")
 def list_directories(path: Optional[str] = None) -> dict[str, Any]:
     try:
         current, roots = _resolve_directory_browser_path(path)
-        root_for_current = next((root for root in roots if current == root or _is_within_root(current, root)), roots[0])
+        root_for_current = next(
+            (
+                root
+                for root in roots
+                if current == root or _is_within_root(current, root)
+            ),
+            roots[0],
+        )
         parent_path = None
         if current != root_for_current:
             parent_path = str(current.parent)
@@ -620,7 +684,9 @@ def list_directories(path: Optional[str] = None) -> dict[str, Any]:
                         children.append(child)
                 except OSError:
                     continue
-            children = sorted(children, key=lambda child: child.name.lower())[:200]
+            children = sorted(children, key=lambda child: child.name.lower())[
+                :200
+            ]  # 과도한 응답 크기 방지(상위 200개만).
         except OSError as exc:
             raise DevfolioError(
                 f"디렉터리를 읽을 수 없습니다: {current}",
@@ -651,6 +717,7 @@ def list_directories(path: Optional[str] = None) -> dict[str, Any]:
 # Git Scan
 # ---------------------------------------------------------------------------
 
+
 @router.post("/scan/git")
 def scan_git(body: GitScanRequest) -> dict[str, Any]:
     """Git 저장소를 스캔해 포트폴리오 payload를 반환한다. analyze=True 면 AI 딥 분석도 수행."""
@@ -680,27 +747,44 @@ def scan_git(body: GitScanRequest) -> dict[str, Any]:
         if translated_from:
             logger.info("Docker 경로 변환 적용: %s -> %s", translated_from, repo_path)
 
-        # analyze=True 면 캐시를 건너뛰고 항상 재스캔
+        # analyze=True 면 캐시를 건너뛰고 항상 재스캔(코드/README 읽기 + AI 분석 가능성).
         if not body.analyze and not body.refresh:
             from devfolio.core.storage import list_projects
+
             for project in list_projects():
                 if project.repo_url:
-                    scan_check = scan_repo(repo_path, author_email=author_email, analyze=False)
+                    scan_check = scan_repo(
+                        repo_path, author_email=author_email, analyze=False
+                    )
                     if project.last_commit_sha == scan_check.head_sha:
                         payload = build_project_payload(scan_check)
-                        logger.info("Git scan cache hit: repo=%s head=%s", repo_path, scan_check.head_sha[:8])
-                        return {"status": "ok", "cached": True, "analyzed": False, "payload": payload}
+                        logger.info(
+                            "Git scan cache hit: repo=%s head=%s",
+                            repo_path,
+                            scan_check.head_sha[:8],
+                        )
+                        return {
+                            "status": "ok",
+                            "cached": True,
+                            "analyzed": False,
+                            "payload": payload,
+                        }
                     break  # 같은 레포 다른 sha → 재스캔
 
-        scan_result = scan_repo(repo_path, author_email=author_email, analyze=body.analyze)
+        scan_result = scan_repo(
+            repo_path, author_email=author_email, analyze=body.analyze
+        )
 
         ai_analysis: Optional[dict] = None
+        ai_error: Optional[str] = None
         if body.analyze and scan_result.project_context:
             ai_provider = None
             resolution = None
             try:
                 ai_provider_name = body.provider or cfg.default_ai_provider
-                ai_provider = cfg.get_provider(ai_provider_name) if ai_provider_name else None
+                ai_provider = (
+                    cfg.get_provider(ai_provider_name) if ai_provider_name else None
+                )
                 resolution = (
                     resolve_generation_model(ai_provider.name, ai_provider.model)
                     if ai_provider
@@ -709,7 +793,9 @@ def scan_git(body: GitScanRequest) -> dict[str, Any]:
                 scan_metrics = {
                     "commits": len(scan_result.commits),
                     "period_months": 0,
-                    "languages": {k: v for k, v in scan_result.languages.most_common(5)},
+                    "languages": {
+                        k: v for k, v in scan_result.languages.most_common(5)
+                    },
                 }
                 if ai_provider and resolution:
                     logger.info(
@@ -728,11 +814,14 @@ def scan_git(body: GitScanRequest) -> dict[str, Any]:
                     provider_name=body.provider,
                 )
             except Exception as exc:
+                ai_error = str(exc)
                 logger.warning(
                     "AI 딥 분석 실패 (기본 스캔 결과로 계속): requested=%s generation=%s candidates=%s failure=%s detail=%s",
                     resolution.display_model if ai_provider and resolution else "",
                     resolution.generation_model if ai_provider and resolution else "",
-                    list(resolution.candidate_models) if ai_provider and resolution else [],
+                    list(resolution.candidate_models)
+                    if ai_provider and resolution
+                    else [],
                     type(exc).__name__,
                     exc,
                 )
@@ -742,16 +831,20 @@ def scan_git(body: GitScanRequest) -> dict[str, Any]:
             "status": "ok",
             "cached": False,
             "analyzed": ai_analysis is not None,
+            "ai_error": ai_error,
             "payload": payload,
         }
     except DevfolioError as exc:
-        logger.warning("Git scan API 실패: input=%s reason=%s", body.repo_path, exc.message)
+        logger.warning(
+            "Git scan API 실패: input=%s reason=%s", body.repo_path, exc.message
+        )
         _raise_from_devfolio(exc)
 
 
 # ---------------------------------------------------------------------------
 # Project CRUD
 # ---------------------------------------------------------------------------
+
 
 @router.get("/projects")
 def list_project_drafts() -> dict[str, Any]:
@@ -792,12 +885,18 @@ def delete_project(project_id: str) -> dict[str, str]:
 # Experience CRUD
 # ---------------------------------------------------------------------------
 
+
 @router.get("/experiences")
 def list_experiences() -> dict[str, Any]:
-    experiences = [experience_from_project_draft(pm.draft_from_project(project)) for project in pm.list_projects()]
+    experiences = [
+        experience_from_project_draft(pm.draft_from_project(project))
+        for project in pm.list_projects()
+    ]
     return {
         "status": "ok",
-        "experiences": [experience.model_dump(exclude_none=False) for experience in experiences],
+        "experiences": [
+            experience.model_dump(exclude_none=False) for experience in experiences
+        ],
         "summary": summarize_experiences(experiences).model_dump(),
     }
 
@@ -814,7 +913,9 @@ def create_experience(body: ExperienceDraft) -> dict[str, Any]:
 @router.put("/experiences/{project_id}")
 def update_experience(project_id: str, body: ExperienceDraft) -> dict[str, Any]:
     try:
-        project = pm.save_project_draft(project_draft_from_experience(body), project_id=project_id)
+        project = pm.save_project_draft(
+            project_draft_from_experience(body), project_id=project_id
+        )
     except DevfolioProjectNotFoundError as exc:
         _raise_from_devfolio(exc, status_code=404)
     except DevfolioError as exc:
@@ -834,6 +935,7 @@ def delete_experience(project_id: str) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 # AI Intake / Draft / Saved project augmentation
 # ---------------------------------------------------------------------------
+
 
 @router.post("/intake/project-draft")
 def intake_project_draft(body: DraftIntakeRequest) -> dict[str, Any]:
@@ -900,7 +1002,9 @@ def generate_project_summary(project_id: str, body: SavedAIRequest) -> dict[str,
 
 
 @router.post("/projects/{project_id}/generate-task-bullets")
-def generate_project_task_bullets(project_id: str, body: SavedAIRequest) -> dict[str, Any]:
+def generate_project_task_bullets(
+    project_id: str, body: SavedAIRequest
+) -> dict[str, Any]:
     try:
         project = pm.get_project_or_raise(project_id)
         draft = pm.draft_from_project(project)
@@ -920,7 +1024,9 @@ def generate_project_task_bullets(project_id: str, body: SavedAIRequest) -> dict
 
 
 @router.post("/experiences/{project_id}/generate-summary")
-def generate_experience_summary(project_id: str, body: SavedAIRequest) -> dict[str, Any]:
+def generate_experience_summary(
+    project_id: str, body: SavedAIRequest
+) -> dict[str, Any]:
     try:
         project = pm.get_project_or_raise(project_id)
         cfg = _load_config_with_normalized_models()
@@ -939,7 +1045,9 @@ def generate_experience_summary(project_id: str, body: SavedAIRequest) -> dict[s
 
 
 @router.post("/experiences/{project_id}/generate-task-bullets")
-def generate_experience_task_bullets(project_id: str, body: SavedAIRequest) -> dict[str, Any]:
+def generate_experience_task_bullets(
+    project_id: str, body: SavedAIRequest
+) -> dict[str, Any]:
     try:
         project = pm.get_project_or_raise(project_id)
         draft = pm.draft_from_project(project)
@@ -961,6 +1069,7 @@ def generate_experience_task_bullets(project_id: str, body: SavedAIRequest) -> d
 # ---------------------------------------------------------------------------
 # Preview / Export
 # ---------------------------------------------------------------------------
+
 
 @router.post("/preview/resume")
 def preview_resume(body: DraftPreviewRequest) -> dict[str, Any]:
@@ -1020,6 +1129,7 @@ def export_career(body: DraftPreviewRequest) -> dict[str, Any]:
 # AI Model Listing
 # ---------------------------------------------------------------------------
 
+
 @router.get("/models")
 def list_ai_models(
     provider: str,
@@ -1037,9 +1147,14 @@ def list_ai_models(
                 return json.loads(resp.read())
         except urllib.error.HTTPError as exc:
             body = exc.read().decode(errors="replace")[:300]
-            raise HTTPException(status_code=exc.code, detail=f"모델 목록 조회 실패: {body}") from exc
+            raise HTTPException(
+                status_code=exc.code, detail=f"모델 목록 조회 실패: {body}"
+            ) from exc
         except urllib.error.URLError as exc:
-            raise HTTPException(status_code=502, detail=f"제공자 서버에 연결할 수 없습니다: {exc.reason}") from exc
+            raise HTTPException(
+                status_code=502,
+                detail=f"제공자 서버에 연결할 수 없습니다: {exc.reason}",
+            ) from exc
 
     key = api_key or get_api_key(provider)
     model_ids: list[str] = []
@@ -1099,7 +1214,13 @@ def list_ai_models(
             "https://api.groq.com/openai/v1/models",
             {"Authorization": f"Bearer {key}"},
         )
-        model_ids = sorted([m["id"] for m in data.get("data", []) if not m.get("id", "").startswith("whisper")])
+        model_ids = sorted(
+            [
+                m["id"]
+                for m in data.get("data", [])
+                if not m.get("id", "").startswith("whisper")
+            ]
+        )
 
     elif provider == "openrouter":
         if not key:
@@ -1145,6 +1266,7 @@ def list_ai_models(
 # 파일 시스템 — 폴더 열기
 # ---------------------------------------------------------------------------
 
+
 @router.post("/fs/open-folder")
 def open_folder(path: str = "") -> dict[str, str]:
     """OS 파일 탐색기에서 폴더를 연다."""
@@ -1154,7 +1276,9 @@ def open_folder(path: str = "") -> dict[str, str]:
 
     home = Path.home().resolve()
     if not str(folder).startswith(str(home)):
-        raise HTTPException(status_code=403, detail="홈 디렉터리 외부 경로는 열 수 없습니다.")
+        raise HTTPException(
+            status_code=403, detail="홈 디렉터리 외부 경로는 열 수 없습니다."
+        )
 
     system = platform.system()
     cmd: list[str]
@@ -1173,16 +1297,20 @@ def open_folder(path: str = "") -> dict[str, str]:
             detail=f"이 환경에서는 폴더 열기가 지원되지 않습니다 ({system}). 경로를 직접 탐색하세요: {folder}",
         )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"폴더를 열 수 없습니다: {exc}") from exc
+        raise HTTPException(
+            status_code=500, detail=f"폴더를 열 수 없습니다: {exc}"
+        ) from exc
 
 
 # ---------------------------------------------------------------------------
 # AI 로그
 # ---------------------------------------------------------------------------
 
+
 @router.get("/ai-logs")
 def get_ai_logs(limit: int = 100) -> dict[str, Any]:
     from devfolio.core.storage import AI_LOG_FILE
+
     if not AI_LOG_FILE.exists():
         return {"entries": []}
     lines = AI_LOG_FILE.read_text(encoding="utf-8").splitlines()
@@ -1200,6 +1328,7 @@ def get_ai_logs(limit: int = 100) -> dict[str, Any]:
 @router.delete("/ai-logs")
 def clear_ai_logs() -> dict[str, str]:
     from devfolio.core.storage import AI_LOG_FILE
+
     if AI_LOG_FILE.exists():
         AI_LOG_FILE.write_text("", encoding="utf-8")
     return {"status": "ok"}
