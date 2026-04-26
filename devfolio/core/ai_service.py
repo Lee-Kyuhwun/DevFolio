@@ -802,6 +802,33 @@ class AIService:
             return "- (지정 없음: evidence 에서 자연스럽게 드러나는 축을 선택한다)"
         return "\n".join(f"- {keyword}" for keyword in cleaned)
 
+    def _provider_fallback_chain(
+        self, provider_name: Optional[str] = None
+    ) -> list[“AIProviderConfig”]:
+        “””호출 시 순서대로 시도할 provider 목록을 반환한다.
+
+        순서: 명시 지정 → primary(default_ai_provider) → 나머지 설정된 providers → builtin pollinations
+        “””
+        chain: list[AIProviderConfig] = []
+        seen: set[str] = set()
+
+        def _add(p: Optional[AIProviderConfig]) -> None:
+            if p and p.name not in seen:
+                chain.append(p)
+                seen.add(p.name)
+
+        if provider_name:
+            _add(self.config.get_provider(provider_name))
+        if self.config.default_ai_provider:
+            _add(self.config.get_provider(self.config.default_ai_provider))
+        for p in self.config.ai_providers:
+            _add(p)
+        builtin = _builtin_provider()
+        if builtin.name not in seen:
+            chain.append(builtin)
+
+        return chain or [_builtin_provider()]
+
     def _call_messages(
         self,
         messages: list[dict[str, str]],
@@ -810,74 +837,106 @@ class AIService:
         max_tokens: Optional[int] = None,
         json_mode: bool = False,
     ) -> str:
-        """litellm 호출 (메시지 배열 직접 사용).
-
-        messages는 OpenAI 스타일 Chat API 포맷과 동일한 구조다:
-          [{"role": "system"|"user"|"assistant", "content": "..."}]
-        """
+        “””litellm 호출. provider chain을 순서대로 시도하며 실패 시 자동 fallback.”””
         try:
             import litellm  # lazy import for fast CLI startup
         except ImportError:
             raise DevfolioAIError(
-                "litellm이 설치되지 않았습니다.",
-                hint="`pip install devfolio[ai]`로 AI 의존성을 설치하세요.",
+                “litellm이 설치되지 않았습니다.”,
+                hint=”`pip install devfolio[ai]`로 AI 의존성을 설치하세요.”,
             )
 
-        provider = self._get_provider(provider_name)
+        provider_chain = self._provider_fallback_chain(provider_name)
+        last_error: Exception = RuntimeError(“알 수 없는 오류”)
+
+        for prov_idx, provider in enumerate(provider_chain):
+            is_last_provider = prov_idx == len(provider_chain) - 1
+            try:
+                return self._call_single_provider(
+                    litellm, provider, messages, temperature, max_tokens, json_mode
+                )
+            except DevfolioAIAuthError as e:
+                last_error = e
+                if is_last_provider:
+                    raise
+                next_name = provider_chain[prov_idx + 1].name
+                logger.warning(
+                    “Provider %s 인증 실패 → %s 로 재시도: %s”,
+                    provider.name, next_name, e,
+                )
+            except (DevfolioAIError, DevfolioAIRateLimitError) as e:
+                last_error = e
+                if is_last_provider:
+                    raise
+                next_name = provider_chain[prov_idx + 1].name
+                logger.warning(
+                    “Provider %s 실패 → %s 로 재시도: %s”,
+                    provider.name, next_name, e,
+                )
+
+        raise DevfolioAIError(str(last_error)) from last_error
+
+    def _call_single_provider(
+        self,
+        litellm: Any,
+        provider: “AIProviderConfig”,
+        messages: list[dict[str, str]],
+        temperature: Optional[float],
+        max_tokens: Optional[int],
+        json_mode: bool,
+    ) -> str:
+        “””단일 provider로 litellm 호출 (model candidates + retry 포함).”””
         self._set_env_key(provider)
 
-        kwargs: dict = {
-            "messages": messages
-        }  # kwargs는 litellm.completion(**kwargs)로 “옵션 맵”처럼 전달됨.
+        kwargs: dict = {“messages”: messages}
         if temperature is not None:
-            kwargs["temperature"] = temperature
+            kwargs[“temperature”] = temperature
         if max_tokens is not None:
-            kwargs["max_tokens"] = max_tokens
-        # JSON 구조화 응답이 필요한 호출에서만 json_object 요청
+            kwargs[“max_tokens”] = max_tokens
         if json_mode:
-            kwargs["response_format"] = {"type": "json_object"}
+            kwargs[“response_format”] = {“type”: “json_object”}
         if provider.base_url:
-            kwargs["api_base"] = provider.base_url
+            kwargs[“api_base”] = provider.base_url
 
-        last_error: Exception = RuntimeError("알 수 없는 오류")
+        last_error: Exception = RuntimeError(“알 수 없는 오류”)
         t_start = time.monotonic()
         model_candidates = self._runtime_model_candidates(provider)
         for model_index, runtime_model in enumerate(model_candidates, start=1):
-            kwargs["model"] = self._provider_model_string(provider.name, runtime_model)
+            kwargs[“model”] = self._provider_model_string(provider.name, runtime_model)
             for attempt in range(1, _MAX_RETRIES + 1):
                 try:
-                    _sys = next((m.get("content", "") for m in messages if m.get("role") == "system"), "")
-                    _usr = next((m.get("content", "") for m in messages if m.get("role") == "user"), "")
+                    _sys = next((m.get(“content”, “”) for m in messages if m.get(“role”) == “system”), “”)
+                    _usr = next((m.get(“content”, “”) for m in messages if m.get(“role”) == “user”), “”)
                     logger.info(
-                        "AI 요청 시작: model=%s attempt=%d/%d prompt_chars=%d json_mode=%s\n"
-                        "  [system] %.300s%s\n"
-                        "  [user]   %.600s%s",
-                        kwargs["model"], attempt, _MAX_RETRIES,
-                        sum(len(m.get("content", "")) for m in messages),
+                        “AI 요청 시작: model=%s attempt=%d/%d prompt_chars=%d json_mode=%s\n”
+                        “  [system] %.300s%s\n”
+                        “  [user]   %.600s%s”,
+                        kwargs[“model”], attempt, _MAX_RETRIES,
+                        sum(len(m.get(“content”, “”)) for m in messages),
                         json_mode,
-                        _sys.replace("\n", " "),
-                        "..." if len(_sys) > 300 else "",
-                        _usr.replace("\n", " "),
-                        "..." if len(_usr) > 600 else "",
+                        _sys.replace(“\n”, “ “),
+                        “...” if len(_sys) > 300 else “”,
+                        _usr.replace(“\n”, “ “),
+                        “...” if len(_usr) > 600 else “”,
                     )
                     t_start = time.monotonic()
                     response = litellm.completion(**kwargs)
                     t_end = time.monotonic()
-                    content = response.choices[0].message.content or ""
+                    content = response.choices[0].message.content or “”
                     if not content.strip():
                         raise ValueError(
-                            f"모델 {kwargs['model']}이 빈 응답을 반환했습니다 — "
-                            "프롬프트가 너무 크거나 모델이 해당 요청을 처리하지 못했습니다."
+                            f”모델 {kwargs['model']}이 빈 응답을 반환했습니다 — “
+                            “프롬프트가 너무 크거나 모델이 해당 요청을 처리하지 못했습니다.”
                         )
                     logger.info(
-                        "AI 응답 수신: model=%s duration=%dms response_chars=%d\n  [response] %.800s%s",
-                        kwargs["model"], int((t_end - t_start) * 1000), len(content),
-                        content.replace("\n", " "),
-                        "..." if len(content) > 800 else "",
+                        “AI 응답 수신: model=%s duration=%dms response_chars=%d\n  [response] %.800s%s”,
+                        kwargs[“model”], int((t_end - t_start) * 1000), len(content),
+                        content.replace(“\n”, “ “),
+                        “...” if len(content) > 800 else “”,
                     )
                     _write_ai_log(
                         provider=provider.name,
-                        model=kwargs["model"],
+                        model=kwargs[“model”],
                         messages=messages,
                         response=content,
                         duration_ms=int((t_end - t_start) * 1000),
@@ -889,17 +948,17 @@ class AIService:
                     err_class = type(e).__name__
                     err_str = str(e)
                     if (
-                        "AuthenticationError" in err_class
-                        or "Unauthorized" in err_class
+                        “AuthenticationError” in err_class
+                        or “Unauthorized” in err_class
                     ):
                         raise DevfolioAIAuthError(provider.name) from e
-                    if "NotFoundError" in err_class or (
-                        '"code": 404' in err_str and "NOT_FOUND" in err_str
-                    ) or (err_class == "ValueError" and "빈 응답" in err_str):
+                    if “NotFoundError” in err_class or (
+                        '”code”: 404' in err_str and “NOT_FOUND” in err_str
+                    ) or (err_class == “ValueError” and “빈 응답” in err_str):
                         last_error = e
                         if model_index < len(model_candidates):
                             logger.warning(
-                                "모델 실패로 대체 후보로 재시도합니다: provider=%s requested=%s fallback=%s failure=%s",
+                                “모델 실패로 대체 후보로 재시도합니다: provider=%s requested=%s fallback=%s failure=%s”,
                                 provider.name,
                                 provider.model,
                                 model_candidates[model_index],
@@ -907,27 +966,24 @@ class AIService:
                             )
                             break
                         raise DevfolioAIError(
-                            f"모델을 찾을 수 없습니다: {provider.model}",
-                            hint=f"시도한 생성 모델: {', '.join(model_candidates)}. 설정 탭에서 지원 모델 상태를 확인하거나 다른 제공자를 선택하세요.",
+                            f”[{provider.name}] 모든 모델 후보 실패: {provider.model}”,
+                            hint=f”시도한 생성 모델: {', '.join(model_candidates)}.”,
                         ) from e
-                    if "limit: 0" in err_str or "free_tier_requests" in err_str:
+                    if “limit: 0” in err_str or “free_tier_requests” in err_str:
                         raise DevfolioAIError(
-                            f"{provider.name} 무료 티어 할당량이 0입니다.",
+                            f”{provider.name} 무료 티어 할당량이 0입니다.”,
                             hint=(
-                                "Google AI Studio는 결제 수단을 등록해야 무료 quota가 활성화됩니다. "
-                                "https://aistudio.google.com 에서 결제 정보를 등록하거나 "
-                                "다른 AI 제공자(Anthropic 등)로 전환하세요."
+                                “Google AI Studio는 결제 수단을 등록해야 무료 quota가 활성화됩니다. “
+                                “https://aistudio.google.com 에서 결제 정보를 등록하거나 “
+                                “다른 AI 제공자(Anthropic 등)로 전환하세요.”
                             ),
                         ) from e
-                    if "RateLimitError" in err_class or "RESOURCE_EXHAUSTED" in err_str:
-                        # 일일 한도(RPD) 초과는 자정까지 복구 안 됨 — 즉시 실패
-                        if "quota" in err_str.lower() and "day" in err_str.lower():
+                    if “RateLimitError” in err_class or “RESOURCE_EXHAUSTED” in err_str:
+                        if “quota” in err_str.lower() and “day” in err_str.lower():
                             raise DevfolioAIRateLimitError(provider.name) from e
-                        # RPM 초과: 60초 뒤에야 윈도우가 리셋됨.
-                        # 짧은 간격 재시도는 quota만 낭비하므로 1회만 재시도
                         if attempt < _MAX_RETRIES:
                             logger.warning(
-                                "Rate limit 발생, %0.0f초 후 재시도 (%d/%d) — 무료 RPM 한도 초과",
+                                “Rate limit 발생, %0.0f초 후 재시도 (%d/%d) — 무료 RPM 한도 초과”,
                                 _RATE_LIMIT_RETRY_DELAY,
                                 attempt,
                                 _MAX_RETRIES,
@@ -937,14 +993,14 @@ class AIService:
                         raise DevfolioAIRateLimitError(provider.name) from e
                     last_error = e
                     logger.warning(
-                        "AI 호출 실패 (%d/%d): %s\n%s",
+                        “AI 호출 실패 (%d/%d): %s\n%s”,
                         attempt, _MAX_RETRIES, e, _tb.format_exc(),
                     )
                     _write_ai_log(
                         provider=provider.name,
-                        model=kwargs.get("model", "unknown"),
+                        model=kwargs.get(“model”, “unknown”),
                         messages=messages,
-                        response="",
+                        response=””,
                         duration_ms=int((time.monotonic() - t_start) * 1000),
                         ok=False,
                         error=str(e),

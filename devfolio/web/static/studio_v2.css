@@ -254,6 +254,7 @@ a {
 .badge.amber { background: var(--accent-dim); color: var(--accent); }
 .badge.red { background: var(--red-dim); color: var(--red); }
 .badge.default { background: rgba(255, 255, 255, 0.04); color: var(--text-2); }
+.badge-primary { background: var(--blue-dim); color: var(--blue); font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 4px; }
 
 .workspace {
   max-width: 1320px;
@@ -869,6 +870,11 @@ tbody tr:hover {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+}
+.provider-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .provider-row code,

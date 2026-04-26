@@ -97,6 +97,10 @@ class AIProviderCreate(BaseModel):
     base_url: Optional[str] = None
 
 
+class SetPrimaryProviderRequest(BaseModel):
+    provider_name: str
+
+
 class GitScanRequest(BaseModel):
     repo_path: str
     author_email: Optional[str] = None
@@ -626,6 +630,18 @@ def remove_ai_provider(name: str) -> dict[str, str]:
         cfg.default_ai_provider = cfg.ai_providers[0].name if cfg.ai_providers else ""
     save_config(cfg)
     return {"status": "ok"}
+
+
+@router.post("/config/ai/set-primary")
+def set_primary_ai_provider(body: SetPrimaryProviderRequest) -> dict[str, str]:
+    cfg = load_config()
+    if not cfg.get_provider(body.provider_name):
+        raise HTTPException(
+            status_code=404, detail=f"Provider '{body.provider_name}'를 찾을 수 없습니다."
+        )
+    cfg.default_ai_provider = body.provider_name
+    save_config(cfg)
+    return {"status": "ok", "primary": cfg.default_ai_provider}
 
 
 @router.post("/config/ai/{name}/test")

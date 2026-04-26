@@ -858,6 +858,9 @@
         case "remove-provider":
           await removeProvider(target.getAttribute("data-provider-name") || "");
           break;
+        case "set-primary-provider":
+          await setPrimaryProvider(target.getAttribute("data-provider-name") || "");
+          break;
         case "test-provider":
           await testProvider(target.getAttribute("data-provider-name") || "");
           break;
@@ -1396,6 +1399,18 @@
     await requestJson(`/api/config/ai/${encodeURIComponent(name)}`, { method: "DELETE" });
     await refreshConfig();
     showToast("AI Provider를 삭제했습니다.", "ok");
+    render();
+  }
+
+  async function setPrimaryProvider(name) {
+    if (!name) return;
+    await requestJson("/api/config/ai/set-primary", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider_name: name }),
+    });
+    await refreshConfig();
+    showToast(`${name}을(를) 기본 AI Provider로 설정했습니다.`, "ok");
     render();
   }
 
@@ -2784,11 +2799,15 @@
                   (provider) => `
                   <div class="provider-row ${provider.is_default ? "active" : ""}">
                     <div>
-                      <strong>${escapeHtml(provider.name)}</strong>
+                      <div class="provider-name-row">
+                        <strong>${escapeHtml(provider.name)}</strong>
+                        ${provider.is_default ? `<span class="badge badge-primary">기본</span>` : ""}
+                      </div>
                       <p class="mini-copy">${escapeHtml(provider.display_model || provider.model || "")}</p>
                       <p class="mini-copy">generation: ${escapeHtml(provider.generation_model || "")} · ${escapeHtml(provider.generation_status || "")}</p>
                     </div>
                     <div class="inline-actions">
+                      ${!provider.is_default ? `<button class="btn btn-secondary" data-action="set-primary-provider" data-provider-name="${escapeHtml(provider.name)}" type="button">기본으로 설정</button>` : ""}
                       <button class="btn btn-secondary" data-action="test-provider" data-provider-name="${escapeHtml(provider.name)}" type="button">Test</button>
                       <button class="btn btn-danger" data-action="remove-provider" data-provider-name="${escapeHtml(provider.name)}" type="button">Delete</button>
                     </div>
