@@ -8,15 +8,27 @@
     scan_repo(analyze=False) → 커밋 수집 + 파일/언어 통계 → ScanResult
     scan_repo(analyze=True)  → 위 + 코드 구조 분석(README/의존성/소스 파일 읽기)
     build_project_payload()  → ScanResult (+ AI 분석 결과) → Project 생성 dict
+
+[Python 문법 메모 — Java 개발자용]
+  - 타입힌트(list[str], Optional[str])는 “실행시 강제”가 아니라 IDE/검사 도구용 힌트다.
+  - dataclass 는 Java 의 DTO/record 처럼 필드 선언만으로 생성자/비교/표현을 자동 생성한다.
+  - Counter 는 Map<String, Integer> 빈도수 집계 유틸과 유사하다.
+  - dict / list 컴프리헨션은 “for 루프 + if 필터 + append/put”을 한 줄로 쓴 문법이다.
+  - 예외 체이닝(`raise ... from e`)은 “원인 예외(cause)”를 보존하는 패턴이다.
 """
 
-from __future__ import annotations
+from __future__ import (
+    annotations,
+)  # 타입힌트의 전방 참조(문자열) 처리를 더 유연하게 만든다.
 
-import json
-import re
-import subprocess
-import xml.etree.ElementTree as ET
-from collections import Counter, defaultdict
+import json  # package.json 파싱 등에 사용.
+import re  # 정규식(Regex) 유틸.
+import subprocess  # 외부 프로세스(git) 실행.
+import xml.etree.ElementTree as ET  # pom.xml(Maven) XML 파싱.
+from collections import (
+    Counter,
+    defaultdict,
+)  # Counter=빈도수 맵, defaultdict=기본값을 갖는 맵.
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -24,31 +36,72 @@ from typing import Optional
 from devfolio.exceptions import DevfolioError
 from devfolio.log import get_logger
 
-logger = get_logger(__name__)
+logger = get_logger(__name__)  # 모듈 단위 로거(일반적으로 Java의 Logger와 동일 개념).
 
 
 # ---------------------------------------------------------------------------
 # 분류 키워드 / 언어 매핑
 # ---------------------------------------------------------------------------
 
-IMPROVE_KEYWORDS = {
-    "perf": ["perf", "performance", "optimize", "optimization", "speed", "faster",
-             "성능", "최적화", "속도", "개선"],
+IMPROVE_KEYWORDS = {  # 커밋 메시지 subject 에서 작업 유형을 대략 추정하기 위한 키워드 사전.
+    "perf": [
+        "perf",
+        "performance",
+        "optimize",
+        "optimization",
+        "speed",
+        "faster",
+        "성능",
+        "최적화",
+        "속도",
+        "개선",
+    ],
     "fix": ["fix", "bug", "hotfix", "patch", "resolve", "버그", "수정", "장애"],
     "refactor": ["refactor", "cleanup", "restructure", "리팩터", "리팩토링", "정리"],
-    "feat": ["feat", "feature", "add", "implement", "introduce", "기능", "구현", "추가"],
+    "feat": [
+        "feat",
+        "feature",
+        "add",
+        "implement",
+        "introduce",
+        "기능",
+        "구현",
+        "추가",
+    ],
     "test": ["test", "coverage", "테스트"],
     "security": ["security", "secure", "auth", "vuln", "보안", "취약"],
 }
 
-LANG_BY_EXT = {
-    ".py": "Python", ".js": "JavaScript", ".ts": "TypeScript", ".tsx": "TypeScript",
-    ".jsx": "JavaScript", ".java": "Java", ".kt": "Kotlin", ".go": "Go",
-    ".rs": "Rust", ".rb": "Ruby", ".php": "PHP", ".cs": "C#", ".c": "C",
-    ".cpp": "C++", ".cc": "C++", ".h": "C/C++", ".swift": "Swift",
-    ".scala": "Scala", ".dart": "Dart", ".vue": "Vue", ".html": "HTML",
-    ".css": "CSS", ".scss": "SCSS", ".sql": "SQL", ".sh": "Shell",
-    ".yml": "YAML", ".yaml": "YAML", ".md": "Markdown", ".tf": "Terraform",
+LANG_BY_EXT = {  # 파일 확장자 → 표시용 언어 이름 매핑.
+    ".py": "Python",
+    ".js": "JavaScript",
+    ".ts": "TypeScript",
+    ".tsx": "TypeScript",
+    ".jsx": "JavaScript",
+    ".java": "Java",
+    ".kt": "Kotlin",
+    ".go": "Go",
+    ".rs": "Rust",
+    ".rb": "Ruby",
+    ".php": "PHP",
+    ".cs": "C#",
+    ".c": "C",
+    ".cpp": "C++",
+    ".cc": "C++",
+    ".h": "C/C++",
+    ".swift": "Swift",
+    ".scala": "Scala",
+    ".dart": "Dart",
+    ".vue": "Vue",
+    ".html": "HTML",
+    ".css": "CSS",
+    ".scss": "SCSS",
+    ".sql": "SQL",
+    ".sh": "Shell",
+    ".yml": "YAML",
+    ".yaml": "YAML",
+    ".md": "Markdown",
+    ".tf": "Terraform",
     ".dockerfile": "Docker",
 }
 
@@ -57,8 +110,13 @@ LANG_BY_EXT = {
 # ---------------------------------------------------------------------------
 
 _README_CANDIDATES = [
-    "README.md", "README.rst", "README.txt", "README",
-    "Readme.md", "readme.md", "readme.rst",
+    "README.md",
+    "README.rst",
+    "README.txt",
+    "README",
+    "Readme.md",
+    "readme.md",
+    "readme.rst",
 ]
 _README_MAX_CHARS = 4000
 _FILE_MAX_CHARS = 2000
@@ -66,31 +124,68 @@ _TOTAL_MAX_CHARS = 6000
 
 # 이진 파일 확장자 — 읽지 않는다.
 _BINARY_EXTENSIONS = {
-    ".pyc", ".class", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".bmp",
-    ".jar", ".exe", ".so", ".dll", ".wasm", ".zip", ".tar", ".gz",
-    ".pdf", ".docx", ".xlsx", ".mp3", ".mp4", ".bin",
+    ".pyc",
+    ".class",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".ico",
+    ".bmp",
+    ".jar",
+    ".exe",
+    ".so",
+    ".dll",
+    ".wasm",
+    ".zip",
+    ".tar",
+    ".gz",
+    ".pdf",
+    ".docx",
+    ".xlsx",
+    ".mp3",
+    ".mp4",
+    ".bin",
 }
 
 # entry point 파일 탐지 순서 (glob 패턴 포함).
 # 언어 상관없이 순서대로 검색하고 먼저 발견된 파일부터 읽는다.
 _ENTRY_POINTS = [
     # Python
-    "main.py", "app.py", "server.py", "index.py", "run.py", "manage.py",
-    "src/main.py", "src/app.py",
+    "main.py",
+    "app.py",
+    "server.py",
+    "index.py",
+    "run.py",
+    "manage.py",
+    "src/main.py",
+    "src/app.py",
     # JavaScript / TypeScript
-    "index.js", "index.ts", "src/index.js", "src/index.ts",
-    "app.js", "app.ts", "server.js", "server.ts",
+    "index.js",
+    "index.ts",
+    "src/index.js",
+    "src/index.ts",
+    "app.js",
+    "app.ts",
+    "server.js",
+    "server.ts",
     # Java / Kotlin
-    "src/main/java/**/Application.java", "src/main/java/**/Main.java",
+    "src/main/java/**/Application.java",
+    "src/main/java/**/Main.java",
     "src/main/kotlin/**/Application.kt",
     # Go
-    "main.go", "cmd/main.go",
+    "main.go",
+    "cmd/main.go",
     # Rust
-    "src/main.rs", "src/lib.rs",
+    "src/main.rs",
+    "src/lib.rs",
     # Ruby
-    "app.rb", "config/application.rb",
+    "app.rb",
+    "config/application.rb",
     # 구조 파악용 설정 파일
-    "docker-compose.yml", "docker-compose.yaml", "Makefile",
+    "docker-compose.yml",
+    "docker-compose.yaml",
+    "Makefile",
 ]
 
 
@@ -98,33 +193,42 @@ _ENTRY_POINTS = [
 # 데이터 컨테이너 (dataclass)
 # ---------------------------------------------------------------------------
 
-@dataclass
+
+@dataclass  # Java의 record/DTO처럼 “필드 선언만으로” 데이터 컨테이너를 만든다.
 class CommitInfo:
     """커밋 한 건의 정보 (git log 파싱 결과)."""
+
     sha: str
     author_name: str
     author_email: str
-    date: str       # YYYY-MM-DD
-    subject: str    # 커밋 메시지 첫 줄
+    date: str  # YYYY-MM-DD (문자열로 유지: git 출력 포맷이 문자열이기 때문)
+    subject: str  # 커밋 메시지 첫 줄 (subject)
     insertions: int = 0
     deletions: int = 0
     files_changed: int = 0
 
 
-@dataclass
+@dataclass  # 스캔 결과 전체를 담는 응답 DTO.
 class ScanResult:
     """저장소 스캔 결과 전체를 담는 컨테이너."""
+
     repo_path: Path
     repo_url: str
     repo_name: str
     head_sha: str
     author_email: str
-    commits: list[CommitInfo] = field(default_factory=list)
+    commits: list[CommitInfo] = field(
+        default_factory=list
+    )  # default_factory: “매 인스턴스마다 새 리스트” 생성(공유 버그 방지).
     total_insertions: int = 0
     total_deletions: int = 0
     files_touched: set[str] = field(default_factory=set)
-    languages: Counter = field(default_factory=Counter)
-    category_counts: Counter = field(default_factory=Counter)
+    languages: Counter = field(
+        default_factory=Counter
+    )  # 언어별 파일 카운트(대략적 비중).
+    category_counts: Counter = field(
+        default_factory=Counter
+    )  # 커밋 subject 기반 분류 카운트.
     first_date: Optional[str] = None
     last_date: Optional[str] = None
     total_commits_repo: int = 0
@@ -133,6 +237,7 @@ class ScanResult:
 
     @property
     def authorship_ratio(self) -> float:
+        # property: Java의 getAuthorshipRatio() 처럼 “필드처럼 접근” 가능한 계산 값.
         if self.total_commits_repo == 0:
             return 0.0
         return len(self.commits) / self.total_commits_repo
@@ -160,12 +265,16 @@ class ScanResult:
 # Git 명령 실행 헬퍼
 # ---------------------------------------------------------------------------
 
+
 def _run_git(repo_path: Path, args: list[str]) -> str:
+    # subprocess.run(check=True): exit code != 0 이면 예외(CalledProcessError)로 흐름을 중단한다.
     logger.debug("git 실행: repo=%s args=%s", repo_path, args)
     try:
         result = subprocess.run(
             ["git", "-C", str(repo_path)] + args,
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         )
         return result.stdout
     except FileNotFoundError as e:
@@ -195,20 +304,26 @@ def _detect_repo_url(repo_path: Path) -> str:
     try:
         return _run_git(repo_path, ["config", "--get", "remote.origin.url"]).strip()
     except Exception:
+        # 여기서는 “원격 URL 없음”을 허용하고 빈 문자열로 처리한다(에러로 간주하지 않음).
         return ""
 
 
 def _categorize(subject: str) -> list[str]:
     lowered = subject.lower()
     return [
-        cat for cat, keywords in IMPROVE_KEYWORDS.items()
+        cat
+        for cat, keywords in IMPROVE_KEYWORDS.items()
         if any(kw in lowered for kw in keywords)
     ]
+    # 리스트 컴프리헨션 해설:
+    # - for cat, keywords in ...items(): Map.Entry 순회
+    # - if any(...): keywords 중 하나라도 subject 에 포함되면 cat 선택
 
 
 # ---------------------------------------------------------------------------
 # 코드 구조 분석 함수들 (딥 분석)
 # ---------------------------------------------------------------------------
+
 
 def _read_readme(repo_path: Path) -> str:
     """README 파일을 읽어 최대 4000자 반환한다. 없으면 빈 문자열."""
@@ -221,6 +336,7 @@ def _read_readme(repo_path: Path) -> str:
                     return text[:_README_MAX_CHARS] + "\n...[truncated]"
                 return text
             except OSError:
+                # 디코딩/권한 문제 등: README 를 못 읽어도 “분석만 일부 축소”하고 진행한다.
                 return ""
     return ""
 
@@ -245,7 +361,7 @@ def _parse_toml_safe(path: Path) -> dict:
     try:
         text = path.read_text(encoding="utf-8")
         # 값 없이 키만 있는 라인 (name = "...") 패턴으로 대략적 추출
-        result["_raw"] = re.findall(r'^\s*(\w[\w.-]*)\s*[=\[]', text, re.MULTILINE)
+        result["_raw"] = re.findall(r"^\s*(\w[\w.-]*)\s*[=\[]", text, re.MULTILINE)
     except OSError:
         pass
     return result
@@ -266,8 +382,12 @@ def _parse_dependencies(repo_path: Path) -> dict:
         try:
             data = json.loads(pkg_json.read_text(encoding="utf-8"))
             pkgs: list[str] = []
-            pkgs += list((data.get("dependencies") or {}).keys())
-            pkgs += list((data.get("devDependencies") or {}).keys())
+            pkgs += list(
+                (data.get("dependencies") or {}).keys()
+            )  # dict.keys() → 패키지명 목록.
+            pkgs += list(
+                (data.get("devDependencies") or {}).keys()
+            )  # 없으면 {} 처리(or {})로 NPE 방지.
             # name/description 도 포함 (프로젝트 파악용)
             meta: dict = {}
             if data.get("name"):
@@ -289,11 +409,15 @@ def _parse_dependencies(repo_path: Path) -> dict:
             # PEP 517 / setuptools
             pkgs += list(data.get("project", {}).get("dependencies", []))
             # Poetry
-            pkgs += list(data.get("tool", {}).get("poetry", {}).get("dependencies", {}).keys())
+            pkgs += list(
+                data.get("tool", {}).get("poetry", {}).get("dependencies", {}).keys()
+            )
             # _raw 폴백
             pkgs += data.get("_raw", [])
             # "python" 제거
-            pkgs = [p for p in pkgs if p.lower() != "python"]
+            pkgs = [
+                p for p in pkgs if p.lower() != "python"
+            ]  # 리스트 컴프리헨션(필터) 예시.
             deps["pyproject.toml"] = pkgs[:_MAX_PKGS]
         except Exception:
             pass
@@ -322,7 +446,7 @@ def _parse_dependencies(repo_path: Path) -> dict:
         try:
             tree = ET.parse(pom)
             root = tree.getroot()
-            ns = re.match(r'\{.*\}', root.tag)
+            ns = re.match(r"\{.*\}", root.tag)
             ns_prefix = ns.group(0) if ns else ""
             pkgs = []
             for dep in root.iter(f"{ns_prefix}dependency"):
@@ -401,7 +525,7 @@ def _find_and_read_key_files(repo_path: Path, languages: Counter) -> dict[str, s
     rest = [p for p in _ENTRY_POINTS if p not in priority_first]
     ordered = priority_first + rest
 
-    for pattern in ordered:
+    for pattern in ordered:  # ordered 는 “주 언어 우선 + 나머지”로 정렬된 후보 경로들.
         if total_chars >= _TOTAL_MAX_CHARS:
             break
 
@@ -428,29 +552,58 @@ def _find_and_read_key_files(repo_path: Path, languages: Counter) -> dict[str, s
                 results[rel] = truncated
                 total_chars += len(truncated)
             except OSError:
+                # 읽기 실패는 무시(분석 컨텍스트만 일부 누락).
                 continue
 
     return results
 
 
-def analyze_project_structure(repo_path: Path, languages: Counter) -> dict:
+_COMMIT_HISTORY_MAX_CHARS = 2000
+_COMMIT_HISTORY_MAX_COUNT = 50
+
+
+def _build_commit_history_summary(commits: list["CommitInfo"]) -> str:
+    """최근 커밋 subject 목록을 AI에 전달할 텍스트로 구성한다."""
+    lines: list[str] = []
+    total_chars = 0
+    for c in commits[:_COMMIT_HISTORY_MAX_COUNT]:
+        if not c.subject:
+            continue
+        # "[2026-04] fix: JSON 추출 강건화" 형식
+        month = c.date[:7] if c.date and len(c.date) >= 7 else c.date or ""
+        line = f"[{month}] {c.subject}"
+        if total_chars + len(line) > _COMMIT_HISTORY_MAX_CHARS:
+            break
+        lines.append(line)
+        total_chars += len(line) + 1
+    return "\n".join(lines)
+
+
+def analyze_project_structure(
+    repo_path: Path,
+    languages: Counter,
+    commits: "list[CommitInfo] | None" = None,
+) -> dict:
     """README, 의존성, 주요 소스 파일을 읽어 project_context dict 를 반환한다.
 
     이 결과를 AIService.analyze_project_from_code() 에 넘기면
     AI 가 "어떤 프로젝트인지" 분석해 problem/solution/summary 를 생성한다.
     """
     logger.debug("프로젝트 구조 분석 시작: %s", repo_path)
+    commit_history = _build_commit_history_summary(commits) if commits else ""
     context = {
         "readme": _read_readme(repo_path),
         "dependencies": _parse_dependencies(repo_path),
         "key_files": _find_and_read_key_files(repo_path, languages),
         "languages": dict(languages.most_common(10)),
+        "commit_history": commit_history,
     }
     logger.debug(
-        "구조 분석 완료 — readme=%d자, deps=%s, key_files=%s",
+        "구조 분석 완료 — readme=%d자, deps=%s, key_files=%s, commits=%d줄",
         len(context["readme"]),
         list(context["dependencies"].keys()),
         list(context["key_files"].keys()),
+        len(commit_history.splitlines()),
     )
     return context
 
@@ -458,6 +611,7 @@ def analyze_project_structure(repo_path: Path, languages: Counter) -> dict:
 # ---------------------------------------------------------------------------
 # 커밋 수집
 # ---------------------------------------------------------------------------
+
 
 def _collect_author_commits(
     repo_path: Path, author_email: str
@@ -468,7 +622,7 @@ def _collect_author_commits(
     except Exception:
         total_commits = 0
 
-    fmt = "--pretty=format:@@COMMIT@@%H%x00%an%x00%ae%x00%ad%x00%s"
+    fmt = "--pretty=format:@@COMMIT@@%H%x00%an%x00%ae%x00%ad%x00%s"  # %x00은 NUL 구분자(안전한 split 용).
     out = _run_git(
         repo_path,
         ["log", f"--author={author_email}", "--date=short", "--numstat", fmt],
@@ -485,11 +639,14 @@ def _collect_author_commits(
         if line.startswith("@@COMMIT@@"):
             if current is not None:
                 commits.append(current)
-            parts = line[len("@@COMMIT@@"):].split("\x00")
+            parts = line[len("@@COMMIT@@") :].split("\x00")
             if len(parts) >= 5:
                 current = CommitInfo(
-                    sha=parts[0], author_name=parts[1], author_email=parts[2],
-                    date=parts[3], subject=parts[4],
+                    sha=parts[0],
+                    author_name=parts[1],
+                    author_email=parts[2],
+                    date=parts[3],
+                    subject=parts[4],
                 )
         else:
             if current is None:
@@ -539,6 +696,7 @@ def _collect_file_stats(
 # 메인 스캔 함수
 # ---------------------------------------------------------------------------
 
+
 def scan_repo(
     repo_path: Path,
     author_email: str,
@@ -555,7 +713,9 @@ def scan_repo(
         ScanResult — analyze=True 이면 project_context 포함.
     """
     repo_path = repo_path.resolve()
-    logger.info("Git 스캔 시작: path=%s author=%s analyze=%s", repo_path, author_email, analyze)
+    logger.info(
+        "Git 스캔 시작: path=%s author=%s analyze=%s", repo_path, author_email, analyze
+    )
     if not _is_git_repo(repo_path):
         logger.warning("Git 스캔 실패: .git 미발견 path=%s", repo_path)
         raise DevfolioError(
@@ -574,10 +734,15 @@ def scan_repo(
     repo_name = (
         Path(repo_url.rstrip("/").split("/")[-1]).stem if repo_url else repo_path.name
     )
+    # 위 한 줄 해설:
+    # - 조건식 A if cond else B: Java의 삼항 연산자(cond ? A : B)
+    # - Path(...).stem: "repo.git" → "repo" 처럼 확장자를 제거한 이름.
 
     commits, total_commits = _collect_author_commits(repo_path, author_email)
     if not commits:
-        logger.warning("Git 스캔 실패: author 커밋 없음 path=%s author=%s", repo_path, author_email)
+        logger.warning(
+            "Git 스캔 실패: author 커밋 없음 path=%s author=%s", repo_path, author_email
+        )
         raise DevfolioError(
             f"'{author_email}' 로 작성된 커밋을 찾을 수 없습니다.",
             hint="이메일이 올바른지 확인하거나, git log --author=... 로 직접 확인해보세요.",
@@ -611,7 +776,9 @@ def scan_repo(
 
     # 딥 분석: README / 의존성 / 소스 파일 읽기
     if analyze:
-        result.project_context = analyze_project_structure(repo_path, result.languages)
+        result.project_context = analyze_project_structure(
+            repo_path, result.languages, commits=commits
+        )
 
     logger.info(
         "Git 스캔 완료: repo=%s commits=%d total=%d head=%s",
@@ -626,6 +793,7 @@ def scan_repo(
 # ---------------------------------------------------------------------------
 # Project 모델 생성 헬퍼
 # ---------------------------------------------------------------------------
+
 
 def _to_yyyymm(date_str: Optional[str]) -> Optional[str]:
     if not date_str:
@@ -651,25 +819,33 @@ def _group_commits_into_tasks(
         ),
         reverse=True,
     )[:max_tasks]
+    # sorted(..., key=lambda ...):
+    # - lambda 는 Java의 익명 함수(Comparator key)처럼 “정렬 기준”을 정의한다.
+    # - key가 튜플이면 (1차 기준, 2차 기준) 순으로 비교한다.
 
     cat_label = {
-        "feat": "기능 개발", "fix": "버그 수정 및 안정화",
-        "perf": "성능 최적화", "refactor": "리팩터링",
-        "test": "테스트 보강", "security": "보안 강화",
+        "feat": "기능 개발",
+        "fix": "버그 수정 및 안정화",
+        "perf": "성능 최적화",
+        "refactor": "리팩터링",
+        "test": "테스트 보강",
+        "security": "보안 강화",
     }
     tasks: list[dict] = []
     for category, bucket in ranked:
         months = sorted({_to_yyyymm(c.date) for c in bucket if _to_yyyymm(c.date)})
         top_subjects = [c.subject for c in bucket[:3]]
-        tasks.append({
-            "name": cat_label.get(category, category),
-            "period_start": months[0] if months else None,
-            "period_end": months[-1] if months else None,
-            "problem": "",
-            "solution": "\n".join(f"- {s}" for s in top_subjects),
-            "result": "",
-            "keywords": [category],
-        })
+        tasks.append(
+            {
+                "name": cat_label.get(category, category),
+                "period_start": months[0] if months else None,
+                "period_end": months[-1] if months else None,
+                "problem": "",
+                "solution": "\n".join(f"- {s}" for s in top_subjects),
+                "result": "",
+                "keywords": [category],
+            }
+        )
     return tasks
 
 
@@ -687,30 +863,34 @@ def _merge_ai_tasks(
     for i, git_task in enumerate(git_tasks):
         if i < len(ai_tasks):
             ai_task = ai_tasks[i]
-            merged.append({
-                **git_task,
-                # AI 가 생성한 필드를 우선 적용 (빈 값이면 기존 유지)
-                "name": ai_task.get("name") or git_task["name"],
-                "problem": ai_task.get("problem") or git_task["problem"],
-                "solution": ai_task.get("solution") or git_task["solution"],
-                "result": ai_task.get("result") or "",
-                "tech_used": ai_task.get("tech_used") or [],
-            })
+            merged.append(
+                {
+                    **git_task,  # dict 언패킹: 기존 key/value 를 그대로 복사(Java의 Map.putAll 과 유사).
+                    # AI 가 생성한 필드를 우선 적용 (빈 값이면 기존 유지)
+                    "name": ai_task.get("name") or git_task["name"],
+                    "problem": ai_task.get("problem") or git_task["problem"],
+                    "solution": ai_task.get("solution") or git_task["solution"],
+                    "result": ai_task.get("result") or "",
+                    "tech_used": ai_task.get("tech_used") or [],
+                }
+            )
         else:
             merged.append(git_task)
     # AI tasks 가 git tasks 보다 많으면 나머지 추가
     for i in range(len(git_tasks), len(ai_tasks)):
         ai_t = ai_tasks[i]
-        merged.append({
-            "name": ai_t.get("name", f"작업 {i+1}"),
-            "period_start": None,
-            "period_end": None,
-            "problem": ai_t.get("problem", ""),
-            "solution": ai_t.get("solution", ""),
-            "result": "",
-            "keywords": [],
-            "tech_used": ai_t.get("tech_used", []),
-        })
+        merged.append(
+            {
+                "name": ai_t.get("name", f"작업 {i + 1}"),
+                "period_start": None,
+                "period_end": None,
+                "problem": ai_t.get("problem", ""),
+                "solution": ai_t.get("solution", ""),
+                "result": "",
+                "keywords": [],
+                "tech_used": ai_t.get("tech_used", []),
+            }
+        )
     return merged
 
 
@@ -755,10 +935,13 @@ def build_project_payload(
         project_problem = ai_analysis.get("problem") or ""
         if final_tasks and project_problem and not final_tasks[0].get("problem"):
             final_tasks[0]["problem"] = project_problem
+
+        final_problem_solving_cases = ai_analysis.get("problem_solving_cases") or []
     else:
         merged_tech = top_langs
         final_summary = summary
         final_tasks = git_tasks
+        final_problem_solving_cases = []
 
     return {
         "name": scan.repo_name,
@@ -773,10 +956,11 @@ def build_project_payload(
         "summary": final_summary,
         "tags": list(scan.category_counts.keys()),
         "tasks": final_tasks,
+        "problem_solving_cases": final_problem_solving_cases,
         "repo_url": scan.repo_url,
         "last_commit_sha": scan.head_sha,
         "scan_metrics": {
-            **scan.to_dict(),
+            **scan.to_dict(),  # dict 언패킹으로 metrics 기본 필드를 펼친다.
             "ai_analysis": ai_analysis or {},
         },
     }

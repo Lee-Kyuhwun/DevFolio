@@ -439,6 +439,18 @@
         docs: "",
         video: "",
       },
+      problem_solving_cases: Array.isArray(payload.problem_solving_cases)
+        ? payload.problem_solving_cases.map((c) => ({
+            title: c.title || "",
+            situation: c.situation || "",
+            cause: c.cause || "",
+            action: c.action || "",
+            decision_reason: c.decision_reason || "",
+            result: c.result || "",
+            metric: c.metric || "",
+            tech_used: c.tech_used || [],
+          }))
+        : [],
       studio_meta: {
         experience_kind: EXPERIENCE_KIND_BY_PROJECT_TYPE[projectType] || "personal",
         priority: 3,
