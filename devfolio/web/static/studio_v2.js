@@ -449,6 +449,10 @@
     });
   }
 
+  function yieldToBrowser() {
+    return new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+  }
+
   function requestJson(path, options) {
     return fetch(path, {
       headers: {
@@ -683,9 +687,7 @@
     if (tab) {
       state.ui.settingsTab = tab;
       render();
-      if (tab === "logs") {
-        loadAiLogs();
-      }
+      if (tab === "logs") loadAiLogs();
       return;
     }
 
@@ -887,12 +889,10 @@
           await loadAiLogs();
           break;
         case "clear-ai-logs":
-          if (window.confirm("AI 로그를 모두 삭제할까요?")) {
-            await requestJson("/api/ai-logs", { method: "DELETE" });
-            state.ui.logs = [];
-            showToast("AI 로그를 삭제했습니다.", "ok");
-            render();
-          }
+          await requestJson("/api/ai-logs", { method: "DELETE" });
+          state.ui.logs = [];
+          showToast("AI 로그를 삭제했습니다.", "ok");
+          render();
           break;
         default:
           break;
@@ -1113,6 +1113,7 @@
     state.ui.aiLoading = true;
     state.ui.aiLoadingMsg = "텍스트를 분석하고 있습니다...";
     render();
+    await yieldToBrowser();
     try {
       const payload = await requestJson("/api/intake/project-draft", {
         method: "POST",
@@ -1140,6 +1141,7 @@
     state.ui.aiLoading = true;
     state.ui.aiLoadingMsg = state.importer.analyze ? "Git 스캔 및 AI 분석 중입니다..." : "Git 저장소를 스캔하고 있습니다...";
     render();
+    await yieldToBrowser();
     try {
       const payload = await requestJson("/api/scan/git", {
         method: "POST",
@@ -1164,8 +1166,9 @@
   async function generateSummaryForForm() {
     syncExperienceFormFromDom();
     state.ui.aiLoading = true;
-    state.ui.aiLoadingMsg = "프로젝트 요약을 생성하고 있습니다...";
+    state.ui.aiLoadingMsg = "AI가 요약을 생성하고 있습니다...";
     render();
+    await yieldToBrowser();
     try {
       if (state.editingExperienceId) {
         const payload = await requestJson(`/api/experiences/${encodeURIComponent(state.editingExperienceId)}/generate-summary`, {
@@ -1191,6 +1194,7 @@
       showToast("요약을 생성했습니다.", "ok");
     } finally {
       state.ui.aiLoading = false;
+      state.ui.aiLoadingMsg = "";
       render();
     }
   }
@@ -1198,8 +1202,9 @@
   async function generateTaskBulletsForForm() {
     syncExperienceFormFromDom();
     state.ui.aiLoading = true;
-    state.ui.aiLoadingMsg = "Task 작업 문구를 생성하고 있습니다...";
+    state.ui.aiLoadingMsg = "AI가 작업 설명을 생성하고 있습니다...";
     render();
+    await yieldToBrowser();
     try {
       if (state.editingExperienceId) {
         const payload = await requestJson(`/api/experiences/${encodeURIComponent(state.editingExperienceId)}/generate-task-bullets`, {
@@ -1225,6 +1230,7 @@
       showToast("작업 문구를 생성했습니다.", "ok");
     } finally {
       state.ui.aiLoading = false;
+      state.ui.aiLoadingMsg = "";
       render();
     }
   }
@@ -2884,6 +2890,65 @@
     `;
   }
 
+  function renderLogsSettings() {
+    const entries = state.ui.logs || [];
+    return `
+      <section class="panel">
+        <div class="panel-header">
+          <div>
+            <div class="eyebrow">AI Logs</div>
+            <h3>요청·응답 기록</h3>
+          </div>
+          <div class="toolbar">
+            <button class="btn btn-secondary" data-action="refresh-ai-logs" type="button">${state.ui.logsLoading ? "로딩 중..." : "새로 고침"}</button>
+            <button class="btn btn-danger" data-action="clear-ai-logs" type="button">전체 삭제</button>
+          </div>
+        </div>
+        <div class="surface-list">
+          ${entries.length === 0
+            ? `<div class="empty-state"><p>${state.ui.logsLoading ? "로딩 중..." : "기록이 없습니다."}</p></div>`
+            : entries.map((entry) => renderLogEntry(entry)).join("")}
+        </div>
+      </section>
+    `;
+  }
+
+  function renderLogEntry(entry) {
+    const ts = entry.ts ? new Date(entry.ts).toLocaleString("ko-KR") : "";
+    const isCall = entry.op === "call";
+    const statusClass = entry.ok === false ? "tone-error" : entry.ok === true ? "tone-ok" : "tone-warn";
+    const statusLabel = entry.ok === false ? "실패" : entry.ok === true ? "성공" : entry.level || "INFO";
+    const details = isCall
+      ? `<span class="log-meta">${escapeHtml(entry.provider || "")} / ${escapeHtml(entry.model || "")} · ${entry.duration_ms || 0}ms · 입력 ${entry.prompt_chars || 0}자 · 출력 ${entry.response_chars || 0}자</span>`
+      : "";
+    const preview = isCall
+      ? (entry.error ? `<pre class="log-preview error">${escapeHtml(entry.error)}</pre>` : (entry.response_preview ? `<pre class="log-preview">${escapeHtml(entry.response_preview)}</pre>` : ""))
+      : `<pre class="log-preview">${escapeHtml(entry.message || "")}</pre>`;
+    return `
+      <div class="log-entry">
+        <div class="log-header">
+          <span class="log-badge ${statusClass}">${statusLabel}</span>
+          <span class="log-op">${isCall ? "AI 호출" : "로그"}</span>
+          ${details}
+          <span class="log-ts">${ts}</span>
+        </div>
+        ${preview}
+      </div>
+    `;
+  }
+
+  async function loadAiLogs() {
+    state.ui.logsLoading = true;
+    render();
+    try {
+      const data = await requestJson("/api/ai-logs?limit=100");
+      state.ui.logs = data.entries || [];
+    } finally {
+      state.ui.logsLoading = false;
+      render();
+    }
+  }
+
   function renderToast() {
     if (!state.ui.toast) {
       return "";
@@ -2896,15 +2961,15 @@
     if (!busy) return "";
     const message = state.generate.busy
       ? "문서 세션을 생성하고 있습니다..."
-      : (state.ui.aiLoadingMsg || "AI가 분석하고 있습니다...");
+      : (state.ui.aiLoadingMsg || "AI가 내용을 생성하고 있습니다...");
     const sub = state.generate.busy
       ? "선택한 경험을 기반으로 문서를 구성합니다. 잠시 기다려 주세요."
-      : "AI Provider에 요청을 보냈습니다. 응답을 기다리는 중입니다.";
+      : "잠시 기다려 주세요.";
     return `
       <div class="loading-overlay">
         <div class="loading-overlay-inner">
           <div class="spinner"></div>
-          <strong>${message}</strong>
+          <strong>${escapeHtml(message)}</strong>
           <p>${sub}</p>
         </div>
       </div>
@@ -2969,87 +3034,6 @@
     });
 
     return html;
-  }
-
-  function renderLogsSettings() {
-    const logs = state.ui.logs;
-    const loading = state.ui.logsLoading;
-    return `
-      <section class="panel">
-        <div class="panel-header">
-          <div>
-            <div class="eyebrow">AI Logs</div>
-            <h3>AI 요청·응답 기록</h3>
-            <p>서버에서 AI Provider로 보낸 요청과 받은 응답을 확인합니다.</p>
-          </div>
-          <div class="inline-actions">
-            <button class="btn btn-secondary" data-action="refresh-ai-logs" type="button">새로고침</button>
-            <button class="btn btn-danger" data-action="clear-ai-logs" type="button">로그 삭제</button>
-          </div>
-        </div>
-        ${loading ? `<div class="empty-panel">로그를 불러오는 중...</div>` : renderLogEntries(logs)}
-      </section>
-    `;
-  }
-
-  function renderLogEntries(logs) {
-    if (!logs.length) {
-      return `<div class="empty-panel">아직 AI 로그가 없습니다. AI 기능을 사용하면 여기에 기록됩니다.</div>`;
-    }
-    return `
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>시간</th>
-              <th>Provider / Model</th>
-              <th>작업</th>
-              <th>소요</th>
-              <th>상태</th>
-              <th>프롬프트</th>
-              <th>응답</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${logs.map((log) => {
-              const ts = log.ts ? new Date(log.ts).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "-";
-              const date = log.ts ? new Date(log.ts).toLocaleDateString("ko-KR", { month: "2-digit", day: "2-digit" }) : "";
-              const model = (log.model || "").split("/").pop() || log.model || "-";
-              const duration = log.duration_ms != null ? `${(log.duration_ms / 1000).toFixed(1)}s` : "-";
-              const status = log.ok
-                ? `<span class="badge green">성공</span>`
-                : `<span class="badge red">오류</span>`;
-              const preview = (text, len) => escapeHtml((text || "").slice(0, len)) + ((text || "").length > len ? "…" : "");
-              return `
-                <tr>
-                  <td style="white-space:nowrap;"><span style="font-size:10px;color:var(--text-3);">${date}</span><br>${ts}</td>
-                  <td><strong>${escapeHtml(log.provider || "-")}</strong><br><span class="muted" style="font-size:11px;">${escapeHtml(model)}</span></td>
-                  <td><span class="badge default" style="font-size:10px;">${escapeHtml(log.op || "-")}</span></td>
-                  <td style="font-family:var(--mono);font-size:12px;">${duration}</td>
-                  <td>${status}${log.error ? `<br><span style="font-size:10px;color:var(--red);">${escapeHtml(String(log.error).slice(0, 60))}</span>` : ""}</td>
-                  <td style="max-width:220px;"><span style="font-size:11px;color:var(--text-2);font-family:var(--mono);">${preview(log.user_preview, 120)}</span></td>
-                  <td style="max-width:220px;"><span style="font-size:11px;color:var(--text-2);font-family:var(--mono);">${preview(log.response_preview, 120)}</span></td>
-                </tr>
-              `;
-            }).join("")}
-          </tbody>
-        </table>
-      </div>
-    `;
-  }
-
-  async function loadAiLogs() {
-    state.ui.logsLoading = true;
-    render();
-    try {
-      const payload = await requestJson("/api/ai-logs?limit=100");
-      state.ui.logs = (payload.logs || []).reverse();
-    } catch (error) {
-      showToast(error.message || "로그를 불러오지 못했습니다.", "error");
-    } finally {
-      state.ui.logsLoading = false;
-      render();
-    }
   }
 
   async function loadFileBrowserDir(path) {
