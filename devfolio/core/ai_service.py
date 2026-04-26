@@ -358,6 +358,7 @@ _GENERATION_SAFE_MODEL_REGISTRY: dict[str, tuple[str, ...]] = {
     # API 키 불필요 — pollinations.ai 기본 내장 (출처: text.pollinations.ai/models)
     "pollinations": (
         "openai-fast",  # GPT-OSS 20B, Anonymous 접근 가능
+        "openai",       # openai-fast 빈 응답 시 fallback (GPT-4o mini 계열)
     ),
 }
 
@@ -863,6 +864,11 @@ class AIService:
                     response = litellm.completion(**kwargs)
                     t_end = time.monotonic()
                     content = response.choices[0].message.content or ""
+                    if not content.strip():
+                        raise ValueError(
+                            f"모델 {kwargs['model']}이 빈 응답을 반환했습니다 — "
+                            "프롬프트가 너무 크거나 모델이 해당 요청을 처리하지 못했습니다."
+                        )
                     logger.info(
                         "AI 응답 수신: model=%s duration=%dms response_chars=%d\n  [response] %.800s%s",
                         kwargs["model"], int((t_end - t_start) * 1000), len(content),
@@ -889,15 +895,15 @@ class AIService:
                         raise DevfolioAIAuthError(provider.name) from e
                     if "NotFoundError" in err_class or (
                         '"code": 404' in err_str and "NOT_FOUND" in err_str
-                    ):
+                    ) or (err_class == "ValueError" and "빈 응답" in err_str):
                         last_error = e
                         if model_index < len(model_candidates):
                             logger.warning(
-                                "모델을 찾지 못해 대체 후보로 재시도합니다: provider=%s requested=%s fallback=%s failure=%s",
+                                "모델 실패로 대체 후보로 재시도합니다: provider=%s requested=%s fallback=%s failure=%s",
                                 provider.name,
                                 provider.model,
                                 model_candidates[model_index],
-                                err_class,
+                                err_str[:120],
                             )
                             break
                         raise DevfolioAIError(
