@@ -44,6 +44,18 @@ class CountingAIService(AIService):
         self.calls = 0
         self.latency_ms = 0
 
+    def _provider_fallback_chain(self, provider_name=None):
+        """지정한 provider 하나로만 호출한다. 내장 pollinations 등 다른 provider로 넘어가지 않는다.
+
+        사례에는 실제 경력 정보가 들어가므로, 사용자가 고른 provider 밖으로 데이터를 보내지 않는다.
+        """
+        allowed = self.config.default_ai_provider
+        return [
+            p
+            for p in super()._provider_fallback_chain(provider_name)
+            if p.name == allowed
+        ]
+
     def _call_messages(self, *args, **kwargs) -> str:
         self.calls += 1
         started = time.monotonic()
@@ -165,7 +177,7 @@ def main(argv: Optional[list[str]] = None) -> None:
         f"사례 {len(cases)}개 × 전략 {len(strategies)}개 = 출력 {len(cases) * len(strategies)}개"
     )
     config = load_config()
-    chain = AIService(
+    chain = CountingAIService(
         _config_for(config, strategies[0], args.provider)
     )._provider_fallback_chain(args.provider)
     print(

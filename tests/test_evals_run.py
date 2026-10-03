@@ -140,3 +140,19 @@ def test_row_records_provider(tmp_path):
         )
 
     assert _rows(out)[0]["provider"] == "pollinations"
+
+
+def test_run_never_falls_back_to_builtin_pollinations():
+    from devfolio.models.config import AIProviderConfig
+    from evals.run import CountingAIService, _config_for
+
+    config = Config(
+        default_ai_provider="gemini",
+        ai_providers=[
+            AIProviderConfig(name="gemini", model="gemini-2.5-flash", key_stored=True)
+        ],
+    )
+
+    service = CountingAIService(_config_for(config, "single", "gemini"))
+
+    assert [p.name for p in service._provider_fallback_chain("gemini")] == ["gemini"]
