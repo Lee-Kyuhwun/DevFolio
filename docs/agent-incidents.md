@@ -20,11 +20,11 @@
 | INC-03 | 2026-04-19 | 코드펜스·설명문이 섞인 JSON | `ed79d24` | `test_inc03_extracts_json_wrapped_in_fence_or_prose` |
 | INC-04 | 2026-04-19 | 한국어 지시에도 일본어·중국어 문자 혼입 | `8756ea9` | `test_inc04_strips_japanese_and_chinese_but_keeps_korean` |
 | INC-05 | 2026-04-26 | pollinations 빈 응답 | `b8f3327`, `0ba5137` | `test_inc05_empty_response_falls_back_to_next_provider` |
-| INC-06 | 2026-04-26 | 스마트 따옴표 문법 오류가 main에 반영 | `76bb520` | `test_inc06_every_devfolio_module_imports` |
+| INC-06 | 2026-04-26 (`0ba5137`) | 스마트 따옴표 문법 오류가 main에 반영 | `76bb520` | `test_inc06_every_devfolio_module_imports` |
 | INC-07 | 2026-04-17 ~ 10-03 | 검증 장치가 아무것도 막지 않음 | `2452b7a` | 재현 절차 (아래) |
 | INC-08 | 2026-10-03 이전 | 심사 모델이 낮은 점수에도 `pass: true` | `76bb520` | `tests/test_ai_review_gate.py` |
 
-되돌림 확인(2026-10-03): INC-01 ~ 06의 테스트 6개는 조치를 되돌리면 모두 실패하고, 복구하면 통과했다.
+되돌림 확인(2026-10-03): INC-01 ~ 05는 조치를 되돌리면, INC-06은 문법 오류를 넣으면 테스트가 실패하고, 복구하면 통과했다.
 
 ---
 
@@ -85,20 +85,20 @@
 | 증상 | 모델이 빈 문자열을 정상 응답으로 돌려줘 빈 결과가 나왔다 |
 | 원인 | 응답 내용이 비어 있는지 확인하지 않았다 |
 | 기존 장치가 못 막은 이유 | "성공했지만 비어 있는 응답"을 가정한 테스트가 없었다 |
-| 조치 | `b8f3327`: 빈 응답을 모델 실패로 보고 다음 모델로. `0ba5137`: provider 체인으로 다음 provider까지 이어짐 |
+| 조치 | `b8f3327`: 빈 응답을 모델 실패로 보고 다음 모델로. `0ba5137`: provider 체인으로 다음 provider까지 이어짐. 단 `0ba5137`은 INC-06 문법 오류와 같은 커밋이라, 체인은 `76bb520`(2026-10-03) 전까지 main에서 실행될 수 없었다 |
 | 회귀 테스트 | `test_inc05_empty_response_falls_back_to_next_provider`. 되돌림 확인: 실패함 ✅ (빈 문자열 반환) |
 
 ### INC-06 스마트 따옴표 문법 오류가 main에 반영
 
 | 항목 | 내용 |
 |---|---|
-| 날짜 | 2026-04-26 (커밋 `f7baf34`, `0ba5137`), 2026-10-03 발견 |
+| 날짜 | 2026-04-26 (커밋 `0ba5137`), 2026-10-03 발견 |
 | 발견 | 2026-10-03 점검 중 Claude Code가 CI 기록과 HEAD를 확인하다 발견 |
-| 증상 | `ai_service.py` 60줄에 `“ ”`가 들어가 SyntaxError. 테스트 3개 파일 수집 불가 |
+| 증상 | `0ba5137`에서 `ai_service.py`의 스마트 따옴표(`“ ”`)가 5줄(주석)에서 60줄로 늘었고, 코드 부분(807행 타입 힌트 등)에 들어가 SyntaxError. 테스트 3개 파일 수집 불가. 앞선 `f7baf34`는 주석에만 있어 파싱은 정상이었다 |
 | 원인 | 코드에 타이포그래피 따옴표가 섞였다. 어느 도구에서 들어왔는지는 확인 필요 |
 | 기존 장치가 못 막은 이유 | Claude Code 훅을 거치지 않은 경로로 커밋된 것으로 추정(수집 오류는 pytest 종료 코드 2라 훅이 막았을 것). pre-commit은 미설치. CI는 실패했지만 이미 계속 실패하던 상태라 신호가 되지 못했다 |
 | 조치 | 따옴표 수정 (`76bb520`). 커밋 전 검증을 git 훅으로 옮김 (`2452b7a`) |
-| 회귀 테스트 | `test_inc06_every_devfolio_module_imports`: 테스트가 import하지 않는 모듈까지 모두 import. 되돌림 확인: 실패함 ✅ |
+| 회귀 테스트 | `test_inc06_every_devfolio_module_imports`: 테스트가 import하지 않는 모듈까지 모두 import. 선택 의존성(fastapi 등)이 없어서 생긴 import 실패는 건너뛴다(`test_inc06_missing_optional_dependency_is_skipped_not_failed`). 확인 방법: 조치를 되돌리는 대신 `devfolio/web/main.py`에 스마트 따옴표 문법 오류를 넣으면 실패함 ✅ |
 
 ### INC-07 검증 장치가 아무것도 막지 않음
 

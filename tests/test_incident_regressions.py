@@ -6,6 +6,7 @@
 
 import importlib
 import pkgutil
+import sys
 from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -13,10 +14,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import devfolio
+from devfolio.core import storage
 from devfolio.core.ai_service import AIService, _strip_foreign_chars
 from devfolio.exceptions import DevfolioAIError
 from devfolio.models.config import AIProviderConfig
 from tests.test_ai_service import make_config
+
+# 모듈 import 시점의 실제 경로 (테스트 중에는 conftest가 임시 경로로 바꾼다)
+_USER_AI_LOG_FILE = storage.AI_LOG_FILE
 
 
 def _response(text: str) -> SimpleNamespace:
@@ -27,6 +32,30 @@ def _response(text: str) -> SimpleNamespace:
 
 def _error(class_name: str, message: str) -> Exception:
     return type(class_name, (Exception,), {})(message)
+
+
+# pyproject 선택 의존성(ai, pdf, docx, gui)의 최상위 모듈.
+# `pip install -e ".[dev]"`만 설치한 환경에서는 없을 수 있으므로 import 실패가 아니라 건너뜀으로 본다.
+_OPTIONAL_DEPENDENCIES = frozenset(
+    {"litellm", "weasyprint", "markdown", "docx", "fastapi", "uvicorn"}
+)
+
+
+def _import_all_devfolio_modules() -> tuple[dict[str, str], dict[str, str]]:
+    """devfolio 하위 모듈을 모두 import한다. (실패, 선택 의존성 때문에 건너뜀)을 반환한다."""
+    failures: dict[str, str] = {}
+    skipped: dict[str, str] = {}
+    for module in pkgutil.walk_packages(devfolio.__path__, "devfolio."):
+        try:
+            importlib.import_module(module.name)
+        except ModuleNotFoundError as e:
+            if (e.name or "").split(".")[0] in _OPTIONAL_DEPENDENCIES:
+                skipped[module.name] = e.name
+            else:
+                failures[module.name] = f"ModuleNotFoundError: {e}"
+        except Exception as e:  # noqa: BLE001 — 문법 오류 등 모든 import 실패를 모아서 보여준다
+            failures[module.name] = f"{type(e).__name__}: {e}"
+    return failures, skipped
 
 
 @contextmanager
@@ -146,15 +175,29 @@ def test_inc05_empty_response_falls_back_to_next_provider():
     assert "gpt-4o" in fake_litellm.completion.call_args_list[1].kwargs["model"]
 
 
+def test_ai_logs_during_tests_stay_out_of_user_data_dir():
+    assert storage.AI_LOG_FILE != _USER_AI_LOG_FILE
+
+    test_inc02_not_found_model_moves_to_next_candidate_without_wait()
+
+    assert storage.AI_LOG_FILE.exists()
+
+
+def test_inc06_missing_optional_dependency_is_skipped_not_failed():
+    web_modules = [name for name in sys.modules if name.startswith("devfolio.web")]
+    with patch.dict("sys.modules", {"fastapi": None}):
+        for name in web_modules:
+            sys.modules.pop(name)
+        failures, skipped = _import_all_devfolio_modules()
+
+    assert failures == {}
+    assert "devfolio.web.routes.api" in skipped
+
+
 def test_inc06_every_devfolio_module_imports():
     names = [m.name for m in pkgutil.walk_packages(devfolio.__path__, "devfolio.")]
     assert "devfolio.web.main" in names
 
-    failures = {}
-    for name in names:
-        try:
-            importlib.import_module(name)
-        except Exception as e:  # noqa: BLE001 — 모든 import 실패를 모아서 보여준다
-            failures[name] = f"{type(e).__name__}: {e}"
+    failures, _ = _import_all_devfolio_modules()
 
     assert failures == {}
