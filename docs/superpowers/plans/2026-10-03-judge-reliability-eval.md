@@ -11,7 +11,7 @@
 **Tech Stack:** Python 3.11+, ruamel.yaml, Pydantic v2, pytest
 
 **Spec:** `docs/superpowers/specs/2026-10-03-judge-reliability-eval-design.md`
-**Depends on:** `docs/superpowers/plans/2026-10-03-claim-grounding-review.md` Task 1~2 (`check_claims`, `ReviewedCandidate.unsupported`)
+**Depends on:** 없음. 2026-10-03 제출 일정(10-04) 때문에 ★1(근거 검사기)과 분리했다. 검사기 지표(재현율·정밀도, 근거 없는 표현 비율)는 ★1 구현 후 추가한다.
 
 > **측정 편향 주의:** `generate_with_review`는 최종 심사에 불합격하면 예외를 던진다. 이를 통해 측정하면 심사 모델이 불합격시킨 출력이 결과에서 빠져 "pass" 일치율이 치우친다. 그래서 Task 2에서 후보 선택 부분을 분리하고, 최종 판정 전의 선택 후보를 기록한다.
 
@@ -87,19 +87,19 @@ def test_decide_applies_preregistered_thresholds():
 - Modify: `devfolio/core/ai_service.py` (`generate_with_review`에서 후보 선택 부분 추출)
 
 **Interfaces:**
-- Consumes: `AIService.build_evidence(project=...)`, `Config.reasoning`, `ReviewedCandidate.unsupported`
+- Consumes: `AIService.build_evidence(project=...)`, `Config.reasoning`
 - Produces:
   - `AIService._select_best_candidate(*, evidence: PortfolioEvidence, profile: GenerationProfile, provider_name: Optional[str], samples: Optional[int]) -> tuple[ReviewedCandidate, ReasoningPlan]`
     - `generate_with_review`의 plan 결정과 전략 실행(`_run_*`) 부분을 그대로 옮긴다. `generate_with_review`는 이 메서드를 호출하도록 바꾸고 동작은 같다(기존 테스트로 확인).
   - 측정용 profile: `GenerationProfile(mode="project_summary", language="ko", max_tokens=2800)`
-  - 행 값: `text=candidate.draft`, `judge_scores=candidate.review.scores`, `judge_passed=candidate.review.passed`, `unsupported=list(candidate.unsupported)`, `resolved_strategy=plan.strategy`
+  - 행 값: `text=candidate.draft`, `judge_scores=candidate.review.scores`, `judge_passed=candidate.review.passed`, `resolved_strategy=plan.strategy`
   - `STRATEGIES: dict[str, dict[str, int]]` (Global Constraints의 값)
   - `load_cases(directory: Path) -> list[tuple[str, Project]]` (`case_id` = 파일 stem)
   - `class CountingAIService(AIService)`: `_call_messages` override. `self.calls: int`, `self.latency_ms: int` 누적
   - `estimate_max_calls(n_cases: int, strategies: list[str]) -> int`
     - 전략별 상한: single 4, best_of_n 8, s1_refine 8, hybrid 14
   - `run_eval(cases, strategies, config: Config, provider: str, out_dir: Path) -> Path`: `outputs.jsonl` 경로 반환
-  - 출력 행: `{output_id: f"{case_id}:{strategy}", case_id, strategy, resolved_strategy, text, judge_scores, judge_passed, unsupported: list[str], calls, latency_ms, error: str | None}`
+  - 출력 행: `{output_id: f"{case_id}:{strategy}", case_id, strategy, resolved_strategy, text, judge_scores, judge_passed, calls, latency_ms, error: str | None}`
   - CLI: `python -m evals.run --cases DIR --strategies a,b --provider NAME [--yes]` → `evals/runs/<YYYYMMDD-HHMMSS>/`
 
 - [ ] **Step 1: 실패하는 테스트**
@@ -173,16 +173,15 @@ def test_label_one_hides_strategy_and_scores():
 
 비교 매핑:
 - factuality: 사람 `has_unsupported` ↔ 심사 `judge_scores["factuality"] < 3`
-- checker: 사람 `has_unsupported` ↔ `len(unsupported) > 0`
 - naturalness: 사람 `naturalness >= 4` ↔ 심사 `judge_scores["naturalness"] >= 4`
 - pass: 사람 `usability == "as_is"` ↔ `judge_passed`
 
 보고서 섹션:
 1. 표본(라벨 n / 전체 n)
 2. 항목별 일치율·kappa
-3. 심사 놓친 비율, 검사기 재현율·정밀도
+3. 심사 모델이 놓친 비율 (검사기 지표는 ★1 이후)
 4. 판정 결과(`decide`)
-5. 전략별 평균 호출 수·지연·근거 없는 표현 비율·"그대로 사용" 비율
+5. 전략별 평균 호출 수·지연·심사 통과율·"그대로 사용" 비율
 6. 경고(`strategy != resolved_strategy`, 라벨 누락)
 
 - [ ] **Step 1: 실패하는 테스트**
