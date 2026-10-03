@@ -32,6 +32,24 @@ def _mean(values: list[float]) -> float | None:
     return sum(values) / len(values) if values else None
 
 
+def _straight_lined(labels: list[dict]) -> str | None:
+    """여러 질문에 답한 라벨의 80% 이상이 완전히 같으면 설명 문자열을 반환한다.
+
+    사실 판정 하나만 묻는 빠른 모드는 모두 "없음"이 정당할 수 있어 검사하지 않는다.
+    """
+    rows = [
+        tuple(sorted((k, v) for k, v in label.items() if k != "output_id"))
+        for label in labels
+        if "naturalness" in label
+    ]
+    if len(rows) < 5:
+        return None
+    most = max(rows.count(r) for r in set(rows))
+    if most / len(rows) >= 0.8:
+        return f"라벨 {len(rows)}건 중 {most}건이"
+    return None
+
+
 def build_report(outputs: list[dict], labels: list[dict]) -> str:
     ok = [row for row in outputs if not row.get("error")]
     errors = [row for row in outputs if row.get("error")]
@@ -52,10 +70,12 @@ def build_report(outputs: list[dict], labels: list[dict]) -> str:
         "naturalness": [
             (lab["naturalness"] >= 4, row["judge_scores"].get("naturalness", 0) >= 4)
             for row, lab in paired
+            if "naturalness" in lab
         ],
         "pass": [
             (lab["usability"] == "as_is", bool(row["judge_passed"]))
             for row, lab in paired
+            if "usability" in lab
         ],
     }
     agreements = {axis: agreement(pairs) for axis, pairs in axes.items()}
@@ -116,6 +136,7 @@ def build_report(outputs: list[dict], labels: list[dict]) -> str:
             1.0 if label_by_id[r["output_id"]]["usability"] == "as_is" else 0.0
             for r in rows
             if r["output_id"] in label_by_id
+            and "usability" in label_by_id[r["output_id"]]
         ]
         lines.append(
             f"| {strategy} | {len(rows)} | {_num(calls)} | {_num(latency)} | "
@@ -129,6 +150,12 @@ def build_report(outputs: list[dict], labels: list[dict]) -> str:
     ]
     if missing:
         warnings.append(f"- 라벨 누락 {len(missing)}건")
+    straight = _straight_lined(labels)
+    if straight:
+        warnings.insert(
+            0,
+            f"- **라벨 품질**: {straight} 같은 답이 반복돼 성의 없는 채점일 수 있다. 이 보고서의 일치율을 결론으로 쓰지 않는다",
+        )
     if errors:
         warnings.append(
             f"- 생성 오류 {len(errors)}건: " + ", ".join(r["output_id"] for r in errors)

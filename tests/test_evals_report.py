@@ -66,3 +66,31 @@ def test_report_states_selection_bias_limitation():
     )
 
     assert "심사 모델이 고른 후보" in md
+
+
+def test_report_handles_factuality_only_labels():
+    outputs = [
+        _out("a:single", "single", "single", True),
+        _out("b:single", "single", "single", True),
+    ]
+    labels = [
+        {"output_id": "a:single", "has_unsupported": True, "unsupported_text": "3배"},
+        {"output_id": "b:single", "has_unsupported": False, "unsupported_text": ""},
+    ]
+
+    md = build_report(outputs, labels)
+
+    assert "| factuality | human_required |" in md  # 놓친 비율 100%
+    assert "| naturalness | undetermined |" in md
+    assert "| pass | undetermined |" in md
+
+
+def test_report_warns_when_labels_are_straight_lined():
+    outputs = [_out(f"c{i}:single", "single", "single", True) for i in range(10)]
+    labels = [
+        _label(f"c{i}:single", naturalness=1, usability="as_is") for i in range(10)
+    ]
+
+    md = build_report(outputs, labels)
+
+    assert "같은 답" in md

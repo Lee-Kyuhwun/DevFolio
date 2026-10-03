@@ -63,3 +63,26 @@ def test_evidence_summary_shows_what_the_models_saw():
     summary = evidence_summary(Project(id="p", name="프로젝트", team_size=1))
 
     assert '"team_size": 1' in summary
+
+
+def test_naturalness_prompt_states_scale_direction():
+    shown: list[str] = []
+    label_one(ITEM, "요약", _asker(["n", "4", "1"], shown))
+
+    assert any("1=매우 어색" in p and "5=매우 자연스러움" in p for p in shown)
+
+
+def test_unsupported_text_is_required_when_yes():
+    label = label_one(ITEM, "요약", _asker(["y", "", "3배", "4", "2"], []))
+
+    assert label["unsupported_text"] == "3배"
+
+
+def test_factuality_only_mode_asks_one_question():
+    label = label_one(ITEM, "요약", _asker(["y", "3배"], []), only="factuality")
+
+    assert label == {
+        "output_id": "a:hybrid",
+        "has_unsupported": True,
+        "unsupported_text": "3배",
+    }

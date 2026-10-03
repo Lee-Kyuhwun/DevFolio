@@ -11,7 +11,7 @@ import argparse
 import json
 import random
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Optional
 
 from devfolio.core.ai_service import AIService, _prune_empty
 from devfolio.models.config import Config
@@ -41,8 +41,16 @@ def _ask_until(
     return answer
 
 
-def label_one(item: dict, evidence_summary: str, ask: Callable[[str], str]) -> dict:
-    """한 건을 채점한다. 화면에는 evidence와 생성된 요약만 보여준다."""
+def label_one(
+    item: dict,
+    evidence_summary: str,
+    ask: Callable[[str], str],
+    only: Optional[str] = None,
+) -> dict:
+    """한 건을 채점한다. 화면에는 evidence와 생성된 요약만 보여준다.
+
+    only="factuality"이면 근거 없는 사실 여부만 묻는다(빠른 모드).
+    """
     header = (
         "=== evidence (생성·심사 모델이 받은 사실) ===\n"
         f"{evidence_summary}\n\n"
@@ -52,14 +60,30 @@ def label_one(item: dict, evidence_summary: str, ask: Callable[[str], str]) -> d
     has = (
         _ask_until(
             ask,
-            header + "evidence에 없는 사실이 있나요? [y/n]: ",
+            header + "evidence에 없는 수치·기술·기능·설계 이유·성과가 하나라도 있나요? "
+            "(실제로 사실이어도 evidence에 없으면 y) [y/n]: ",
             lambda a: a.lower() in ("y", "n"),
         ).lower()
         == "y"
     )
-    unsupported_text = ask("어떤 표현인가요? (쉼표로 구분): ").strip() if has else ""
+    unsupported_text = (
+        _ask_until(ask, "어떤 표현인가요? (쉼표로 구분, 필수): ", lambda a: bool(a))
+        if has
+        else ""
+    )
+    label = {
+        "output_id": item["output_id"],
+        "has_unsupported": has,
+        "unsupported_text": unsupported_text,
+    }
+    if only == "factuality":
+        return label
     naturalness = int(
-        _ask_until(ask, "자연스러움 1~5: ", lambda a: a in {"1", "2", "3", "4", "5"})
+        _ask_until(
+            ask,
+            "자연스러움 (1=매우 어색 2=어색 3=보통 4=자연스러움 5=매우 자연스러움): ",
+            lambda a: a in {"1", "2", "3", "4", "5"},
+        )
     )
     usability = _USABILITY[
         _ask_until(
@@ -68,13 +92,7 @@ def label_one(item: dict, evidence_summary: str, ask: Callable[[str], str]) -> d
             lambda a: a in _USABILITY,
         )
     ]
-    return {
-        "output_id": item["output_id"],
-        "has_unsupported": has,
-        "unsupported_text": unsupported_text,
-        "naturalness": naturalness,
-        "usability": usability,
-    }
+    return {**label, "naturalness": naturalness, "usability": usability}
 
 
 def evidence_summary(project: Project) -> str:
@@ -109,6 +127,12 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="AI 심사 신뢰도 측정: 블라인드 라벨링")
     parser.add_argument("run_dir", type=Path)
     parser.add_argument("--cases", type=Path, default=Path("evals/cases"))
+    parser.add_argument(
+        "--only",
+        choices=["factuality"],
+        default=None,
+        help="근거 없는 사실 여부만 묻는 빠른 모드",
+    )
     args = parser.parse_args(argv)
 
     outputs = latest_rows(_read_jsonl(args.run_dir / "outputs.jsonl"))
@@ -125,7 +149,10 @@ def main(argv: list[str] | None = None) -> None:
         for n, item in enumerate(items, start=len(labeled) + 1):
             print(f"\n----- [{n}/{total}] -----")
             label = label_one(
-                item, summaries.get(item["case_id"], "(사례 없음)"), input
+                item,
+                summaries.get(item["case_id"], "(사례 없음)"),
+                input,
+                only=args.only,
             )
             fh.write(json.dumps(label, ensure_ascii=False) + "\n")
             fh.flush()
