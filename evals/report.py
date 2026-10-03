@@ -72,6 +72,7 @@ def build_report(outputs: list[dict], labels: list[dict]) -> str:
         "",
         f"- 라벨 {len(paired)} / 전체 {len(ok)} (오류 {len(errors)}건 제외)",
         "- 소규모 파일럿이다. 수치는 이 표본에서만 유효하다.",
+        "- best_of_n·hybrid의 출력은 심사 모델이 고른 후보다. 심사 통과 쪽으로 치우칠 수 있어, 전략을 합친 일치율은 이 점을 감안해 읽는다.",
         "",
         "## 2. 항목별 일치율 (사람 vs 심사 모델)",
         "",

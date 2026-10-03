@@ -111,3 +111,32 @@ def test_sample_case_is_loadable():
 
     cases = load_cases(Path("evals/examples"))
     assert [case_id for case_id, _ in cases] == ["sample_case"]
+
+
+def test_run_sends_only_to_the_chosen_provider():
+    from devfolio.models.config import AIProviderConfig, ReasoningConfig
+    from evals.run import _config_for
+
+    config = Config(
+        default_ai_provider="anthropic",
+        ai_providers=[
+            AIProviderConfig(name="anthropic", model="claude-x", key_stored=True)
+        ],
+        reasoning=ReasoningConfig(judge_provider="anthropic"),
+    )
+
+    cfg = _config_for(config, "single", "pollinations")
+
+    chain = AIService(cfg)._provider_fallback_chain("pollinations")
+    assert [p.name for p in chain] == ["pollinations"]
+    assert cfg.reasoning.judge_provider == ""
+
+
+def test_row_records_provider(tmp_path):
+    _write_case(tmp_path, "sample_case", "샘플 프로젝트")
+    with patch.object(AIService, "_call_messages", _fake_ai(_review(True))):
+        out = run_eval(
+            load_cases(tmp_path), ["single"], Config(), "pollinations", tmp_path / "run"
+        )
+
+    assert _rows(out)[0]["provider"] == "pollinations"

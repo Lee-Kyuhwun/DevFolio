@@ -53,3 +53,13 @@ def test_label_one_reasks_invalid_answers_and_skips_text_when_no():
 
     assert label["has_unsupported"] is False and label["unsupported_text"] == ""
     assert label["naturalness"] == 5 and label["usability"] == "as_is"
+
+
+def test_evidence_summary_shows_what_the_models_saw():
+    from devfolio.models.project import Project
+    from evals.label import evidence_summary
+
+    # team_size=1 is the model default; the generation prompt still includes it
+    summary = evidence_summary(Project(id="p", name="프로젝트", team_size=1))
+
+    assert '"team_size": 1' in summary

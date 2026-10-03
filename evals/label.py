@@ -13,7 +13,7 @@ import random
 from pathlib import Path
 from typing import Callable
 
-from devfolio.core.ai_service import AIService
+from devfolio.core.ai_service import AIService, _prune_empty
 from devfolio.models.config import Config
 from devfolio.models.project import Project
 
@@ -80,9 +80,9 @@ def label_one(item: dict, evidence_summary: str, ask: Callable[[str], str]) -> d
 def evidence_summary(project: Project) -> str:
     """생성·심사 모델이 받은 것과 같은 evidence를 사람이 읽을 수 있게 보여준다."""
     evidence = AIService(Config()).build_evidence(project=project)
-    return json.dumps(
-        evidence.model_dump(exclude_defaults=True), ensure_ascii=False, indent=2
-    )
+    # 생성·심사 프롬프트와 같은 방식으로 직렬화한다 (기본값과 같은 필드도 포함).
+    payload = _prune_empty(evidence.model_dump(exclude_none=True))
+    return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
 def _read_jsonl(path: Path) -> list[dict]:

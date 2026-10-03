@@ -58,3 +58,11 @@ def test_report_applies_decision_and_flags_resolved_strategy():
     assert "| naturalness | auto |" in md
     assert "hybrid → single" in md
     assert "오류 1건" in md
+
+
+def test_report_states_selection_bias_limitation():
+    md = build_report(
+        [_out("a:single", "single", "single", True)], [_label("a:single")]
+    )
+
+    assert "심사 모델이 고른 후보" in md
