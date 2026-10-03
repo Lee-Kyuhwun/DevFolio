@@ -227,3 +227,25 @@ def test_latest_row_per_output_wins():
         {"output_id": "a:single", "error": None, "text": "재실행"},
         {"output_id": "b:single", "error": None},
     ]
+
+
+def test_pinned_model_bypasses_stale_model_registry():
+    """--model은 DevFolio 모델 목록을 거치지 않고 그대로 쓴다 (목록이 오래돼 다른 모델로 바뀌는 문제)."""
+    from devfolio.models.config import AIProviderConfig
+    from evals.run import CountingAIService, _config_for
+
+    config = Config(
+        default_ai_provider="groq",
+        ai_providers=[
+            AIProviderConfig(
+                name="groq", model="llama-3.3-70b-versatile", key_stored=True
+            )
+        ],
+    )
+
+    cfg = _config_for(config, "single", "groq", model="openai/gpt-oss-120b")
+    service = CountingAIService(cfg, pinned_model="openai/gpt-oss-120b")
+
+    assert service._runtime_model_candidates(cfg.ai_providers[0]) == [
+        "openai/gpt-oss-120b"
+    ]

@@ -39,8 +39,9 @@ _PROFILE = GenerationProfile(mode="project_summary", language="ko", max_tokens=2
 class CountingAIService(AIService):
     """AI 호출 수와 누적 지연 시간을 센다."""
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, pinned_model: Optional[str] = None) -> None:
         super().__init__(config)
+        self.pinned_model = pinned_model
         self.calls = 0
         self.latency_ms = 0
 
@@ -58,6 +59,9 @@ class CountingAIService(AIService):
 
     def _runtime_model_candidates(self, provider) -> list[str]:
         """측정 중에는 모델을 바꾸지 않는다. 실패하면 다른 모델로 넘어가지 않고 오류로 기록한다."""
+        # --model로 지정한 모델은 DevFolio 모델 목록을 거치지 않는다 (목록이 오래돼 다른 모델로 바뀜)
+        if self.pinned_model:
+            return [self.pinned_model]
         return super()._runtime_model_candidates(provider)[:1]
 
     def _call_messages(self, *args, **kwargs) -> str:
@@ -138,7 +142,7 @@ def run_eval(
                 if f"{case_id}:{strategy}" in done:
                     continue
                 cfg = _config_for(config, strategy, provider, model)
-                service = CountingAIService(cfg)
+                service = CountingAIService(cfg, pinned_model=model)
                 row: dict = {
                     "output_id": f"{case_id}:{strategy}",
                     "case_id": case_id,
@@ -219,7 +223,7 @@ def main(argv: Optional[list[str]] = None) -> None:
     )
     config = load_config()
     preview_cfg = _config_for(config, strategies[0], args.provider, args.model)
-    preview = CountingAIService(preview_cfg)
+    preview = CountingAIService(preview_cfg, pinned_model=args.model)
     chain = preview._provider_fallback_chain(args.provider)
     model = preview._runtime_model_candidates(preview_cfg.ai_providers[0])[0]
     print(
