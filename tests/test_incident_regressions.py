@@ -246,3 +246,11 @@ def test_inc09_credit_refusal_text_is_never_returned_as_a_draft():
     ):
         with pytest.raises(DevfolioAIError):
             service._call_messages([{"role": "user", "content": "x"}])
+
+
+def test_inc10_tests_never_touch_the_real_keychain():
+    import keyring
+
+    from tests.conftest import InMemoryKeyring
+
+    assert isinstance(keyring.get_keyring(), InMemoryKeyring)

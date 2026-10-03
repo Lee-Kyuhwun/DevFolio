@@ -23,7 +23,8 @@
 | INC-06 | 2026-04-26 (`0ba5137`) | 스마트 따옴표 문법 오류가 main에 반영 | `76bb520` | `test_inc06_every_devfolio_module_imports` |
 | INC-07 | 2026-04-17 ~ 10-03 | 검증 장치가 아무것도 막지 않음 | `2452b7a` | 재현 절차 (아래) |
 | INC-08 | 2026-10-03 이전 | 심사 모델이 낮은 점수에도 `pass: true` | `76bb520` | `tests/test_ai_review_gate.py` |
-| INC-09 | 2026-10-03 | pollinations가 크레딧 부족 문구를 HTTP 200 본문으로 반환 → 초안으로 수용 | 이 커밋 | `test_inc09_credit_refusal_text_*` (2개) |
+| INC-09 | 2026-10-03 | pollinations가 크레딧 부족 문구를 HTTP 200 본문으로 반환 → 초안으로 수용 | `5c486a4` | `test_inc09_credit_refusal_text_*` (2개) |
+| INC-10 | 2026-10-03 | 테스트가 사용자의 실제 macOS 키체인 API 키를 `test-key`로 덮어씀 | 이 커밋 | `test_inc10_tests_never_touch_the_real_keychain` |
 
 되돌림 확인(2026-10-03): INC-01 ~ 05는 조치를 되돌리면, INC-06은 문법 오류를 넣으면 테스트가 실패하고, 복구하면 통과했다.
 
@@ -150,8 +151,22 @@
 | 회귀 테스트 | `test_inc09_credit_refusal_text_falls_back_to_next_provider`, `test_inc09_credit_refusal_text_is_never_returned_as_a_draft`. 되돌림 확인: 감지를 끄면 2개 모두 실패함 ✅ |
 | 남은 영향 | 무료 내장 provider로는 DevFolio의 생성 프롬프트를 처리할 수 없다. 다른 provider 등록이 필요하다 |
 
+### INC-10 테스트가 실제 키체인의 API 키를 덮어씀
+
+| 항목 | 내용 |
+|---|---|
+| 날짜 | 2026-10-03 (결함은 해당 웹 API 테스트가 생긴 시점부터) |
+| 발견 | 사용자가 Gemini 키를 등록한 직후 측정을 실행하자 인증 실패. Claude Code가 키체인 값을 확인해 보니(값은 출력하지 않고 길이·앞 3자만) 8자 `tes…`로 바뀌어 있었고, 원인 테스트를 찾음 |
+| 증상 | 등록한 Gemini 키가 사라지고 `test-key`가 저장됨. Anthropic 항목도 같은 값으로 덮어써짐 |
+| 원인 | `tests/test_web_api.py`가 `/api/config/ai`로 `api_key: "test-key"`를 등록하면 `store_api_key`가 실제 `keyring`(macOS 키체인)에 기록한다. 웹 API 테스트 fixture는 저장 경로만 임시 폴더로 바꾸고 키체인은 바꾸지 않았다 |
+| 기존 장치가 못 막은 이유 | 테스트 결과는 모두 통과였다. 피해가 테스트 밖(사용자 키체인)에 생겨서 어떤 검사도 볼 수 없었다. 오히려 2026-10-03에 넣은 pre-commit 훅이 커밋마다 테스트를 돌리면서 덮어쓰기가 더 자주 일어났다 |
+| 조치 | `tests/conftest.py`: 모든 테스트에서 `keyring`을 메모리 저장소로 바꾸고 `os.environ` 변경을 되돌린다. 전체 테스트 전후로 키체인 항목 수정 시각(mdat)이 변하지 않음을 확인 |
+| 회귀 테스트 | `test_inc10_tests_never_touch_the_real_keychain`. 되돌림 확인: 메모리 키체인 설정을 끄면 실패함 ✅ |
+| 남은 영향 | 덮어써진 Gemini 키는 사용자가 다시 등록해야 한다 |
+
 ## 공통 패턴
 
 - **INC-01 ~ 05, 09**: 모킹 테스트가 가정하지 않은 실제 provider의 동작(오류 문구, 모델 종료, 형식 일탈, 언어 무시, 빈 응답, 정상 코드로 오는 거절 문구)에서 나왔다. INC-09는 실제로 실행하자마자 나왔다.
 - **INC-06 ~ 07**: 검증 장치가 있다고 믿었지만 실제로는 작동하지 않았다.
 - **INC-08**: AI 심사 결과를 코드로 다시 검증하지 않았다.
+- **INC-10**: 테스트가 테스트 밖(사용자 키체인·데이터 폴더)에 흔적을 남겼다. 2026-10-03의 AI 로그 격리(`9897841`)와 같은 계열이다. 검증 장치를 자주 돌릴수록 피해가 커지는 유형이라, 검증을 강화할 때는 테스트 격리부터 확인해야 한다.
