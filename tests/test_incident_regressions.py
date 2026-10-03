@@ -291,3 +291,38 @@ def test_inc11_judge_call_leaves_room_for_thinking_tokens():
         )
 
     assert captured["max_tokens"] >= 4096
+
+
+def test_inc12_daily_free_tier_limit_is_not_reported_as_zero_quota():
+    """INC-01 판정이 넓어서 '하루 20회 한도 소진'을 '할당량 0'으로 오판했다."""
+    from devfolio.exceptions import DevfolioAIRateLimitError
+
+    service = AIService(make_config("gemini"))
+    provider = service._get_provider("gemini")
+    fake_litellm = MagicMock()
+    fake_litellm.completion.side_effect = _error(
+        "RateLimitError",
+        "RESOURCE_EXHAUSTED Quota exceeded for metric: generativelanguage.googleapis.com/"
+        "generate_content_free_tier_requests, limit: 20, model: gemini-3-flash "
+        "quotaId: GenerateRequestsPerDayPerProjectPerModel-FreeTier",
+    )
+
+    with (
+        _offline_litellm(fake_litellm),
+        patch.object(
+            service,
+            "_runtime_model_candidates",
+            return_value=["gemini-3-flash-preview"],
+        ),
+    ):
+        with pytest.raises(DevfolioAIRateLimitError) as exc:
+            service._call_single_provider(
+                fake_litellm,
+                provider,
+                [{"role": "user", "content": "x"}],
+                None,
+                None,
+                False,
+            )
+
+    assert "0입니다" not in str(exc.value)

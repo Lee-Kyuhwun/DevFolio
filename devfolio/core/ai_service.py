@@ -1056,7 +1056,9 @@ class AIService:
                             f"[{provider.name}] 모든 모델 후보 실패: {provider.model}",
                             hint=f"시도한 생성 모델: {', '.join(model_candidates)}.",
                         ) from e
-                    if "limit: 0" in err_str or "free_tier_requests" in err_str:
+                    # 할당량이 정말 0인 경우만 (INC-01). "free_tier_requests"는 일·분 한도를
+                    # 다 쓴 경우에도 들어 있어 이것으로 판정하면 오판한다 (INC-12).
+                    if "limit: 0" in err_str:
                         raise DevfolioAIError(
                             f"{provider.name} 무료 티어 할당량이 0입니다.",
                             hint=(

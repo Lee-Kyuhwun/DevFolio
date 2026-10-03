@@ -25,7 +25,8 @@
 | INC-08 | 2026-10-03 이전 | 심사 모델이 낮은 점수에도 `pass: true` | `76bb520` | `tests/test_ai_review_gate.py` |
 | INC-09 | 2026-10-03 | pollinations가 크레딧 부족 문구를 HTTP 200 본문으로 반환 → 초안으로 수용 | `5c486a4` | `test_inc09_credit_refusal_text_*` (2개) |
 | INC-10 | 2026-10-03 | 테스트가 사용자의 실제 macOS 키체인 API 키를 `test-key`로 덮어씀 | `72a6d9d` | `test_inc10_tests_never_touch_the_real_keychain` |
-| INC-11 | 2026-10-03 | 추론 모델의 생각 토큰이 출력 한도를 써서 심사 JSON이 잘림 | 이 커밋 | `test_inc11_judge_call_leaves_room_for_thinking_tokens` |
+| INC-11 | 2026-10-03 | 추론 모델의 생각 토큰이 출력 한도를 써서 심사 JSON이 잘림 | `9e6f43e` | `test_inc11_judge_call_leaves_room_for_thinking_tokens` |
+| INC-12 | 2026-10-03 | INC-01 판정이 넓어서 일일 한도 소진을 "할당량 0"으로 오판, 분당 한도 재시도도 막음 | 이 커밋 | `test_inc12_daily_free_tier_limit_is_not_reported_as_zero_quota` |
 
 되돌림 확인(2026-10-03): INC-01 ~ 05는 조치를 되돌리면, INC-06은 문법 오류를 넣으면 테스트가 실패하고, 복구하면 통과했다.
 
@@ -176,9 +177,23 @@
 | 조치 | 심사 호출 한도를 4,096으로 올림. 같은 가상 사례로 다시 실행해 심사 JSON이 끝까지 오는 것을 확인(factuality 2, 불합격 판정) |
 | 회귀 테스트 | `test_inc11_judge_call_leaves_room_for_thinking_tokens`: 1,200으로 되돌리면 실패함 ✅ |
 
+### INC-12 일일 한도 소진을 "할당량 0"으로 오판 (INC-01 조치의 부작용)
+
+| 항목 | 내용 |
+|---|---|
+| 날짜 | 2026-10-03 |
+| 발견 | Gemini 본 측정에서 20개 중 15개가 "gemini 무료 티어 할당량이 0입니다"로 실패. 중간에 성공한 호출이 있어 0일 수 없다고 보고 원문을 확인 |
+| 증상 | 실제 오류는 `free_tier_requests, limit: 20` / `GenerateRequestsPerDayPerProjectPerModel-FreeTier`(모델별 하루 20회 소진, 약 13시간 뒤 초기화)였다 |
+| 원인 | INC-01 조치(`2063cf6`)가 `"limit: 0" in err_str or "free_tier_requests" in err_str`로 판정했다. `free_tier_requests`는 모든 무료 등급 한도 초과 메시지에 들어 있다. 이 분기는 로그를 남기기 전에 예외를 던져 원문도 남지 않았다 |
+| 기존 장치가 못 막은 이유 | INC-01 회귀 테스트는 `limit: 0`인 경우만 확인했다. 조치가 다른 경우까지 덮는지(과잉 판정)는 검사하지 않았다 |
+| 조치 | 판정을 `limit: 0`으로만 좁힘. 일일 한도 소진은 기존 일일 한도 분기(`DevfolioAIRateLimitError`), 분당 한도는 대기 후 재시도로 간다 |
+| 회귀 테스트 | `test_inc12_daily_free_tier_limit_is_not_reported_as_zero_quota`(실제 오류 원문 사용). 예전 조건으로 되돌리면 실패함 ✅. INC-01 테스트도 계속 통과 |
+| 교훈 | 회귀 테스트는 "고친 경우"뿐 아니라 "고친 코드가 건드리면 안 되는 경우"도 고정해야 한다 |
+
 ## 공통 패턴
 
 - **INC-01 ~ 05, 09, 11**: 모킹 테스트가 가정하지 않은 실제 provider의 동작(오류 문구, 모델 종료, 형식 일탈, 언어 무시, 빈 응답, 정상 코드로 오는 거절 문구)에서 나왔다. INC-09는 실제로 실행하자마자 나왔다.
 - **INC-06 ~ 07**: 검증 장치가 있다고 믿었지만 실제로는 작동하지 않았다.
 - **INC-08**: AI 심사 결과를 코드로 다시 검증하지 않았다.
+- **INC-12**: 이전 조치가 너무 넓게 적용됐다. 회귀 테스트가 "고친 경우"만 다루고 "건드리면 안 되는 경우"를 다루지 않았다.
 - **INC-10**: 테스트가 테스트 밖(사용자 키체인·데이터 폴더)에 흔적을 남겼다. 2026-10-03의 AI 로그 격리(`9897841`)와 같은 계열이다. 검증 장치를 자주 돌릴수록 피해가 커지는 유형이라, 검증을 강화할 때는 테스트 격리부터 확인해야 한다.
