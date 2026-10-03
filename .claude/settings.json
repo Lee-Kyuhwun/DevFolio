@@ -1,0 +1,55 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pytest*)",
+      "Bash(ruff check*)",
+      "Bash(ruff format*)",
+      "Bash(make*)",
+      "Bash(devfolio*)",
+      "Bash(python -m devfolio*)",
+      "Bash(scripts/check.sh)"
+    ]
+  },
+  "env": {
+    "DEVFOLIO_LANG": "ko"
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path // empty'); case \"$f\" in *.py) cd \"$CLAUDE_PROJECT_DIR\"; R=.venv/bin/ruff; [ -x \"$R\" ] || R=ruff; \"$R\" format \"$f\" >/dev/null 2>&1; \"$R\" check --fix \"$f\" >/dev/null 2>&1;; esac; true",
+            "timeout": 15,
+            "statusMessage": "ruff 포맷/린트 적용 중..."
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd=$(jq -r '.tool_input.command // empty'); case \"$cmd\" in *'git commit'*) \"$CLAUDE_PROJECT_DIR/scripts/check.sh\" >&2 || { echo '검증 실패로 커밋을 막았습니다. 위 오류를 고친 뒤 다시 커밋하세요.' >&2; exit 2; };; esac",
+            "timeout": 120,
+            "statusMessage": "커밋 전 검증 실행 중..."
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && result=$(git diff --stat HEAD 2>/dev/null); [ -n \"$result\" ] && echo \"{\\\"systemMessage\\\": \\\"변경된 파일:\\\\n$result\\\"}\" || true",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

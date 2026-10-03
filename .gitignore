@@ -3,5 +3,13 @@ build/
 devfolio.egg-info/
 __pycache__/
 *.pyc
+.venv/
+.ruff_cache/
+.coverage
+coverage.xml
+.DS_Store
+~$*
+.claude/worktrees/
+.claude/settings.local.json
 CLAUDE.md
 AGENTS.md

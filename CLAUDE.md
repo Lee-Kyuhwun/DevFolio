@@ -20,6 +20,8 @@
 # 설치
 pip install -e ".[dev]"  # 개발 환경
 pip install -e ".[all]"  # 모든 기능
+make hooks                # git pre-commit 훅 설치 (클론 후 1회)
+make check                # 커밋 전 검증: ruff + 포맷 + pytest -x (훅과 동일)
 
 # 테스트
 pytest                    # 전체 테스트 + 커버리지

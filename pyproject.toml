@@ -48,6 +48,7 @@ dev = [
     "litellm>=1.60.0",
     "markdown>=3.6",
     "ruff==0.15.11",
+    "pre-commit>=3.7",
 ]
 
 [project.scripts]

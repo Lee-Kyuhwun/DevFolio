@@ -13,3 +13,13 @@ repos:
       - id: end-of-file-fixer
       - id: check-yaml
       - id: check-added-large-files
+
+  # 린트·포맷·테스트를 모두 통과해야 커밋된다 (Claude Code 훅과 같은 스크립트).
+  - repo: local
+    hooks:
+      - id: devfolio-check
+        name: devfolio check (ruff + pytest)
+        entry: scripts/check.sh
+        language: system
+        pass_filenames: false
+        always_run: true
