@@ -9,7 +9,7 @@ DevFolio는 코딩 에이전트(Claude Code, Codex)와 함께 개발했다.
 [개발 Loop]
 사람: 범위·규칙 결정 ──▶ 에이전트: 구현 ──▶ 자동 검증(scripts/check.sh) ──▶ 사람: 실제 모델로 실행
       ▲                                                                    │
-      └──── 장애 기록(agent-incidents.md) + 회귀 테스트 [예정] ◀────────────────┘
+      └──── 장애 기록(agent-incidents.md) + 회귀 테스트 ◀──────────────────────┘
 
 [제품 Loop]
 evidence ──▶ 생성 모델: 초안 ──▶ 심사 모델: 7축 채점 ──▶ 코드 재검증(통과 기준)
@@ -19,6 +19,7 @@ evidence ──▶ 생성 모델: 초안 ──▶ 심사 모델: 7축 채점 �
 ```
 
 > [예정] 표시는 설계와 구현 계획까지만 있고 아직 구현하지 않은 부분이다(2026-10-03 기준).
+> 장애 기록부와 회귀 테스트는 2026-10-03에 구현했다(`docs/agent-incidents.md`, `tests/test_incident_regressions.py`).
 > 지금은 웹에서 생성한 요약이 사람 확인 없이 바로 저장된다.
 
 ## 역할 분담
@@ -31,7 +32,7 @@ evidence ──▶ 생성 모델: 초안 ──▶ 심사 모델: 7축 채점 �
 | 규칙 정의 | 금지 목록 작성 (`AGENTS.md`) | 규칙을 따름 | `AGENTS.md` |
 | 구현 | 검토 | 구현 (병렬 worktree) | 커밋 이력 |
 | 자동 검증 | 통과 기준 정의 | 매 커밋 실행 | `scripts/check.sh` |
-| 실서비스 장애 발견 | 실제 provider에서 드러난 실패 (발견 경위 확인 필요) | 수정 | fix 커밋, `docs/agent-incidents.md` [예정] |
+| 실서비스 장애 발견 | 실제 provider에서 드러난 실패 (발견 경위 확인 필요) | 수정 | fix 커밋, `docs/agent-incidents.md`, `test_incNN_*` 회귀 테스트 |
 | AI 분석의 교차 검증 | 다른 AI의 분석을 그대로 쓰지 않고 검증을 요구 | 저장소를 직접 확인해 주장별로 판정 | 아래 2026-10-03 기록 |
 | 검증 장치 자체의 검증 | 실험 계획 승인 | 일부러 깨뜨린 변경으로 실험을 제안·수행 | 아래 2026-10-03 기록 |
 
@@ -116,6 +117,6 @@ push 후 CI run `37106604049`에서 lint와 Python 3.11 / 3.12 / 3.13 테스트�
 
 | 설계 문서 | 목적 | 상태 |
 |---|---|---|
-| [에이전트 실수 기록부와 회귀 테스트](superpowers/specs/2026-10-03-agent-incident-log-design.md) | 사람이 찾은 장애를 테스트로 고정해 같은 실수를 다시 통과시키지 않음 | 설계 검토 중 |
-| [문장별 근거 검사와 사람 승인](superpowers/specs/2026-10-03-claim-grounding-review-design.md) | evidence에 없는 수치·기술명을 코드로 찾고, 최종 채택을 사람이 함 | 설계 검토 중 |
-| [AI 심사 신뢰도 측정](superpowers/specs/2026-10-03-judge-reliability-eval-design.md) | 어느 판단을 AI에 맡길지 사람 판정과의 일치율로 결정 | 설계 검토 중 |
+| [에이전트 실수 기록부와 회귀 테스트](superpowers/specs/2026-10-03-agent-incident-log-design.md) | 실서비스 장애를 테스트로 고정해 같은 실수를 다시 통과시키지 않음 | 구현 완료 (2026-10-03) |
+| [문장별 근거 검사와 사람 승인](superpowers/specs/2026-10-03-claim-grounding-review-design.md) | evidence에 없는 수치·기술명을 코드로 찾고, 최종 채택을 사람이 함 | 설계·계획 완료, 구현 전 |
+| [AI 심사 신뢰도 측정](superpowers/specs/2026-10-03-judge-reliability-eval-design.md) | 어느 판단을 AI에 맡길지 사람 판정과의 일치율로 결정 | 설계·계획 완료, 구현 전 |

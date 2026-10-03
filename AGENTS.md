@@ -82,6 +82,7 @@ devfolio/
 ## 핵심 규칙
 
 ### ✅ 항상
+- 실서비스 장애나 에이전트 실수를 고치면 같은 커밋에서 `docs/agent-incidents.md` 항목과 `test_incNN_` 회귀 테스트를 추가한다 ("기존 장치가 못 막은 이유" 필수, 조치를 되돌리면 테스트가 실패하는지 확인)
 - Pydantic `model_validate()` / `model_dump()` 사용 (dict 직접 조작 금지)
 - `ruamel.yaml` YAML 로드 (yaml.safe_load 아님 — 주석 보존용)
 - 오류 시 `DevfolioError` 하위 클래스로 raise, hint 포함

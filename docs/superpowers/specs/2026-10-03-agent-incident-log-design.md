@@ -1,6 +1,6 @@
 # 에이전트 실수 기록부와 회귀 테스트 — 설계
 
-- 상태: 설계 검토 중
+- 상태: 구현 완료 (2026-10-03, `docs/agent-incidents.md`, `tests/test_incident_regressions.py`)
 - 작성: 2026-10-03
 - 관련: [AI 협업 방식](../../ai-collaboration.md)
 
