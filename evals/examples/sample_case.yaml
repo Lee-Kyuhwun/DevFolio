@@ -1,0 +1,25 @@
+# 공개용 가상 사례. 실제 측정 사례는 evals/cases/ 에 두고 커밋하지 않는다.
+# 형식은 DevFolio Project 모델과 같다.
+id: sample_case
+name: 사내 예약 시스템 개편
+type: company
+status: done
+organization: 가상 회사
+role: 백엔드 개발자
+team_size: 4
+period:
+  start: "2024-01"
+  end: "2024-06"
+tech_stack: [Java, Spring Boot, MySQL, Redis]
+one_line_summary: 회의실 예약 시스템의 중복 예약 문제를 해결한 개편 프로젝트
+summary: ""
+tasks:
+  - id: task_001
+    name: 중복 예약 방지
+    period:
+      start: "2024-02"
+      end: "2024-03"
+    problem: 동시에 같은 회의실을 예약하면 두 건이 모두 저장되는 문제가 있었다
+    solution: Redis 분산 락으로 예약 저장 구간을 직렬화했다
+    result: 중복 예약 문의가 사라졌다
+    tech_used: [Redis, Spring Boot]

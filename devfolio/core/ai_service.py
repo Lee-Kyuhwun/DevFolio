@@ -1582,14 +1582,19 @@ class AIService:
             raise DevfolioAIError("AI 후보 초안을 생성하지 못했습니다.")
         return best
 
-    def generate_with_review(
+    def _select_best_candidate(
         self,
         *,
         evidence: PortfolioEvidence,
         profile: GenerationProfile,
-        provider_name: Optional[str] = None,
-        samples: Optional[int] = None,
-    ) -> tuple[str, ReviewResult]:
+        provider_name: Optional[str],
+        samples: Optional[int],
+    ) -> tuple[ReviewedCandidate, ReasoningPlan]:
+        """전략에 따라 후보를 만들고 심사해 가장 좋은 하나를 고른다. 최종 수정·판정은 하지 않는다.
+
+        심사 신뢰도 측정(evals/run.py)은 이 결과를 그대로 기록한다. 최종 판정에서 예외가 나는
+        출력까지 남겨야 심사 모델과 사람의 판정을 치우침 없이 비교할 수 있다.
+        """
         prompt_pack = self._prompt_pack("ko")
         user_prompt = self._render_generation_prompt(prompt_pack, evidence, profile)
         writer_messages = [
@@ -1641,10 +1646,28 @@ class AIService:
 
         if best_candidate is None:
             raise DevfolioAIError("AI 후보 초안을 생성하지 못했습니다.")
+        return best_candidate, plan
+
+    def generate_with_review(
+        self,
+        *,
+        evidence: PortfolioEvidence,
+        profile: GenerationProfile,
+        provider_name: Optional[str] = None,
+        samples: Optional[int] = None,
+    ) -> tuple[str, ReviewResult]:
+        best_candidate, _ = self._select_best_candidate(
+            evidence=evidence,
+            profile=profile,
+            provider_name=provider_name,
+            samples=samples,
+        )
 
         if best_candidate.review.passed and best_candidate.is_valid:
             return best_candidate.draft, best_candidate.review
 
+        prompt_pack = self._prompt_pack("ko")
+        user_prompt = self._render_generation_prompt(prompt_pack, evidence, profile)
         # 마지막 수정도 같은 심사 기준을 통과해야 한다.
         # 이전 초안의 심사 결과를 수정본에 재사용하지 않는다.
         revision_payload = json.dumps(
