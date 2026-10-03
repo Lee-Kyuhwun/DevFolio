@@ -201,3 +201,48 @@ def test_inc06_every_devfolio_module_imports():
     failures, _ = _import_all_devfolio_modules()
 
     assert failures == {}
+
+
+# 2026-10-03 실제 실행에서 받은 pollinations 응답 (HTTP 200, 본문이 거절 문구)
+_CREDIT_REFUSAL = (
+    "The account behind this API key doesn't have enough credits. "
+    "Please [top up](https://enter.pollinations.ai) to continue."
+)
+
+
+def test_inc09_credit_refusal_text_falls_back_to_next_provider():
+    config = make_config("anthropic")
+    config.ai_providers.append(
+        AIProviderConfig(name="openai", model="gpt-4o", key_stored=True)
+    )
+    service = AIService(config)
+    fake_litellm = MagicMock()
+    fake_litellm.completion.side_effect = [
+        _response(_CREDIT_REFUSAL),
+        _response("다음 provider 응답"),
+    ]
+
+    with (
+        _offline_litellm(fake_litellm),
+        patch.object(
+            service, "_runtime_model_candidates", side_effect=lambda p: [p.model]
+        ),
+    ):
+        result = service._call_messages([{"role": "user", "content": "x"}])
+
+    assert result == "다음 provider 응답"
+
+
+def test_inc09_credit_refusal_text_is_never_returned_as_a_draft():
+    service = AIService(make_config("anthropic"))
+    fake_litellm = MagicMock()
+    fake_litellm.completion.return_value = _response(_CREDIT_REFUSAL)
+
+    with (
+        _offline_litellm(fake_litellm),
+        patch.object(
+            service, "_runtime_model_candidates", side_effect=lambda p: [p.model]
+        ),
+    ):
+        with pytest.raises(DevfolioAIError):
+            service._call_messages([{"role": "user", "content": "x"}])

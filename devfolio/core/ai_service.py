@@ -66,6 +66,15 @@ _FOREIGN_CHAR_RANGES = (
 )
 
 
+# provider가 HTTP 200 본문에 담아 보내는 거절 문구 (INC-09: pollinations 익명 등급이 긴 요청에 반환)
+_PROVIDER_REFUSAL_MARKERS = ("doesn't have enough credits",)
+
+
+def _looks_like_provider_refusal(text: str) -> bool:
+    lowered = text.lower()
+    return any(marker in lowered for marker in _PROVIDER_REFUSAL_MARKERS)
+
+
 def _strip_foreign_chars(text: str) -> str:
     """AI 출력에서 일본어·중국어 문자를 제거한다. 한국어(한글)·영문은 유지."""
     if not text:
@@ -993,6 +1002,11 @@ class AIService:
                             f"모델 {kwargs['model']}이 빈 응답을 반환했습니다 — "
                             "프롬프트가 너무 크거나 모델이 해당 요청을 처리하지 못했습니다."
                         )
+                    if _looks_like_provider_refusal(content):
+                        raise ValueError(
+                            f"모델 {kwargs['model']}이 결과 대신 오류 문구를 반환했습니다(크레딧 부족) — "
+                            "무료 등급에서 처리할 수 없는 크기의 요청일 수 있습니다."
+                        )
                     logger.info(
                         "AI 응답 수신: model=%s duration=%dms response_chars=%d\n  [response] %.800s%s",
                         kwargs["model"],
@@ -1023,7 +1037,10 @@ class AIService:
                     if (
                         "NotFoundError" in err_class
                         or ('"code": 404' in err_str and "NOT_FOUND" in err_str)
-                        or (err_class == "ValueError" and "빈 응답" in err_str)
+                        or (
+                            err_class == "ValueError"
+                            and ("빈 응답" in err_str or "오류 문구" in err_str)
+                        )
                     ):
                         last_error = e
                         if model_index < len(model_candidates):
