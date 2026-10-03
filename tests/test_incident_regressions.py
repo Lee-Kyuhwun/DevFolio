@@ -254,3 +254,40 @@ def test_inc10_tests_never_touch_the_real_keychain():
     from tests.conftest import InMemoryKeyring
 
     assert isinstance(keyring.get_keyring(), InMemoryKeyring)
+
+
+def test_inc11_judge_call_leaves_room_for_thinking_tokens():
+    """추론(thinking) 모델은 생각 토큰도 출력 한도에서 쓴다. 1,200이면 심사 JSON이 잘렸다."""
+    import json
+
+    from devfolio.core.ai_service import GenerationProfile, PortfolioEvidence
+
+    service = AIService(make_config("gemini"))
+    captured = {}
+    scores = dict.fromkeys(
+        [
+            "factuality",
+            "specificity",
+            "result_orientation",
+            "hiring_relevance",
+            "redundancy",
+            "output_contract",
+            "naturalness",
+        ],
+        4,
+    )
+
+    def fake_call(messages, **kwargs):
+        captured.update(kwargs)
+        return json.dumps({"pass": True, "scores": scores})
+
+    with patch.object(service, "_call_messages", side_effect=fake_call):
+        service._review_generated_text(
+            service._prompt_pack("ko"),
+            PortfolioEvidence(name="x"),
+            "요약",
+            GenerationProfile(mode="project_summary"),
+            None,
+        )
+
+    assert captured["max_tokens"] >= 4096

@@ -1256,7 +1256,8 @@ class AIService:
             ],
             provider_name=provider_name,
             temperature=0.0,
-            max_tokens=1200,
+            # 추론 모델(Gemini 3 등)은 생각 토큰도 이 한도에서 쓴다. 1,200이면 JSON이 잘렸다 (INC-11).
+            max_tokens=4096,
             json_mode=False,
         )
         try:
