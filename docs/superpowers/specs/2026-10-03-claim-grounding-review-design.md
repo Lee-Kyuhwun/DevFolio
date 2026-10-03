@@ -58,7 +58,9 @@
 ### 4.2 `AIService` 통합
 
 - **refine 피드백**: refine을 실행하는 경로(s1_refine, hybrid, 최종 수정)의 피드백에 "근거에 없는 표현: X, Y. 삭제하거나 evidence에 있는 표현으로 바꿀 것"을 추가한다.
-- **후보 선택**: 정렬 키를 `(근거 없는 claim 수 오름차순, 심사 점수 내림차순)`으로 바꾼다.
+- **후보 선택**: 기존 정렬 키의 첫 항목(형식 통과 그리고 심사 통과) 바로 다음에 "근거 없는 claim 수 오름차순"을 넣는다.
+  - 새 키: `(형식·심사 모두 통과, -근거 없는 claim 수, 형식 통과, 심사 통과, 점수, -issue 수)`
+  - 근거 없는 claim 수를 맨 앞에 두면 형식이 깨진 후보가 뽑혀 최종 단계 실패가 늘어난다. 그래서 통과 여부 다음에 둔다.
 - **새 메서드** `generate_project_summary_draft(...) -> SummaryDraft { text, review, claims }`
   - 기존 `generate_project_summary`의 반환 타입은 유지한다. CLI가 사용 중이다.
   - CLI는 생성 후 근거 없는 표현이 있으면 경고를 출력한다.
@@ -67,7 +69,7 @@
 
 | 엔드포인트 | 변경 |
 |---|---|
-| `POST /api/experiences/{id}/generate-summary` | 저장하지 않고 `{status, draft: {text, claims, review_scores}}`를 반환 |
+| `POST /api/experiences/{id}/generate-summary` | 저장하지 않고 `{status, summary_draft: {text, claims, review_scores}}`를 반환 (`draft` 키는 기존 응답에서 프로젝트 초안을 뜻해 피함) |
 | `POST /api/projects/{id}/generate-summary` | 위와 같음 |
 | `POST /api/draft/generate-summary` | 원래 저장하지 않는다. 응답에 `claims`만 추가 |
 | `POST /api/experiences/{id}/summary/decision` (신규) | 본문: `{action: "accepted" \| "edited" \| "discarded", draft_text, final_text}`<br>`accepted`/`edited`면 저장하고 결정 기록, `discarded`면 기록만 |
@@ -81,7 +83,8 @@
   - 근거 없는 claim은 빨간 강조와 "근거 없음" 표시
   - 근거가 있는 문장에는 출처 필드를 칩으로 표시
 - 편집 가능한 텍스트 영역과 [적용] [버리기] 버튼을 둔다. 편집했는지는 `draft_text`와 비교해 자동 판별한다.
-- 문장과 claim은 `textContent`로만 넣는다(`AGENTS.md`의 XSS 금지 규칙).
+- 문장과 claim은 기존 화면 코드와 같이 `escapeHtml()`을 거쳐서만 넣는다(`AGENTS.md`의 XSS 금지 규칙).
+- 아직 저장되지 않은 경험(초안 흐름)에서는 [적용]이 폼의 요약 칸만 채운다. 저장할 대상이 없으므로 결정 기록도 남기지 않는다.
 
 ### 4.5 결정 기록 `review_decisions.jsonl`
 
