@@ -109,6 +109,14 @@ def build_report(outputs: list[dict], labels: list[dict]) -> str:
         "",
         f'- 사람이 "근거 없는 사실 있음"으로 본 출력 중 심사 모델이 놓친 비율: **{_pct(fact_miss)}**',
         "- 결정적 근거 검사기의 재현율·정밀도는 근거 검사 구현 후 추가한다.",
+        *(
+            [
+                "- 사람이 근거 없는 사실을 한 건도 찾지 않았다. 심사 모델이 그런 사실을 잡는지는"
+                " 이 표본으로 측정할 수 없다. 아래 factuality 판정(auto)은 반대 증거가 없다는 뜻일 뿐이다."
+            ]
+            if axes["factuality"] and not any(h for h, _ in axes["factuality"])
+            else []
+        ),
         "",
         "## 4. 판정 (데이터를 보기 전에 정한 규칙)",
         "",

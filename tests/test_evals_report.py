@@ -94,3 +94,16 @@ def test_report_warns_when_labels_are_straight_lined():
     md = build_report(outputs, labels)
 
     assert "같은 답" in md
+
+
+def test_report_says_auto_is_weak_when_humans_found_no_unsupported_facts():
+    outputs = [_out(f"c{i}:single", "single", "single", True) for i in range(3)]
+    labels = [
+        {"output_id": f"c{i}:single", "has_unsupported": False, "unsupported_text": ""}
+        for i in range(3)
+    ]
+
+    md = build_report(outputs, labels)
+
+    assert "| factuality | auto |" in md
+    assert "측정할 수 없다" in md
