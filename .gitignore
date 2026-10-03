@@ -13,3 +13,5 @@ coverage.xml
 .claude/settings.local.json
 CLAUDE.md
 AGENTS.md
+evals/cases/
+evals/runs/

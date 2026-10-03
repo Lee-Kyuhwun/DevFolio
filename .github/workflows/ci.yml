@@ -57,7 +57,7 @@ jobs:
           pip install ruff==0.15.11
 
       - name: Lint
-        run: ruff check devfolio/ tests/
+        run: ruff check devfolio/ tests/ evals/
 
       - name: Format check
-        run: ruff format --check devfolio/ tests/
+        run: ruff format --check devfolio/ tests/ evals/
