@@ -96,6 +96,7 @@ _yaml.width = 4096
 # 디렉터리 초기화
 # ---------------------------------------------------------------------------
 
+
 def ensure_dirs() -> None:
     """필요한 디렉터리를 모두 생성한다.
 
@@ -134,6 +135,7 @@ def get_config_path() -> Optional[Path]:
 # ---------------------------------------------------------------------------
 # 설정 저장/로드
 # ---------------------------------------------------------------------------
+
 
 def load_config() -> Config:
     """YAML 설정 파일을 읽어 Config Pydantic 모델로 반환한다.
@@ -186,6 +188,7 @@ def save_config(config: Config) -> None:
 # 프로젝트 ID 변환
 # ---------------------------------------------------------------------------
 
+
 def project_id_from_name(name: str) -> str:
     """프로젝트명 → 파일명에 안전한 ID 문자열로 변환한다.
 
@@ -206,6 +209,7 @@ def project_id_from_name(name: str) -> str:
 # ---------------------------------------------------------------------------
 # 프로젝트 CRUD
 # ---------------------------------------------------------------------------
+
 
 def load_project(project_id: str) -> Optional[Project]:
     """ID 로 프로젝트 YAML 파일을 읽어 Project 모델로 반환한다.
@@ -362,6 +366,7 @@ def find_project_by_name(name_or_id: str) -> Optional[Project]:
 # 백업 / 복원
 # ---------------------------------------------------------------------------
 
+
 def backup(output_path: Path) -> None:
     """DevFolio 데이터 전체를 ZIP 파일로 백업한다.
 
@@ -401,7 +406,9 @@ def restore(backup_path: Path) -> None:
         for member in zf.namelist():
             if "config.yaml" in member:
                 zf.extract(member, DEVFOLIO_CONFIG_DIR.parent)
-            elif "projects/" in member or "exports/" in member or "templates/" in member:
+            elif (
+                "projects/" in member or "exports/" in member or "templates/" in member
+            ):
                 zf.extract(member, DEVFOLIO_DATA_DIR.parent)
 
 

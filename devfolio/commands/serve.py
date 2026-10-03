@@ -1,4 +1,9 @@
-"""devfolio serve — 웹 기반 Portfolio Studio 시작."""
+"""devfolio serve — 웹 기반 Portfolio Studio 시작.
+
+[Spring 비교]
+  `SpringApplication.run()`으로 내장 서버를 띄우는 것과 유사한 “서버 런처” 커맨드.
+  uvicorn(FastAPI ASGI 서버)을 실행하고, 옵션으로 브라우저 자동 오픈/리로드를 지원한다.
+"""
 
 from __future__ import annotations
 
@@ -15,8 +20,12 @@ console = Console()
 def serve(
     host: str = typer.Option("127.0.0.1", help="바인딩 호스트 (Docker: 0.0.0.0)"),
     port: int = typer.Option(8000, help="포트 번호"),
-    open_browser: bool = typer.Option(True, "--open/--no-open", help="브라우저 자동 열기"),
-    reload: bool = typer.Option(False, "--reload/--no-reload", help="코드 변경 시 자동 재시작"),
+    open_browser: bool = typer.Option(
+        True, "--open/--no-open", help="브라우저 자동 열기"
+    ),
+    reload: bool = typer.Option(
+        False, "--reload/--no-reload", help="코드 변경 시 자동 재시작"
+    ),
 ) -> None:
     """웹 기반 Portfolio Studio를 시작합니다.
 
@@ -36,7 +45,7 @@ def serve(
     from devfolio.web.app import create_app
 
     url = f"http://{host}:{port}"
-    console.print(f"\n[bold cyan]DevFolio Portfolio Studio[/bold cyan]")
+    console.print("\n[bold cyan]DevFolio Portfolio Studio[/bold cyan]")
     console.print(f"  주소: [link={url}]{url}[/link]")
     console.print("  종료: Ctrl+C\n")
 

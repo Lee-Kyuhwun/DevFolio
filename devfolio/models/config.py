@@ -13,7 +13,7 @@ import re
 # Optional[X] : "X 이거나 None". Java 의 @Nullable 또는 Optional<X> 와 같은 의미.
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class AIProviderConfig(BaseModel):
@@ -35,7 +35,15 @@ class AIProviderConfig(BaseModel):
 
     # Optional[str] = Field(default=None) : 문자열 or None, 기본값 None.
     # [Spring] @Nullable String / @Column(nullable=true) 와 유사.
-    base_url: Optional[str] = Field(default=None, description="커스텀 API base URL (Ollama 등)")
+    base_url: Optional[str] = Field(
+        default=None, description="커스텀 API base URL (Ollama 등)"
+    )
+
+    @model_validator(mode="after")
+    def set_provider_defaults(self) -> "AIProviderConfig":
+        if self.name == "pollinations" and not self.base_url:
+            self.base_url = "https://text.pollinations.ai/openai"
+        return self
 
 
 class ExportConfig(BaseModel):
@@ -88,9 +96,7 @@ class UserConfig(BaseModel):
         # str.startswith(tuple) : 인수로 튜플을 주면 "또는(OR)" 조건이 된다.
         # [Spring] v.startsWith("http://") || v.startsWith("https://") || ...
         if v and not v.startswith(("http://", "https://", "github.com/")):
-            raise ValueError(
-                f"URL은 http:// 또는 https://로 시작해야 합니다: {v!r}"
-            )
+            raise ValueError(f"URL은 http:// 또는 https://로 시작해야 합니다: {v!r}")
         return v
 
 
@@ -149,7 +155,9 @@ class Config(BaseModel):
     # pattern="^(ko|en|both)$" : 정규식으로 허용 값을 제한.
     # [Spring] @Pattern(regexp="^(ko|en|both)$") 와 동일.
     default_language: str = Field(default="ko", pattern="^(ko|en|both)$")
-    timezone: str = Field(default="Asia/Seoul", description="타임존 (예: Asia/Seoul, UTC)")
+    timezone: str = Field(
+        default="Asia/Seoul", description="타임존 (예: Asia/Seoul, UTC)"
+    )
 
     # list[AIProviderConfig] : Java List<AIProviderConfig> 와 동일.
     # default_factory=list : 빈 리스트를 매번 새로 생성. default=[] 로 쓰면 모든 인스턴스가

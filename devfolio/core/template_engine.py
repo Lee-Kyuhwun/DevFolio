@@ -1,6 +1,14 @@
-"""Jinja2 기반 문서 템플릿 렌더링."""
+"""Jinja2 기반 문서 템플릿 렌더링.
 
-import html as html_mod
+[Spring 비교]
+  View Template Engine(Service) 역할.
+  Jinja2 템플릿(.j2)에 Project/Config DTO와 helper 함수를 주입해 Markdown 문서를 생성한다.
+
+[Python 문법 메모 — Java 개발자용]
+  - `getattr(obj, "field", default)`는 리플렉션처럼 “필드/속성을 문자열로 접근”하는 유틸이다.
+  - `**context`는 키워드 인수(Map) 언패킹으로, Jinja render에 변수를 한 번에 주입하는 패턴이다.
+"""
+
 from pathlib import Path
 from typing import Optional
 
@@ -12,7 +20,9 @@ from devfolio.models.config import Config
 from devfolio.models.project import Project
 
 # 패키지 내장 템플릿 디렉터리
-_BUILTIN_TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
+_BUILTIN_TEMPLATES_DIR = (
+    Path(__file__).parent.parent / "templates"
+)  # 패키지 내장 템플릿 위치.
 
 # 내장 폴백 맵 — doc_type별로 분리
 _BUILTIN_FALLBACK: dict[str, str]  # 선언만; 아래 문자열 상수 정의 후 할당
@@ -20,17 +30,48 @@ _BUILTIN_FALLBACK: dict[str, str]  # 선언만; 아래 문자열 상수 정의 �
 _STACK_LAYER_RULES: tuple[tuple[str, tuple[str, ...], str], ...] = (
     (
         "인터페이스 레이어",
-        ("html", "css", "javascript", "typescript", "react", "vue", "next.js", "nextjs", "svelte"),
+        (
+            "html",
+            "css",
+            "javascript",
+            "typescript",
+            "react",
+            "vue",
+            "next.js",
+            "nextjs",
+            "svelte",
+        ),
         "사용자 입력, 결과 미리보기, 화면 상호작용을 담당합니다.",
     ),
     (
         "애플리케이션 레이어",
-        ("python", "java", "go", "fastapi", "django", "flask", "spring", "express", "node", "typer", "rich"),
+        (
+            "python",
+            "java",
+            "go",
+            "fastapi",
+            "django",
+            "flask",
+            "spring",
+            "express",
+            "node",
+            "typer",
+            "rich",
+        ),
         "핵심 비즈니스 로직, 명령 실행, 요청 처리 흐름을 담당합니다.",
     ),
     (
         "데이터 및 설정 레이어",
-        ("pydantic", "ruamel.yaml", "yaml", "sqlite", "postgres", "mysql", "redis", "keyring"),
+        (
+            "pydantic",
+            "ruamel.yaml",
+            "yaml",
+            "sqlite",
+            "postgres",
+            "mysql",
+            "redis",
+            "keyring",
+        ),
         "데이터 구조화, 검증, 로컬 저장, 비밀정보 관리를 담당합니다.",
     ),
     (
@@ -40,13 +81,23 @@ _STACK_LAYER_RULES: tuple[tuple[str, tuple[str, ...], str], ...] = (
     ),
     (
         "외부 연동 및 배포 레이어",
-        ("litellm", "openai", "anthropic", "gemini", "github", "docker", "uvicorn", "nginx"),
+        (
+            "litellm",
+            "openai",
+            "anthropic",
+            "gemini",
+            "github",
+            "docker",
+            "uvicorn",
+            "nginx",
+        ),
         "외부 AI, 동기화, 실행 환경과의 연동을 담당합니다.",
     ),
 )
 
 
 def _unique_texts(values: list[str]) -> list[str]:
+    # 중복/공백/빈 문자열을 제거해 “설명용 목록”이 부풀지 않게 정리한다.
     seen: set[str] = set()
     results: list[str] = []
     for value in values:
@@ -59,10 +110,14 @@ def _unique_texts(values: list[str]) -> list[str]:
 
 
 def _task_texts(project: Project, attribute: str) -> list[str]:
-    return _unique_texts([str(getattr(task, attribute, "") or "") for task in project.tasks])
+    # getattr(task, attribute): attribute 이름(problem/solution/result 등)에 따라 값을 동적으로 읽는다.
+    return _unique_texts(
+        [str(getattr(task, attribute, "") or "") for task in project.tasks]
+    )
 
 
 def _project_text_blob(project: Project) -> str:
+    # 템플릿 폴백(사용자 흐름/아키텍처 다이어그램)을 만들기 위한 “검색용 텍스트 덩어리”를 구성한다.
     task_bits = []
     for task in project.tasks:
         task_bits.extend([task.name, task.problem, task.solution, task.result])
@@ -77,7 +132,15 @@ def _project_text_blob(project: Project) -> str:
     case_bits = []
     for case in project.problem_solving_cases:
         case_bits.extend(
-            [case.title, case.situation, case.cause, case.action, case.decision_reason, case.result, case.metric]
+            [
+                case.title,
+                case.situation,
+                case.cause,
+                case.action,
+                case.decision_reason,
+                case.result,
+                case.metric,
+            ]
         )
         case_bits.extend(case.tech_used)
     values = [
@@ -111,6 +174,7 @@ def _project_text_blob(project: Project) -> str:
 
 
 def _stack_layers(project: Project) -> list[tuple[str, list[str], str]]:
+    # tech_stack을 “레이어(프론트/백엔드/데이터/문서/외부연동)”로 묶어 설명을 자동 생성한다.
     tech_stack = [item for item in project.tech_stack if item]
     normalized_map = {item.lower(): item for item in tech_stack}
     layers: list[tuple[str, list[str], str]] = []
@@ -128,15 +192,24 @@ def _stack_layers(project: Project) -> list[tuple[str, list[str], str]]:
 
     remaining = [item for item in tech_stack if item.lower() not in used]
     if remaining:
-        layers.append(("기타 구성 요소", remaining, "프로젝트에 필요한 보조 도구와 라이브러리로 사용되었습니다."))
+        layers.append(
+            (
+                "기타 구성 요소",
+                remaining,
+                "프로젝트에 필요한 보조 도구와 라이브러리로 사용되었습니다.",
+            )
+        )
 
     if not layers and tech_stack:
-        layers.append(("기술 스택", tech_stack, "프로젝트 전반에 사용된 핵심 기술입니다."))
+        layers.append(
+            ("기술 스택", tech_stack, "프로젝트 전반에 사용된 핵심 기술입니다.")
+        )
 
     return layers
 
 
 def describe_tech_stack(project: Project) -> str:
+    # tech_stack_detail(reason 포함)가 있으면 그대로 쓰고, 없으면 규칙 기반 레이어링으로 설명을 만든다.
     detail_sections = [
         ("프론트엔드", project.tech_stack_detail.frontend),
         ("백엔드", project.tech_stack_detail.backend),
@@ -178,7 +251,9 @@ def describe_project_purpose(project: Project) -> str:
     if project.overview.problem or project.overview.goals:
         parts: list[str] = []
         if project.overview.problem:
-            parts.append(f"핵심적으로는 {project.overview.problem.strip()} 문제를 해결하는 데 초점을 맞췄습니다.")
+            parts.append(
+                f"핵심적으로는 {project.overview.problem.strip()} 문제를 해결하는 데 초점을 맞췄습니다."
+            )
         if project.overview.goals:
             parts.append(f"주요 목표는 {', '.join(project.overview.goals[:3])}입니다.")
         return " ".join(parts)
@@ -208,32 +283,64 @@ def describe_problem_definition(project: Project) -> str:
 
 
 def describe_user_flow(project: Project) -> str:
-    if project.user_flow:
+    if project.user_flow:  # user_flow가 있으면 사용자가 정의한 단계 그대로 렌더링.
         return "\n".join(
             f"{step.step}. **{step.title or f'단계 {step.step}'}** — {step.description}"
             for step in sorted(project.user_flow, key=lambda item: item.step)
         )
 
-    text_blob = _project_text_blob(project)
+    text_blob = _project_text_blob(
+        project
+    )  # 프로젝트 텍스트에서 키워드를 찾아 “추정 사용자 흐름”을 만든다.
 
-    has_setup = any(keyword in text_blob for keyword in ("init", "setup", "config", "설정", "api key"))
-    has_scan = any(keyword in text_blob for keyword in ("scan", "git", "repository", "저장소"))
-    has_ai = any(keyword in text_blob for keyword in ("ai", "llm", "draft", "요약", "bullet", "litellm", "openai", "anthropic", "gemini"))
-    has_preview = any(keyword in text_blob for keyword in ("preview", "미리보기", "review", "검토"))
-    has_export = any(keyword in text_blob for keyword in ("export", "내보내기", "pdf", "html", "docx", "markdown", "csv"))
-    has_sync = any(keyword in text_blob for keyword in ("sync", "backup", "github", "동기화", "백업"))
+    has_setup = any(
+        keyword in text_blob
+        for keyword in ("init", "setup", "config", "설정", "api key")
+    )
+    has_scan = any(
+        keyword in text_blob for keyword in ("scan", "git", "repository", "저장소")
+    )
+    has_ai = any(
+        keyword in text_blob
+        for keyword in (
+            "ai",
+            "llm",
+            "draft",
+            "요약",
+            "bullet",
+            "litellm",
+            "openai",
+            "anthropic",
+            "gemini",
+        )
+    )
+    has_preview = any(
+        keyword in text_blob for keyword in ("preview", "미리보기", "review", "검토")
+    )
+    has_export = any(
+        keyword in text_blob
+        for keyword in ("export", "내보내기", "pdf", "html", "docx", "markdown", "csv")
+    )
+    has_sync = any(
+        keyword in text_blob
+        for keyword in ("sync", "backup", "github", "동기화", "백업")
+    )
 
     steps: list[str] = []
     if has_setup:
         steps.append("사용자가 초기 설정을 마치고 작업 환경을 준비합니다.")
 
     if has_scan:
-        steps.append("Git 저장소를 스캔하거나 프로젝트 정보를 입력해 원천 데이터를 수집합니다.")
+        steps.append(
+            "Git 저장소를 스캔하거나 프로젝트 정보를 입력해 원천 데이터를 수집합니다."
+        )
     else:
         steps.append("프로젝트 데이터와 작업 내역을 구조화해 입력합니다.")
 
     if has_ai:
-        steps.append("AI draft, 요약, task bullet을 생성하고 사람이 검토하며 문구를 다듬습니다.")
+        steps.append(
+            "AI draft, 요약, task bullet을 생성하고 사람이 검토하며 문구를 다듬습니다."
+        )
     else:
         steps.append("구조화된 데이터를 바탕으로 핵심 내용을 검토하고 정리합니다.")
 
@@ -241,7 +348,9 @@ def describe_user_flow(project: Project) -> str:
         steps.append("preview로 문서 결과를 확인하고 저장 전 품질을 점검합니다.")
 
     if has_export:
-        steps.append("필요한 형식으로 export해 이력서, 포트폴리오, 프로젝트 문서로 전환합니다.")
+        steps.append(
+            "필요한 형식으로 export해 이력서, 포트폴리오, 프로젝트 문서로 전환합니다."
+        )
     elif not has_preview:
         steps.append("결과를 검토하고 다음 작업 단계로 연결합니다.")
 
@@ -276,7 +385,11 @@ def describe_architecture_details(project: Project) -> str:
             for api in project.architecture.api_examples
             if api.path or api.purpose
         )
-    return "\n".join(lines) if lines else "- 아키텍처 세부 설명은 다이어그램과 함께 보완할 수 있습니다."
+    return (
+        "\n".join(lines)
+        if lines
+        else "- 아키텍처 세부 설명은 다이어그램과 함께 보완할 수 있습니다."
+    )
 
 
 def describe_features(project: Project) -> str:
@@ -339,21 +452,82 @@ def describe_problem_solving_cases(project: Project) -> str:
 
 
 def build_architecture_diagram(project: Project) -> str:
+    # Mermaid(flowchart) 다이어그램 텍스트를 생성한다. (템플릿에서 ```mermaid``` 블록으로 감싼다)
     text_blob = _project_text_blob(project)
     tech_stack = {item.lower(): item for item in project.tech_stack if item}
 
-    has_ui = any(keyword in tech_stack for keyword in ("html", "css", "javascript", "typescript", "react", "vue", "next.js", "nextjs", "svelte"))
-    has_cli = any(keyword in tech_stack for keyword in ("typer", "rich", "click")) or "cli" in text_blob
-    has_storage = any(keyword in text_blob for keyword in ("yaml", "sqlite", "postgres", "mysql", "redis", "keyring", "storage", "저장"))
-    has_export = any(keyword in text_blob for keyword in ("jinja2", "markdown", "docx", "pdf", "export", "template", "문서", "내보내기"))
-    has_ai = any(keyword in text_blob for keyword in ("litellm", "openai", "anthropic", "gemini", "ai", "llm"))
-    has_sync = any(keyword in text_blob for keyword in ("github", "sync", "backup", "동기화", "백업"))
+    has_ui = any(
+        keyword in tech_stack
+        for keyword in (
+            "html",
+            "css",
+            "javascript",
+            "typescript",
+            "react",
+            "vue",
+            "next.js",
+            "nextjs",
+            "svelte",
+        )
+    )
+    has_cli = (
+        any(keyword in tech_stack for keyword in ("typer", "rich", "click"))
+        or "cli" in text_blob
+    )
+    has_storage = any(
+        keyword in text_blob
+        for keyword in (
+            "yaml",
+            "sqlite",
+            "postgres",
+            "mysql",
+            "redis",
+            "keyring",
+            "storage",
+            "저장",
+        )
+    )
+    has_export = any(
+        keyword in text_blob
+        for keyword in (
+            "jinja2",
+            "markdown",
+            "docx",
+            "pdf",
+            "export",
+            "template",
+            "문서",
+            "내보내기",
+        )
+    )
+    has_ai = any(
+        keyword in text_blob
+        for keyword in ("litellm", "openai", "anthropic", "gemini", "ai", "llm")
+    )
+    has_sync = any(
+        keyword in text_blob
+        for keyword in ("github", "sync", "backup", "동기화", "백업")
+    )
 
     lines = ["flowchart LR", '    user["사용자"]']
     entry_nodes: list[str] = []
 
     if has_ui:
-        ui_stack = [tech_stack[key] for key in ("html", "css", "javascript", "typescript", "react", "vue", "next.js", "nextjs", "svelte") if key in tech_stack]
+        ui_stack = [
+            tech_stack[key]
+            for key in (
+                "html",
+                "css",
+                "javascript",
+                "typescript",
+                "react",
+                "vue",
+                "next.js",
+                "nextjs",
+                "svelte",
+            )
+            if key in tech_stack
+        ]
         label = "Web Studio"
         if ui_stack:
             label += "\\n" + " · ".join(ui_stack[:3])
@@ -362,7 +536,9 @@ def build_architecture_diagram(project: Project) -> str:
         entry_nodes.append("web")
 
     if has_cli:
-        cli_stack = [tech_stack[key] for key in ("typer", "rich", "click") if key in tech_stack]
+        cli_stack = [
+            tech_stack[key] for key in ("typer", "rich", "click") if key in tech_stack
+        ]
         label = "CLI"
         if cli_stack:
             label += "\\n" + " · ".join(cli_stack[:2])
@@ -370,7 +546,23 @@ def build_architecture_diagram(project: Project) -> str:
         lines.append("    user --> cli")
         entry_nodes.append("cli")
 
-    core_stack = [item for item in project.tech_stack if item.lower() in {"python", "java", "go", "fastapi", "django", "flask", "spring", "express", "node", "pydantic"}]
+    core_stack = [
+        item
+        for item in project.tech_stack
+        if item.lower()
+        in {
+            "python",
+            "java",
+            "go",
+            "fastapi",
+            "django",
+            "flask",
+            "spring",
+            "express",
+            "node",
+            "pydantic",
+        }
+    ]
     core_label = "Core Application"
     if core_stack:
         core_label += "\\n" + " · ".join(core_stack[:3])
@@ -383,7 +575,21 @@ def build_architecture_diagram(project: Project) -> str:
         lines.append("    user --> core")
 
     if has_storage:
-        storage_stack = [item for item in project.tech_stack if item.lower() in {"ruamel.yaml", "yaml", "sqlite", "postgres", "mysql", "redis", "keyring", "pydantic"}]
+        storage_stack = [
+            item
+            for item in project.tech_stack
+            if item.lower()
+            in {
+                "ruamel.yaml",
+                "yaml",
+                "sqlite",
+                "postgres",
+                "mysql",
+                "redis",
+                "keyring",
+                "pydantic",
+            }
+        ]
         label = "Local Storage / Config"
         if storage_stack:
             label += "\\n" + " · ".join(storage_stack[:3])
@@ -391,7 +597,11 @@ def build_architecture_diagram(project: Project) -> str:
         lines.append("    core --> storage")
 
     if has_export:
-        export_stack = [item for item in project.tech_stack if item.lower() in {"jinja2", "markdown", "weasyprint", "python-docx"}]
+        export_stack = [
+            item
+            for item in project.tech_stack
+            if item.lower() in {"jinja2", "markdown", "weasyprint", "python-docx"}
+        ]
         label = "Template / Export"
         if export_stack:
             label += "\\n" + " · ".join(export_stack[:3])
@@ -399,7 +609,11 @@ def build_architecture_diagram(project: Project) -> str:
         lines.append("    core --> export")
 
     if has_ai:
-        ai_stack = [item for item in project.tech_stack if item.lower() in {"litellm", "openai", "anthropic", "gemini"}]
+        ai_stack = [
+            item
+            for item in project.tech_stack
+            if item.lower() in {"litellm", "openai", "anthropic", "gemini"}
+        ]
         label = "AI Providers"
         if ai_stack:
             label += "\\n" + " · ".join(ai_stack[:3])
@@ -430,14 +644,29 @@ def summarize_project_outcomes(project: Project) -> str:
     text_blob = _project_text_blob(project)
     bullets = [f"- {result}" for result in results[:3]]
 
-    if not bullets and any(keyword in text_blob for keyword in ("export", "내보내기", "template", "jinja2")):
-        bullets.append("- 구조화된 프로젝트 데이터를 여러 문서 형식으로 재사용할 수 있는 기반을 만들었습니다.")
-    if not bullets and any(keyword in text_blob for keyword in ("sync", "backup", "github", "동기화", "백업")):
-        bullets.append("- 로컬 작업 결과와 백업 흐름을 분리해 운영 안정성과 복원 가능성을 높였습니다.")
-    if not bullets and any(keyword in text_blob for keyword in ("ai", "llm", "draft", "litellm")):
-        bullets.append("- 구조화된 데이터를 AI 생성 흐름과 연결해 문서 작성 생산성을 높일 수 있는 기반을 마련했습니다.")
+    if not bullets and any(
+        keyword in text_blob for keyword in ("export", "내보내기", "template", "jinja2")
+    ):
+        bullets.append(
+            "- 구조화된 프로젝트 데이터를 여러 문서 형식으로 재사용할 수 있는 기반을 만들었습니다."
+        )
+    if not bullets and any(
+        keyword in text_blob
+        for keyword in ("sync", "backup", "github", "동기화", "백업")
+    ):
+        bullets.append(
+            "- 로컬 작업 결과와 백업 흐름을 분리해 운영 안정성과 복원 가능성을 높였습니다."
+        )
+    if not bullets and any(
+        keyword in text_blob for keyword in ("ai", "llm", "draft", "litellm")
+    ):
+        bullets.append(
+            "- 구조화된 데이터를 AI 생성 흐름과 연결해 문서 작성 생산성을 높일 수 있는 기반을 마련했습니다."
+        )
     if not bullets:
-        bullets.append("- 핵심 기능을 하나의 일관된 흐름으로 정리해 이후 확장과 유지보수에 유리한 구조를 만들었습니다.")
+        bullets.append(
+            "- 핵심 기능을 하나의 일관된 흐름으로 정리해 이후 확장과 유지보수에 유리한 구조를 만들었습니다."
+        )
 
     return "\n".join(bullets)
 
@@ -446,7 +675,8 @@ def describe_operational_considerations(project: Project) -> str:
     parts: list[str] = []
     if project.performance_security_operations.performance:
         parts.append(
-            "- **성능**: " + "; ".join(project.performance_security_operations.performance)
+            "- **성능**: "
+            + "; ".join(project.performance_security_operations.performance)
         )
     if project.performance_security_operations.security:
         parts.append(
@@ -454,9 +684,14 @@ def describe_operational_considerations(project: Project) -> str:
         )
     if project.performance_security_operations.operations:
         parts.append(
-            "- **운영**: " + "; ".join(project.performance_security_operations.operations)
+            "- **운영**: "
+            + "; ".join(project.performance_security_operations.operations)
         )
-    return "\n".join(parts) if parts else "- 성능·보안·운영 고려사항은 추후 보강 가능합니다."
+    return (
+        "\n".join(parts)
+        if parts
+        else "- 성능·보안·운영 고려사항은 추후 보강 가능합니다."
+    )
 
 
 def describe_retrospective(project: Project) -> str:
@@ -470,7 +705,11 @@ def describe_retrospective(project: Project) -> str:
     for title, items in mapping:
         if items:
             sections.append(f"### {title}\n" + "\n".join(f"- {item}" for item in items))
-    return "\n\n".join(sections) if sections else "- 회고 내용은 추후 프로젝트 진행 과정에 맞춰 보강할 수 있습니다."
+    return (
+        "\n\n".join(sections)
+        if sections
+        else "- 회고 내용은 추후 프로젝트 진행 과정에 맞춰 보강할 수 있습니다."
+    )
 
 
 def describe_links_and_assets(project: Project) -> str:
@@ -484,10 +723,18 @@ def describe_links_and_assets(project: Project) -> str:
     if project.links.video:
         items.append(f"- **Video**: {project.links.video}")
     for screenshot in project.assets.screenshots:
-        items.append(f"- **스크린샷 · {screenshot.title or '이미지'}**: {screenshot.description} ({screenshot.path})")
+        items.append(
+            f"- **스크린샷 · {screenshot.title or '이미지'}**: {screenshot.description} ({screenshot.path})"
+        )
     for diagram in project.assets.diagrams:
-        items.append(f"- **다이어그램 · {diagram.title or '다이어그램'}**: {diagram.description} ({diagram.path})")
-    return "\n".join(items) if items else "- 링크나 스크린샷 자산은 아직 등록되지 않았습니다."
+        items.append(
+            f"- **다이어그램 · {diagram.title or '다이어그램'}**: {diagram.description} ({diagram.path})"
+        )
+    return (
+        "\n".join(items)
+        if items
+        else "- 링크나 스크린샷 자산은 아직 등록되지 않았습니다."
+    )
 
 
 class TemplateEngine:

@@ -1,4 +1,13 @@
-"""웹 스튜디오용 초안 모델."""
+"""웹 스튜디오용 초안 모델.
+
+[Spring 비교]
+  Web UI에서 편집/미리보기에 쓰는 DTO 계층.
+  저장 시에는 ProjectDraft/ExperienceDraft → Project 로 변환되어 YAML로 저장된다.
+
+[Python 문법 메모 — Java 개발자용]
+  - `model_validator`는 클래스/객체 생성 시점에 들어가는 검증 훅(@Valid + 커스텀 검증).
+  - `default_factory=...`는 매 인스턴스마다 새 객체를 만들기 위한 패턴(공유 참조 방지).
+"""
 
 from __future__ import annotations
 
@@ -62,7 +71,9 @@ class ProjectDraft(BaseModel):
     architecture: ProjectArchitecture = Field(default_factory=ProjectArchitecture)
     features: list[ProjectFeature] = Field(default_factory=list)
     problem_solving_cases: list[ProblemSolvingCase] = Field(default_factory=list)
-    performance_security_operations: PerformanceSecurityOperations = Field(default_factory=PerformanceSecurityOperations)
+    performance_security_operations: PerformanceSecurityOperations = Field(
+        default_factory=PerformanceSecurityOperations
+    )
     results: ProjectResults = Field(default_factory=ProjectResults)
     retrospective: ProjectRetrospective = Field(default_factory=ProjectRetrospective)
     assets: ProjectAssets = Field(default_factory=ProjectAssets)
@@ -110,7 +121,9 @@ class ExperienceDraft(BaseModel):
     architecture: ProjectArchitecture = Field(default_factory=ProjectArchitecture)
     features: list[ProjectFeature] = Field(default_factory=list)
     problem_solving_cases: list[ProblemSolvingCase] = Field(default_factory=list)
-    performance_security_operations: PerformanceSecurityOperations = Field(default_factory=PerformanceSecurityOperations)
+    performance_security_operations: PerformanceSecurityOperations = Field(
+        default_factory=PerformanceSecurityOperations
+    )
     results: ProjectResults = Field(default_factory=ProjectResults)
     retrospective: ProjectRetrospective = Field(default_factory=ProjectRetrospective)
     assets: ProjectAssets = Field(default_factory=ProjectAssets)

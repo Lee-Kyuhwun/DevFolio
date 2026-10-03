@@ -49,6 +49,7 @@ class DevfolioConfigError(DevfolioError):
     [Spring 비교]
       설정 관련 예외를 한 계층으로 묶어 catch 할 수 있게 하는 마커 예외.
     """
+
     # 별도 __init__ 없음 → 부모(DevfolioError) 의 __init__ 을 그대로 상속.
     # [Spring] 생성자 없이 super 생성자를 암묵적으로 사용하는 것과 동일.
 
@@ -184,6 +185,7 @@ class DevfolioYAMLError(DevfolioError):
     def __init__(self, path: str, detail: str = ""):
         super().__init__(
             # detail 이 있으면 개행 + 들여쓰기로 추가. 없으면 빈 문자열.
-            message=f"YAML 파일을 처리할 수 없습니다: {path}" + (f"\n  {detail}" if detail else ""),
+            message=f"YAML 파일을 처리할 수 없습니다: {path}"
+            + (f"\n  {detail}" if detail else ""),
             hint="파일이 올바른 YAML 형식인지 확인하세요.",
         )

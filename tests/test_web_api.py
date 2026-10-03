@@ -1,4 +1,9 @@
-"""Portfolio Studio API / UI smoke tests."""
+"""Portfolio Studio API / UI smoke tests.
+
+[Java 개발자 메모]
+  - fastapi TestClient는 Spring의 MockMvc처럼 “서버를 띄우지 않고” 라우터를 호출한다.
+  - pytest.importorskip는 의존성이 없으면 테스트를 자동 skip한다(환경별 선택 실행).
+"""
 
 from collections import Counter
 from pathlib import Path
@@ -76,15 +81,23 @@ def test_list_directories_returns_child_directories_and_git_marker(client, web_s
     nested_dir = browse_root / "notes"
     nested_dir.mkdir()
 
-    with patch("devfolio.web.routes.api._directory_picker_roots", return_value=[browse_root]):
+    with patch(
+        "devfolio.web.routes.api._directory_picker_roots", return_value=[browse_root]
+    ):
         response = client.get("/api/fs/directories", params={"path": str(browse_root)})
 
     assert response.status_code == 200, response.text
     payload = response.json()
     assert payload["current_path"] == str(browse_root)
     assert payload["parent_path"] is None
-    assert any(entry["name"] == "sample-repo" and entry["is_git_repo"] for entry in payload["entries"])
-    assert any(entry["name"] == "notes" and not entry["is_git_repo"] for entry in payload["entries"])
+    assert any(
+        entry["name"] == "sample-repo" and entry["is_git_repo"]
+        for entry in payload["entries"]
+    )
+    assert any(
+        entry["name"] == "notes" and not entry["is_git_repo"]
+        for entry in payload["entries"]
+    )
 
 
 def test_index_renders_portfolio_studio_shell(client):
@@ -115,7 +128,26 @@ def test_upsert_ai_provider_uses_default_model_when_omitted(client):
     assert providers[0]["model"] == "claude-sonnet-4-20250514"
 
 
-def test_upsert_ai_provider_preserves_display_model_and_exposes_generation_model(client):
+def test_upsert_pollinations_provider_sets_default_base_url(client):
+    response = client.post(
+        "/api/config/ai",
+        json={
+            "name": "pollinations",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+
+    listed = client.get("/api/config")
+    assert listed.status_code == 200, listed.text
+    providers = listed.json()["ai_providers"]
+    assert providers[0]["name"] == "pollinations"
+    assert providers[0]["base_url"] == "https://text.pollinations.ai/openai"
+
+
+def test_upsert_ai_provider_preserves_display_model_and_exposes_generation_model(
+    client,
+):
     response = client.post(
         "/api/config/ai",
         json={
@@ -154,7 +186,9 @@ def test_get_config_keeps_display_model_and_reports_generation_fallback(client):
     assert response.status_code == 200, response.text
     payload = response.json()
     resolution = resolve_generation_model("gemini", "gemini-2.0-flash-001")
-    assert payload["general"]["default_ai_generation_model"] == resolution.generation_model
+    assert (
+        payload["general"]["default_ai_generation_model"] == resolution.generation_model
+    )
     assert payload["general"]["default_ai_generation_status"] == resolution.status
     assert payload["general"]["default_ai_generation_warning"] == resolution.warning
     assert payload["general"]["reasoning_strategy"] == "single"
@@ -230,20 +264,26 @@ def test_list_ai_models_returns_generation_metadata(client):
         b'{"models": ['
         b'{"name": "models/gemini-2.5-flash", "supportedGenerationMethods": ["generateContent"]},'
         b'{"name": "models/gemini-2.5-flash-preview-09-2025", "supportedGenerationMethods": ["generateContent"]}'
-        b']}'
+        b"]}"
     )
     mocked = patch("urllib.request.urlopen")
     with mocked as urlopen:
         response_obj = urlopen.return_value.__enter__.return_value
         response_obj.read.return_value = fake_response
-        response = client.get("/api/models", params={"provider": "gemini", "api_key": "AIza-test"})
+        response = client.get(
+            "/api/models", params={"provider": "gemini", "api_key": "AIza-test"}
+        )
 
     assert response.status_code == 200, response.text
     payload = response.json()
     assert payload["provider"] == "gemini"
     assert payload["models"][0]["id"] == "gemini-2.5-flash"
     assert payload["models"][0]["generation_status"] == "ready"
-    preview = next(item for item in payload["models"] if item["id"] == "gemini-2.5-flash-preview-09-2025")
+    preview = next(
+        item
+        for item in payload["models"]
+        if item["id"] == "gemini-2.5-flash-preview-09-2025"
+    )
     assert preview["generation_model"] == "gemini-2.5-flash"
     assert preview["generation_status"] == "fallback"
     assert preview["warning"]
@@ -317,7 +357,9 @@ def test_experiences_crud_round_trip(client):
                 "priority": 5,
                 "document_targets": ["resume", "career"],
                 "collaboration": True,
-                "extra_links": [{"label": "Readme", "url": "https://example.com/readme"}],
+                "extra_links": [
+                    {"label": "Readme", "url": "https://example.com/readme"}
+                ],
             },
             "tasks": [
                 {
@@ -494,15 +536,33 @@ def test_preview_portfolio_renders_ai_generated_task_text(client):
                     "non_goals": [],
                 },
                 "user_flow": [
-                    {"step": 1, "title": "입력", "description": "프로젝트 초안을 구조화합니다."},
-                    {"step": 2, "title": "검토", "description": "AI 생성 결과를 확인하고 수정합니다."},
+                    {
+                        "step": 1,
+                        "title": "입력",
+                        "description": "프로젝트 초안을 구조화합니다.",
+                    },
+                    {
+                        "step": 2,
+                        "title": "검토",
+                        "description": "AI 생성 결과를 확인하고 수정합니다.",
+                    },
                 ],
                 "tech_stack_detail": {
                     "frontend": [],
-                    "backend": [{"name": "Python", "reason": "CLI와 웹 API, 렌더링을 한 언어로 통합하기 위해 사용했습니다."}],
+                    "backend": [
+                        {
+                            "name": "Python",
+                            "reason": "CLI와 웹 API, 렌더링을 한 언어로 통합하기 위해 사용했습니다.",
+                        }
+                    ],
                     "database": [],
                     "infra": [],
-                    "tools": [{"name": "Jinja2", "reason": "구조화 데이터를 여러 문서 형식으로 재사용하기 위해 선택했습니다."}],
+                    "tools": [
+                        {
+                            "name": "Jinja2",
+                            "reason": "구조화 데이터를 여러 문서 형식으로 재사용하기 위해 선택했습니다.",
+                        }
+                    ],
                 },
                 "features": [
                     {
@@ -524,13 +584,26 @@ def test_preview_portfolio_renders_ai_generated_task_text(client):
                     }
                 ],
                 "results": {
-                    "quantitative": [{"metric_name": "구조", "before": "summary 중심", "after": "case study 중심", "impact": "가독성 개선"}],
-                    "qualitative": ["프로젝트 목적과 결과가 먼저 읽히는 문서가 되었습니다."],
+                    "quantitative": [
+                        {
+                            "metric_name": "구조",
+                            "before": "summary 중심",
+                            "after": "case study 중심",
+                            "impact": "가독성 개선",
+                        }
+                    ],
+                    "qualitative": [
+                        "프로젝트 목적과 결과가 먼저 읽히는 문서가 되었습니다."
+                    ],
                 },
                 "retrospective": {
-                    "what_went_well": ["문서 구조를 스키마와 템플릿에 함께 반영했습니다."],
+                    "what_went_well": [
+                        "문서 구조를 스키마와 템플릿에 함께 반영했습니다."
+                    ],
                     "what_was_hard": ["기존 task 중심 구조와의 호환이 필요했습니다."],
-                    "what_i_learned": ["좋은 포트폴리오는 기능보다 판단과 결과를 먼저 보여줘야 합니다."],
+                    "what_i_learned": [
+                        "좋은 포트폴리오는 기능보다 판단과 결과를 먼저 보여줘야 합니다."
+                    ],
                     "next_steps": ["링크와 시각 자산 입력 UI를 보강합니다."],
                 },
                 "tags": ["portfolio"],
@@ -565,7 +638,6 @@ def test_preview_portfolio_renders_ai_generated_task_text(client):
 
 
 def test_experiences_endpoint_restores_legacy_studio_meta_defaults(client):
-    manager = ProjectManager()
     legacy = Project(
         id="legacy_project",
         name="레거시 프로젝트",
@@ -631,7 +703,9 @@ def test_export_portfolio_saved_project_creates_html(client, web_store):
     assert payload["format"] == "html"
     assert payload["path"].endswith(".html")
     assert (storage.EXPORTS_DIR / "portfolio_default.html").exists()
-    exported_html = (storage.EXPORTS_DIR / "portfolio_default.html").read_text(encoding="utf-8")
+    exported_html = (storage.EXPORTS_DIR / "portfolio_default.html").read_text(
+        encoding="utf-8"
+    )
     assert "cdn.jsdelivr.net/npm/mermaid" in exported_html
     assert "문제 정의" in exported_html
 
@@ -719,7 +793,10 @@ def test_scan_git_ai_failure_keeps_basic_scan_result(client, web_store):
 
     with (
         patch("devfolio.core.git_scanner.scan_repo", return_value=fake_scan_result),
-        patch("devfolio.core.git_scanner.build_project_payload", return_value={"repo": "DevFolio"}),
+        patch(
+            "devfolio.core.git_scanner.build_project_payload",
+            return_value={"repo": "DevFolio"},
+        ),
         patch(
             "devfolio.web.routes.api.AIService.analyze_project_from_code",
             side_effect=DevfolioError("AI 실패"),

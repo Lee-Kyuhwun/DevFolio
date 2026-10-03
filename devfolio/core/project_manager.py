@@ -73,7 +73,9 @@ class ProjectManager:
             if candidate not in used:
                 return candidate
 
-    def _next_project_id(self, name: str, exclude_project_id: Optional[str] = None) -> str:
+    def _next_project_id(
+        self, name: str, exclude_project_id: Optional[str] = None
+    ) -> str:
         """프로젝트명으로 고유 ID 를 생성한다.
 
         - 정확히 같은 이름이 이미 있으면 DevfolioError 발생
@@ -97,7 +99,9 @@ class ProjectManager:
         base_id = project_id_from_name(name)
         # set comprehension : 조건에 맞는 값만으로 set 을 만든다.
         # [Spring] projects.stream().map(Project::getId).filter(...).collect(toSet()).
-        used_ids = {project.id for project in projects if project.id != exclude_project_id}
+        used_ids = {
+            project.id for project in projects if project.id != exclude_project_id
+        }
 
         if base_id not in used_ids:
             return base_id
@@ -139,7 +143,9 @@ class ProjectManager:
         [Spring 비교]
           DTO → Entity 역변환. @Transient 필드와 유사한 개념 (저장 안 함).
         """
-        project_name = (draft.name or "").strip() or ("Untitled Project" if transient else "")
+        project_name = (draft.name or "").strip() or (
+            "Untitled Project" if transient else ""
+        )
         if not project_name:
             raise DevfolioError(
                 "프로젝트명은 비워둘 수 없습니다.",
@@ -167,7 +173,9 @@ class ProjectManager:
                     id=task_id,
                     name=task_name,
                     # Period.model_validate(dict) : Period VO 를 dict 에서 재생성.
-                    period=Period.model_validate(task_draft.period.model_dump(exclude_none=False)),
+                    period=Period.model_validate(
+                        task_draft.period.model_dump(exclude_none=False)
+                    ),
                     problem=task_draft.problem,
                     solution=task_draft.solution,
                     result=task_draft.result,
@@ -195,8 +203,12 @@ class ProjectManager:
             tech_stack_detail=draft.tech_stack_detail.model_copy(deep=True),
             architecture=draft.architecture.model_copy(deep=True),
             features=[feature.model_copy(deep=True) for feature in draft.features],
-            problem_solving_cases=[case.model_copy(deep=True) for case in draft.problem_solving_cases],
-            performance_security_operations=draft.performance_security_operations.model_copy(deep=True),
+            problem_solving_cases=[
+                case.model_copy(deep=True) for case in draft.problem_solving_cases
+            ],
+            performance_security_operations=draft.performance_security_operations.model_copy(
+                deep=True
+            ),
             results=draft.results.model_copy(deep=True),
             retrospective=draft.retrospective.model_copy(deep=True),
             assets=draft.assets.model_copy(deep=True),
@@ -348,7 +360,9 @@ class ProjectManager:
         #   [Spring] BeanUtils.copyProperties(source, target) + 개별 필드 오버라이드.
         # {k: v for k, v in kwargs.items() if v is not None} : None 값은 무시.
         #   [Spring] map.entrySet().stream().filter(e -> e.getValue() != null).collect(...).
-        updated = project.model_copy(update={k: v for k, v in kwargs.items() if v is not None})
+        updated = project.model_copy(
+            update={k: v for k, v in kwargs.items() if v is not None}
+        )
         save_project(updated)
         return updated
 
@@ -366,7 +380,9 @@ class ProjectManager:
         if new_name != project.name:
             updates["name"] = new_name
             # ID 변경 — 새 이름 기반으로 재생성 (기존 ID 제외하고 충돌 체크).
-            updates["id"] = self._next_project_id(new_name, exclude_project_id=project.id)
+            updates["id"] = self._next_project_id(
+                new_name, exclude_project_id=project.id
+            )
         else:
             updates["name"] = project.name
             updates["id"] = project.id
@@ -403,7 +419,9 @@ class ProjectManager:
         # [Spring] stream().filter(p -> p.getTechStack().stream().anyMatch(...)).
         if stack_filter:
             sf = stack_filter.lower()
-            projects = [p for p in projects if any(sf in s.lower() for s in p.tech_stack)]
+            projects = [
+                p for p in projects if any(sf in s.lower() for s in p.tech_stack)
+            ]
         if type_filter:
             projects = [p for p in projects if p.type == type_filter]
         if tag_filter:
@@ -467,7 +485,9 @@ class ProjectManager:
             raise DevfolioTaskNotFoundError(task_name, project.name)
         return task
 
-    def get_task_or_raise(self, project_name: str, task_name: str) -> tuple[Project, Task]:
+    def get_task_or_raise(
+        self, project_name: str, task_name: str
+    ) -> tuple[Project, Task]:
         """프로젝트와 Task 를 함께 반환한다. 없으면 예외 발생.
 
         tuple[A, B] : 두 값을 하나로 묶어 반환. [Spring] Pair<Project, Task> 와 유사.
@@ -500,9 +520,7 @@ class ProjectManager:
         updated_task = task.model_copy(update=updates)
         # list comprehension 으로 tasks 리스트에서 해당 task 만 교체.
         # [Spring] tasks.replaceAll(t -> t.getId().equals(task.getId()) ? updatedTask : t).
-        project.tasks = [
-            updated_task if t.id == task.id else t for t in project.tasks
-        ]
+        project.tasks = [updated_task if t.id == task.id else t for t in project.tasks]
         save_project(project)
         return updated_task
 

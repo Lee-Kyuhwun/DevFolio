@@ -1,4 +1,13 @@
-"""devfolio data * — 데이터 백업/복원/고급 가져오기 커맨드."""
+"""devfolio data * — 데이터 백업/복원/고급 가져오기 커맨드.
+
+[Spring 비교]
+  운영 도구용 Admin CLI에 가까움.
+  storage.backup/restore(파일 기반)와 Project 모델 검증(Pydantic)을 조합해 데이터 이관을 돕는다.
+
+[Python 문법 메모 — Java 개발자용]
+  - `Any`는 Object, `Optional[T]`는 nullable 힌트다.
+  - YAML/JSON을 “확장자 우선 → 실패 시 폴백”으로 파싱해 유연성을 확보한다.
+"""
 
 import json
 from pathlib import Path
@@ -47,8 +56,10 @@ def _normalize_project_payload(item: dict, existing_name: Optional[str] = None) 
 @app.command("backup")
 def backup_cmd(
     output: Optional[Path] = typer.Option(
-        None, "--output", "-o",
-        help="백업 파일 경로 (기본: ~/devfolio_backup_YYYYMMDD.zip)"
+        None,
+        "--output",
+        "-o",
+        help="백업 파일 경로 (기본: ~/devfolio_backup_YYYYMMDD.zip)",
     ),
 ):
     """DevFolio 데이터 전체를 ZIP으로 백업."""
@@ -56,6 +67,7 @@ def backup_cmd(
 
     if not output:
         from datetime import datetime
+
         date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         output = Path.home() / f"devfolio_backup_{date_str}.zip"
 
@@ -138,7 +150,9 @@ def import_data(
                 continue
 
         try:
-            payload = _normalize_project_payload(item, existing.name if existing else None)
+            payload = _normalize_project_payload(
+                item, existing.name if existing else None
+            )
             if existing and yes:
                 payload["id"] = existing.id
             project = Project.model_validate(payload)
@@ -153,17 +167,22 @@ def import_data(
         f"\n[bold green]✓ 고급 import 완료[/bold green] "
         f"(성공: {imported}, 건너뜀: {skipped})"
     )
-    console.print("[dim]다음 단계: `devfolio serve`에서 가져온 프로젝트를 검토하고 preview/export 하세요.[/dim]")
+    console.print(
+        "[dim]다음 단계: `devfolio serve`에서 가져온 프로젝트를 검토하고 preview/export 하세요.[/dim]"
+    )
 
 
 @app.command("export-json")
 def export_json(
-    output: Optional[Path] = typer.Option(None, "--output", "-o", help="출력 파일 경로"),
+    output: Optional[Path] = typer.Option(
+        None, "--output", "-o", help="출력 파일 경로"
+    ),
 ):
     """모든 프로젝트를 JSON으로 내보내기."""
     check_init()
 
     from devfolio.core.storage import list_projects as _list_projects
+
     projects = _list_projects()
 
     if not projects:
@@ -178,6 +197,7 @@ def export_json(
         result_path = output
     else:
         from devfolio.core.storage import EXPORTS_DIR
+
         result_path = EXPORTS_DIR / "projects.json"
         result_path.write_text(content, encoding="utf-8")
 

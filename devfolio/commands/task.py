@@ -1,4 +1,12 @@
-"""devfolio task * — 작업 내역 관리 커맨드."""
+"""devfolio task * — 작업 내역 관리 커맨드.
+
+[Spring 비교]
+  Project 하위 컬렉션(Task)을 관리하는 CLI Controller.
+  실제 저장/검증은 ProjectManager(@Service) + Pydantic 모델이 담당한다.
+
+[Python 문법 메모 — Java 개발자용]
+  - 리스트 컴프리헨션(`[... for ... if ...]`)이 자주 나오며 stream filter/map와 동일한 역할이다.
+"""
 
 from typing import Optional
 
@@ -19,7 +27,9 @@ pm = ProjectManager()
 def _do_add_task(project_name: str) -> Optional[Task]:
     """대화형 작업 내역 입력 (내부 재사용 함수)."""
     console.print("\n[bold cyan]── 작업 내역 등록 ──[/bold cyan]\n")
-    console.print("[dim]기간과 상세 설명은 비워둘 수 있고, 나중에 `task edit`로 보완할 수 있습니다.[/dim]\n")
+    console.print(
+        "[dim]기간과 상세 설명은 비워둘 수 있고, 나중에 `task edit`로 보완할 수 있습니다.[/dim]\n"
+    )
 
     task_name = Prompt.ask("작업명")
     period_start = Prompt.ask("시작 월 (YYYY-MM)", default="")
@@ -31,7 +41,9 @@ def _do_add_task(project_name: str) -> Optional[Task]:
     console.print("[dim]해결 방법 (TO-BE): 어떻게 해결했는지 설명하세요[/dim]")
     solution = Prompt.ask("해결 방법", default="")
 
-    console.print("[dim]성과/지표: 수치화된 결과가 있으면 포함하세요 (예: 응답속도 40% 개선)[/dim]")
+    console.print(
+        "[dim]성과/지표: 수치화된 결과가 있으면 포함하세요 (예: 응답속도 40% 개선)[/dim]"
+    )
     result = Prompt.ask("성과/지표", default="")
 
     tech_used_str = Prompt.ask("사용 기술 (쉼표 구분)", default="")
@@ -53,10 +65,12 @@ def _do_add_task(project_name: str) -> Optional[Task]:
     )
 
     if task:
-        console.print(f"\n[bold green]✓ 작업 내역 등록 완료![/bold green] ID: [dim]{task.id}[/dim]")
+        console.print(
+            f"\n[bold green]✓ 작업 내역 등록 완료![/bold green] ID: [dim]{task.id}[/dim]"
+        )
         console.print(
             f"[dim]다음 단계: `devfolio serve`에서 초안을 검토/preview 하거나 "
-            f"`devfolio ai generate task \"{project_name}\" --task \"{task.name}\"` 를 실행하세요.[/dim]"
+            f'`devfolio ai generate task "{project_name}" --task "{task.name}"` 를 실행하세요.[/dim]'
         )
     else:
         console.print(f"[red]오류:[/red] 프로젝트를 찾을 수 없습니다: {project_name}")
@@ -134,7 +148,7 @@ def show_task(
     console.print(f"  [bold]키워드[/bold]: {', '.join(task.keywords) or '없음'}")
 
     if task.ai_generated_text:
-        console.print(f"\n  [bold green]AI 생성 문구:[/bold green]")
+        console.print("\n  [bold green]AI 생성 문구:[/bold green]")
         console.print(task.ai_generated_text)
 
 
@@ -191,9 +205,7 @@ def delete_task(
     _, task = pm.get_task_or_raise(project, task_name)
 
     if not yes:
-        if not Confirm.ask(
-            f"[red]'{task.name}'[/red] 작업 내역을 삭제하시겠습니까?"
-        ):
+        if not Confirm.ask(f"[red]'{task.name}'[/red] 작업 내역을 삭제하시겠습니까?"):
             console.print("[yellow]취소되었습니다.[/yellow]")
             return
 

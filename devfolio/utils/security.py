@@ -1,6 +1,14 @@
 """API 키 보안 저장/조회 — 3단계 폴백 체인.
 
 우선순위: OS 키체인(keyring) → 환경 변수 → 설정 파일 암호화 저장
+
+[Spring 비교]
+  Secret 관리 레이어(예: Spring Cloud Config/HashiCorp Vault)를 로컬 환경에 맞게 단순화한 버전.
+  운영 환경에서는 “환경 변수 주입”, 로컬에서는 “키체인 저장”을 우선하고, 불가능하면 파일로 폴백한다.
+
+[Python 문법 메모 — Java 개발자용]
+  - try/except로 keyring import/호출 실패를 흡수해 “환경에 따라 동작이 달라지는” 폴백 체인을 만든다.
+  - `stat.S_IRUSR | stat.S_IWUSR`는 비트 OR로 권한을 합치는 방식(0o600과 동일 의미).
 """
 
 import json
@@ -24,6 +32,7 @@ _ENV_VAR_MAP: dict[str, str] = {
 def _keys_file() -> Path:
     """키 파일 경로 (platformdirs 설정 디렉터리 아래)."""
     from platformdirs import user_config_dir
+
     config_dir = Path(user_config_dir("devfolio"))
     config_dir.mkdir(parents=True, exist_ok=True)
     return config_dir / "api_keys.json"
@@ -53,6 +62,7 @@ def store_api_key(provider_name: str, api_key: str) -> bool:
     # 1. OS 키체인
     try:
         import keyring
+
         keyring.set_password(KEYRING_SERVICE, provider_name, api_key)
         return True
     except Exception:
@@ -81,6 +91,7 @@ def get_api_key(provider_name: str) -> Optional[str]:
     # 1. OS 키체인
     try:
         import keyring
+
         key = keyring.get_password(KEYRING_SERVICE, provider_name)
         if key:
             return key
@@ -108,6 +119,7 @@ def delete_api_key(provider_name: str) -> bool:
     deleted = False
     try:
         import keyring
+
         keyring.delete_password(KEYRING_SERVICE, provider_name)
         deleted = True
     except Exception:

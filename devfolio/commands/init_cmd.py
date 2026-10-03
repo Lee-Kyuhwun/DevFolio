@@ -1,4 +1,13 @@
-"""devfolio init — 최초 설정 흐름."""
+"""devfolio init — 최초 설정 흐름.
+
+[Spring 비교]
+  Interactive Wizard(초기화 흐름)로, 최초 실행 시 Config(application.yml에 해당)를 생성한다.
+  사용자/AI Provider/Sync 설정을 질문으로 받아 `storage.save_config()`에 저장한다.
+
+[Python 문법 메모 — Java 개발자용]
+  - 함수가 파일 내부에서 여러 개 정의되어 있고, `run_init()`이 “오케스트레이터” 역할을 한다.
+  - `Prompt.ask(..., password=True)`는 입력을 마스킹해 API 키 노출을 막는다.
+"""
 
 import typer
 from rich.console import Console
@@ -22,9 +31,18 @@ _BANNER = """
 """
 
 _PROVIDER_MODELS: dict[str, list[str]] = {
-    "anthropic": ["claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-haiku-4-5-20251001"],
+    "anthropic": [
+        "claude-sonnet-4-20250514",
+        "claude-opus-4-20250514",
+        "claude-haiku-4-5-20251001",
+    ],
     "openai": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
-    "gemini": ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"],
+    "gemini": [
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro",
+    ],
     "ollama": ["llama3.2", "llama3.1", "mistral", "deepseek-coder"],
 }
 
@@ -32,7 +50,9 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
 def run_init(force: bool = False) -> None:
     """대화형 초기 설정."""
     console.print(Panel(_BANNER, style="bold blue", border_style="blue"))
-    console.print("  [bold cyan]개발자 포트폴리오 & 경력기술서 자동화 도구[/bold cyan]\n")
+    console.print(
+        "  [bold cyan]개발자 포트폴리오 & 경력기술서 자동화 도구[/bold cyan]\n"
+    )
 
     if is_initialized() and not force:
         if not Confirm.ask("이미 초기화되어 있습니다. 다시 설정하시겠습니까?"):
@@ -61,7 +81,9 @@ def run_init(force: bool = False) -> None:
 
     # GitHub sync 설정
     console.print("\n[bold]── GitHub 백업 설정 ──[/bold]")
-    if Confirm.ask("GitHub 저장소로 원본 데이터와 산출물을 백업하시겠습니까?", default=False):
+    if Confirm.ask(
+        "GitHub 저장소로 원본 데이터와 산출물을 백업하시겠습니까?", default=False
+    ):
         _configure_sync(config)
 
     save_config(config)

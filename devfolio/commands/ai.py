@@ -1,4 +1,13 @@
-"""devfolio ai * — AI 기반 문서 생성 커맨드."""
+"""devfolio ai * — AI 기반 문서 생성 커맨드.
+
+[Spring 비교]
+  CLI Controller(typer)에서 AIService(@Service)를 호출하고,
+  결과를 콘솔(Rich)로 출력한 뒤 필요 시 저장(ProjectManager)까지 연결한다.
+
+[Python 문법 메모 — Java 개발자용]
+  - `next((...), None)` 패턴은 stream().findFirst().orElse(null)과 유사하다.
+  - `typer.Exit(code)`는 CLI에서 즉시 종료(종료코드 전달)하는 예외 기반 흐름 제어다.
+"""
 
 from pathlib import Path
 from typing import Optional
@@ -36,23 +45,29 @@ def generate_task(
     project: str = typer.Argument(..., help="프로젝트명"),
     task: str = typer.Option(..., "--task", "-t", help="작업명"),
     lang: str = typer.Option("ko", "--lang", "-l", help="언어 (ko/en/both)"),
-    provider: Optional[str] = typer.Option(None, "--provider", help="AI Provider 오버라이드"),
+    provider: Optional[str] = typer.Option(
+        None, "--provider", help="AI Provider 오버라이드"
+    ),
     refresh: bool = typer.Option(False, "--refresh", "-r", help="캐시 무시하고 재생성"),
-    samples: Optional[int] = typer.Option(None, "--samples", min=1, max=5, help="best-of-N 후보 수"),
+    samples: Optional[int] = typer.Option(
+        None, "--samples", min=1, max=5, help="best-of-N 후보 수"
+    ),
 ):
     """작업 내역 → 경력기술서 bullet point 생성."""
     check_init()
 
     proj = pm.get_project(project)
     if not proj:
-        console.print(f"[red]오류:[/red] 프로젝트를 찾을 수 없습니다: [bold]{project}[/bold]")
+        console.print(
+            f"[red]오류:[/red] 프로젝트를 찾을 수 없습니다: [bold]{project}[/bold]"
+        )
         raise typer.Exit(1)
 
-    task_obj = next(
-        (t for t in proj.tasks if t.name == task or t.id == task), None
-    )
+    task_obj = next((t for t in proj.tasks if t.name == task or t.id == task), None)
     if not task_obj:
-        console.print(f"[red]오류:[/red] 작업 내역을 찾을 수 없습니다: [bold]{task}[/bold]")
+        console.print(
+            f"[red]오류:[/red] 작업 내역을 찾을 수 없습니다: [bold]{task}[/bold]"
+        )
         raise typer.Exit(1)
 
     if task_obj.ai_generated_text and not refresh:
@@ -88,8 +103,12 @@ def generate_task(
 def generate_project(
     project: str = typer.Argument(..., help="프로젝트명"),
     lang: str = typer.Option("ko", "--lang", "-l", help="언어 (ko/en/both)"),
-    provider: Optional[str] = typer.Option(None, "--provider", help="AI Provider 오버라이드"),
-    samples: Optional[int] = typer.Option(None, "--samples", min=1, max=5, help="best-of-N 후보 수"),
+    provider: Optional[str] = typer.Option(
+        None, "--provider", help="AI Provider 오버라이드"
+    ),
+    samples: Optional[int] = typer.Option(
+        None, "--samples", min=1, max=5, help="best-of-N 후보 수"
+    ),
     save_summary: bool = typer.Option(
         False,
         "--save-summary",
@@ -101,7 +120,9 @@ def generate_project(
 
     proj = pm.get_project(project)
     if not proj:
-        console.print(f"[red]오류:[/red] 프로젝트를 찾을 수 없습니다: [bold]{project}[/bold]")
+        console.print(
+            f"[red]오류:[/red] 프로젝트를 찾을 수 없습니다: [bold]{project}[/bold]"
+        )
         raise typer.Exit(1)
 
     service = _get_service()
@@ -135,8 +156,12 @@ def generate_project(
 def generate_motivation(
     project: str = typer.Argument(..., help="프로젝트명 또는 ID"),
     lang: str = typer.Option("ko", "--lang", "-l", help="언어 (ko/en/both)"),
-    provider: Optional[str] = typer.Option(None, "--provider", help="AI Provider 오버라이드"),
-    samples: Optional[int] = typer.Option(None, "--samples", min=1, max=5, help="best-of-N 후보 수"),
+    provider: Optional[str] = typer.Option(
+        None, "--provider", help="AI Provider 오버라이드"
+    ),
+    samples: Optional[int] = typer.Option(
+        None, "--samples", min=1, max=5, help="best-of-N 후보 수"
+    ),
     save: bool = typer.Option(
         False,
         "--save",
@@ -152,7 +177,9 @@ def generate_motivation(
 
     proj = pm.get_project(project)
     if not proj:
-        console.print(f"[red]오류:[/red] 프로젝트를 찾을 수 없습니다: [bold]{project}[/bold]")
+        console.print(
+            f"[red]오류:[/red] 프로젝트를 찾을 수 없습니다: [bold]{project}[/bold]"
+        )
         raise typer.Exit(1)
 
     service = _get_service()
@@ -187,17 +214,23 @@ def generate_motivation(
     )
     if should_save:
         pm.save_project_background(proj.id, result)
-        console.print("[bold green]✓ overview.background 에 저장되었습니다.[/bold green]")
+        console.print(
+            "[bold green]✓ overview.background 에 저장되었습니다.[/bold green]"
+        )
 
 
 @generate_app.command("resume")
 def generate_resume(
     lang: str = typer.Option("ko", "--lang", "-l", help="언어 (ko/en/both)"),
-    provider: Optional[str] = typer.Option(None, "--provider", help="AI Provider 오버라이드"),
+    provider: Optional[str] = typer.Option(
+        None, "--provider", help="AI Provider 오버라이드"
+    ),
     projects_filter: Optional[str] = typer.Option(
         None, "--projects", help="포함할 프로젝트 (쉼표 구분, 기본: 전체)"
     ),
-    output: Optional[Path] = typer.Option(None, "--output", "-o", help="저장 파일 경로"),
+    output: Optional[Path] = typer.Option(
+        None, "--output", "-o", help="저장 파일 경로"
+    ),
 ):
     """전체 경력기술서 AI 생성."""
     check_init()
@@ -236,6 +269,7 @@ def generate_resume(
         console.print(f"\n[bold green]✓ 저장되었습니다:[/bold green] {output}")
     elif Confirm.ask("\n파일로 저장하시겠습니까?", default=True):
         from devfolio.core.storage import EXPORTS_DIR
+
         save_path = EXPORTS_DIR / "resume_ai.md"
         save_path.write_text(result, encoding="utf-8")
         console.print(f"[bold green]✓ 저장되었습니다:[/bold green] {save_path}")
@@ -243,13 +277,21 @@ def generate_resume(
 
 @app.command("match-jd")
 def match_jd(
-    jd_file: Optional[Path] = typer.Option(None, "--file", "-f", help="채용 공고 파일 경로"),
-    jd_text: Optional[str] = typer.Option(None, "--text", "-t", help="채용 공고 텍스트"),
+    jd_file: Optional[Path] = typer.Option(
+        None, "--file", "-f", help="채용 공고 파일 경로"
+    ),
+    jd_text: Optional[str] = typer.Option(
+        None, "--text", "-t", help="채용 공고 텍스트"
+    ),
     projects_filter: Optional[str] = typer.Option(
         None, "--projects", help="비교할 프로젝트 (쉼표 구분, 기본: 전체)"
     ),
-    provider: Optional[str] = typer.Option(None, "--provider", help="AI Provider 오버라이드"),
-    output: Optional[Path] = typer.Option(None, "--output", "-o", help="결과 저장 경로"),
+    provider: Optional[str] = typer.Option(
+        None, "--provider", help="AI Provider 오버라이드"
+    ),
+    output: Optional[Path] = typer.Option(
+        None, "--output", "-o", help="결과 저장 경로"
+    ),
 ):
     """채용 공고 JD와 포트폴리오 매칭 분석."""
     check_init()
@@ -303,8 +345,12 @@ def match_jd(
 def refine(
     file: Optional[Path] = typer.Option(None, "--file", "-f", help="개선할 파일 경로"),
     text: Optional[str] = typer.Option(None, "--text", "-t", help="개선할 텍스트"),
-    provider: Optional[str] = typer.Option(None, "--provider", help="AI Provider 오버라이드"),
-    output: Optional[Path] = typer.Option(None, "--output", "-o", help="결과 저장 경로"),
+    provider: Optional[str] = typer.Option(
+        None, "--provider", help="AI Provider 오버라이드"
+    ),
+    output: Optional[Path] = typer.Option(
+        None, "--output", "-o", help="결과 저장 경로"
+    ),
 ):
     """기존 문구 AI 개선."""
     check_init()
@@ -340,6 +386,8 @@ def refine(
     if output:
         output.write_text(result, encoding="utf-8")
         console.print(f"\n[bold green]✓ 저장되었습니다:[/bold green] {output}")
-    elif file and Confirm.ask("\n원본 파일을 개선된 내용으로 덮어쓰시겠습니까?", default=False):
+    elif file and Confirm.ask(
+        "\n원본 파일을 개선된 내용으로 덮어쓰시겠습니까?", default=False
+    ):
         file.write_text(result, encoding="utf-8")
         console.print(f"[bold green]✓ 저장되었습니다:[/bold green] {file}")

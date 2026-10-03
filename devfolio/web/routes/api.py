@@ -637,7 +637,8 @@ def set_primary_ai_provider(body: SetPrimaryProviderRequest) -> dict[str, str]:
     cfg = load_config()
     if not cfg.get_provider(body.provider_name):
         raise HTTPException(
-            status_code=404, detail=f"Provider '{body.provider_name}'를 찾을 수 없습니다."
+            status_code=404,
+            detail=f"Provider '{body.provider_name}'를 찾을 수 없습니다.",
         )
     cfg.default_ai_provider = body.provider_name
     save_config(cfg)
@@ -1330,7 +1331,7 @@ def get_ai_logs(limit: int = 100) -> dict[str, Any]:
     if not AI_LOG_FILE.exists():
         return {"entries": []}
     lines = AI_LOG_FILE.read_text(encoding="utf-8").splitlines()
-    lines = [l for l in lines if l.strip()]
+    lines = [line for line in lines if line.strip()]
     recent = lines[-limit:] if len(lines) > limit else lines
     entries = []
     for line in reversed(recent):
@@ -1348,5 +1349,3 @@ def clear_ai_logs() -> dict[str, str]:
     if AI_LOG_FILE.exists():
         AI_LOG_FILE.write_text("", encoding="utf-8")
     return {"status": "ok"}
-
-    return {"status": "ok", "path": str(folder)}

@@ -1,10 +1,19 @@
-"""Git/GitHub 기반 백업 동기화 서비스."""
+"""Git/GitHub 기반 백업 동기화 서비스.
 
-from __future__ import annotations
+[Spring 비교]
+  “로컬 상태를 스냅샷으로 만들어 원격 Git 저장소에 push”하는 배치 서비스.
+  Spring Batch + Git CLI 호출(ProcessBuilder) + 상태 저장(storage.save_sync_state)을 합친 구조다.
 
-import re
-import shutil
-import subprocess
+[Python 문법 메모 — Java 개발자용]
+  - `Optional[T]` 는 nullable 힌트(실행시 강제 X)이며, Java의 `@Nullable T` 느낌이다.
+  - `subprocess.run(..., check=False)`는 exit code를 예외로 던지지 않고 returncode로 판단한다.
+"""
+
+from __future__ import annotations  # 타입힌트 전방참조 유연화.
+
+import re  # repo slug 검증용 정규식.
+import shutil  # which, copy2, rmtree 등 파일/명령 유틸.
+import subprocess  # git/gh 같은 외부 명령 실행.
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -27,7 +36,9 @@ class SyncService:
         self.config = config
         self.template_engine = TemplateEngine()
         self.export_engine = ExportEngine()
-        self._tz = ZoneInfo(config.timezone)
+        self._tz = ZoneInfo(
+            config.timezone
+        )  # 타임존 문자열(예: Asia/Seoul) → tzinfo 객체.
 
     @staticmethod
     def normalize_repo_url(value: str) -> str:
@@ -39,6 +50,7 @@ class SyncService:
             )
 
         if _REPO_SLUG_PATTERN.match(repo):
+            # "owner/repo" 형태면 https URL로 정규화.
             return f"https://github.com/{repo}.git"
 
         if repo.startswith(("https://", "http://")):
@@ -74,7 +86,7 @@ class SyncService:
                 cwd=str(cwd) if cwd else None,
                 capture_output=True,
                 text=True,
-                check=False,
+                check=False,  # 여기서는 직접 returncode를 확인해 “사용자 친화적인” 예외로 변환한다.
             )
         except FileNotFoundError as exc:
             raise DevfolioSyncError(
@@ -118,7 +130,9 @@ class SyncService:
         self._ensure_git_available()
 
         gh_error = ""
-        gh_installed = shutil.which("gh") is not None
+        gh_installed = (
+            shutil.which("gh") is not None
+        )  # GitHub CLI(gh)가 있으면 더 친절한 힌트를 줄 수 있다.
         if gh_installed:
             gh_auth = self._run_command(["gh", "auth", "status"], check=False)
             gh_error = gh_auth.stderr.strip() or gh_auth.stdout.strip()
@@ -135,7 +149,8 @@ class SyncService:
                 else "저장소 URL과 Git 인증 상태를 확인하세요."
             )
             raise DevfolioSyncError(
-                "GitHub 저장소에 접근할 수 없습니다." + (f"\n  {detail}" if detail else ""),
+                "GitHub 저장소에 접근할 수 없습니다."
+                + (f"\n  {detail}" if detail else ""),
                 hint=hint,
             )
 
@@ -154,6 +169,7 @@ class SyncService:
                 )
 
         if not (repo_dir / ".git").exists():
+            # 최초 1회: 원격 repo를 로컬에 clone.
             self._run_command(
                 ["git", "clone", sync.repo_url, str(repo_dir)],
                 error_message="동기화 저장소를 clone할 수 없습니다.",
@@ -191,18 +207,24 @@ class SyncService:
             ["git", "ls-remote", "--heads", sync.repo_url, sync.branch],
             check=False,
         ).stdout.strip()
-        has_head = self._run_command(
-            ["git", "rev-parse", "--verify", "HEAD"],
-            cwd=repo_dir,
-            check=False,
-        ).returncode == 0
-        local_branch = self._run_command(
-            ["git", "rev-parse", "--verify", sync.branch],
-            cwd=repo_dir,
-            check=False,
-        ).returncode == 0
+        has_head = (
+            self._run_command(
+                ["git", "rev-parse", "--verify", "HEAD"],
+                cwd=repo_dir,
+                check=False,
+            ).returncode
+            == 0
+        )
+        local_branch = (
+            self._run_command(
+                ["git", "rev-parse", "--verify", sync.branch],
+                cwd=repo_dir,
+                check=False,
+            ).returncode
+            == 0
+        )
 
-        if remote_branch:
+        if remote_branch:  # 원격 브랜치가 이미 존재하는 케이스.
             self._run_command(
                 ["git", "fetch", "origin", sync.branch],
                 cwd=repo_dir,
@@ -226,13 +248,14 @@ class SyncService:
             )
             return
 
-        if has_head:
+        if has_head:  # 로컬 히스토리가 있으면 새 브랜치를 체크아웃/생성.
             self._run_command(
                 ["git", "checkout", "-B", sync.branch],
                 cwd=repo_dir,
                 error_message="동기화 브랜치를 생성할 수 없습니다.",
             )
         else:
+            # 빈 저장소(커밋 없음)에서는 orphan 브랜치로 시작해야 한다.
             self._run_command(
                 ["git", "checkout", "--orphan", sync.branch],
                 cwd=repo_dir,
@@ -265,7 +288,9 @@ class SyncService:
             )
         shutil.copy2(config_path, data_dir / "config.yaml")
 
-        for project_file in storage.get_project_file_paths():
+        for (
+            project_file
+        ) in storage.get_project_file_paths():  # YAML 원본 데이터 스냅샷 복사.
             shutil.copy2(project_file, projects_dir / project_file.name)
 
         projects = storage.list_projects()
@@ -288,7 +313,7 @@ class SyncService:
         (exports_dir / "resume.md").write_text(resume_md, encoding="utf-8")
         (exports_dir / "portfolio.md").write_text(portfolio_md, encoding="utf-8")
 
-        resume_html = self.export_engine.build_html_document(
+        resume_html = self.export_engine.build_html_document(  # Markdown → HTML 변환 후, 단일 HTML 문서로 래핑.
             self.export_engine._md_to_html_body(resume_md),
             title="DevFolio Resume",
         )
@@ -337,7 +362,10 @@ class SyncService:
 
             current_head = self._current_head(repo_dir)
             if not status_after:
-                self._update_state(status="clean", last_commit=current_head, last_error="")
+                # 변경이 없으면 커밋/푸시 없이 clean 상태로 기록.
+                self._update_state(
+                    status="clean", last_commit=current_head, last_error=""
+                )
                 return {
                     "changed": False,
                     "commit": current_head,
@@ -366,7 +394,9 @@ class SyncService:
             )
 
             current_head = self._current_head(repo_dir)
-            self._update_state(status="success", last_commit=current_head, last_error="")
+            self._update_state(
+                status="success", last_commit=current_head, last_error=""
+            )
             return {
                 "changed": True,
                 "commit": current_head,

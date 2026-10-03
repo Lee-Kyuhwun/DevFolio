@@ -56,7 +56,9 @@ class Period(BaseModel):
     # Field(default=None) → 값이 없을 때 기본값은 None.
     #   [Spring] @Nullable + @Column(nullable=true) 와 유사.
     start: Optional[str] = Field(default=None, description="시작 월 (YYYY-MM)")
-    end: Optional[str] = Field(default=None, description="종료 월 (YYYY-MM), None = 진행 중")
+    end: Optional[str] = Field(
+        default=None, description="종료 월 (YYYY-MM), None = 진행 중"
+    )
 
     # @field_validator("start", "end", mode="before")
     #   "start"와 "end" 두 필드에 동일한 검증 로직을 적용.
@@ -103,7 +105,9 @@ class ProjectOverview(BaseModel):
     problem: str = Field(default="", description="핵심 문제 정의")
     target_users: list[str] = Field(default_factory=list, description="대상 사용자")
     goals: list[str] = Field(default_factory=list, description="프로젝트 목표")
-    non_goals: list[str] = Field(default_factory=list, description="의도적으로 제외한 범위")
+    non_goals: list[str] = Field(
+        default_factory=list, description="의도적으로 제외한 범위"
+    )
 
 
 class UserFlowStep(BaseModel):
@@ -209,7 +213,9 @@ class StudioExtraLink(BaseModel):
 class ProjectStudioMeta(BaseModel):
     experience_kind: Literal["work", "personal", "study", "toy"] = Field(default="work")
     priority: int = Field(default=3, ge=1, le=5)
-    document_targets: list[Literal["resume", "career", "portfolio"]] = Field(default_factory=list)
+    document_targets: list[Literal["resume", "career", "portfolio"]] = Field(
+        default_factory=list
+    )
     collaboration: bool = Field(default=False)
     extra_links: list[StudioExtraLink] = Field(default_factory=list)
 
@@ -285,7 +291,9 @@ class Project(BaseModel):
     architecture: ProjectArchitecture = Field(default_factory=ProjectArchitecture)
     features: list[ProjectFeature] = Field(default_factory=list)
     problem_solving_cases: list[ProblemSolvingCase] = Field(default_factory=list)
-    performance_security_operations: PerformanceSecurityOperations = Field(default_factory=PerformanceSecurityOperations)
+    performance_security_operations: PerformanceSecurityOperations = Field(
+        default_factory=PerformanceSecurityOperations
+    )
     results: ProjectResults = Field(default_factory=ProjectResults)
     retrospective: ProjectRetrospective = Field(default_factory=ProjectRetrospective)
     assets: ProjectAssets = Field(default_factory=ProjectAssets)
@@ -315,7 +323,11 @@ class Project(BaseModel):
 
     def type_display(self) -> str:
         # dict literal : Java 의 Map.of("key", "value") 와 동일.
-        mapping = {"company": "회사 업무", "side": "사이드 프로젝트", "course": "인강/학습"}
+        mapping = {
+            "company": "회사 업무",
+            "side": "사이드 프로젝트",
+            "course": "인강/학습",
+        }
         # dict.get(key, default) : Java Map.getOrDefault(key, defaultValue).
         return mapping.get(self.type, self.type)
 

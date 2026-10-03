@@ -1,16 +1,25 @@
-"""Markdown / PDF / DOCX / HTML / CSV 내보내기 엔진."""
+"""Markdown / PDF / DOCX / HTML / CSV 내보내기 엔진.
 
-from __future__ import annotations
+[Spring 비교]
+  문서 변환/렌더링을 담당하는 Application Service.
+  입력(Markdown/Project DTO) → 출력 파일(Path)로 변환하는 배치/유틸 성격이 강하다.
 
-import csv
-import html as html_mod
-import io
-import re
-import tempfile
+[Python 문법 메모 — Java 개발자용]
+  - `Path | None` 은 Union 타입(3.10+)으로, Java의 `Path` nullable 과 같은 의미 힌트다.
+  - `TYPE_CHECKING` 분기는 “런타임 import 비용/순환 import”를 피하고 타입체크에만 쓰는 패턴이다.
+"""
+
+from __future__ import annotations  # 타입힌트 전방참조를 유연하게 처리.
+
+import csv  # CSV 직렬화.
+import html as html_mod  # HTML escaping 유틸(html.escape).
+import io  # StringIO 등 메모리 버퍼.
+import re  # 간단한 Markdown inline 파싱용 정규식.
+import tempfile  # 시스템 임시 디렉터리 경로.
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # 타입체커(mypy/IDE)만 보는 import(런타임에는 실행되지 않음).
     from devfolio.models.project import Project
 
 from devfolio.core.storage import EXPORTS_DIR
@@ -106,6 +115,7 @@ def _validate_output_path(path: Path) -> Path:
         Path.cwd().resolve(),
         Path(tempfile.gettempdir()).resolve(),
     ]
+    # startswith 기반 체크로 홈/작업폴더/임시폴더 밖 경로를 차단(경로 탈출 방지).
     if not any(str(resolved).startswith(str(root)) for root in allowed_roots):
         raise DevfolioExportError(
             f"출력 경로가 허용 범위를 벗어났습니다: {path}",
@@ -116,6 +126,7 @@ def _validate_output_path(path: Path) -> Path:
 
 class ExportEngine:
     def __init__(self):
+        # export 폴더가 없으면 생성(파일 저장을 위한 준비).
         EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
     @staticmethod
@@ -143,11 +154,15 @@ class ExportEngine:
     # Markdown
     # ------------------------------------------------------------------
 
-    def export_markdown(self, content: str, filename: str, output_dir: Path | None = None) -> Path:
+    def export_markdown(
+        self, content: str, filename: str, output_dir: Path | None = None
+    ) -> Path:
         filename = _sanitize_filename(filename)
         if not filename.endswith(".md"):
             filename = filename + ".md"
-        base = output_dir or EXPORTS_DIR
+        base = (
+            output_dir or EXPORTS_DIR
+        )  # output_dir 미지정(None)이면 기본 exports 디렉터리 사용.
         base.mkdir(parents=True, exist_ok=True)
         output_path = _validate_output_path(base / filename)
         output_path.write_text(content, encoding="utf-8")
@@ -157,7 +172,9 @@ class ExportEngine:
     # PDF
     # ------------------------------------------------------------------
 
-    def export_pdf(self, content: str, filename: str, output_dir: Path | None = None) -> Path:
+    def export_pdf(
+        self, content: str, filename: str, output_dir: Path | None = None
+    ) -> Path:
         filename = _sanitize_filename(filename)
         if not filename.endswith(".pdf"):
             filename = filename + ".pdf"
@@ -165,8 +182,8 @@ class ExportEngine:
         base.mkdir(parents=True, exist_ok=True)
         output_path = _validate_output_path(base / filename)
 
-        try:
-            from weasyprint import CSS, HTML
+        try:  # 무거운 라이브러리는 필요할 때만 import(lazy import)해서 CLI 시작 속도를 유지.
+            from weasyprint import HTML
         except ImportError:
             raise RuntimeError(
                 "WeasyPrint가 설치되지 않았습니다.\n"
@@ -190,7 +207,9 @@ class ExportEngine:
     # DOCX
     # ------------------------------------------------------------------
 
-    def export_docx(self, content: str, filename: str, output_dir: Path | None = None) -> Path:
+    def export_docx(
+        self, content: str, filename: str, output_dir: Path | None = None
+    ) -> Path:
         filename = _sanitize_filename(filename)
         if not filename.endswith(".docx"):
             filename = filename + ".docx"
@@ -198,9 +217,8 @@ class ExportEngine:
         base.mkdir(parents=True, exist_ok=True)
         output_path = _validate_output_path(base / filename)
 
-        try:
+        try:  # python-docx는 선택 의존성이라 런타임에 없을 수 있어 여기서 import.
             from docx import Document
-            from docx.shared import Pt, RGBColor
         except ImportError:
             raise RuntimeError(
                 "python-docx가 설치되지 않았습니다.\n"
@@ -216,7 +234,9 @@ class ExportEngine:
     # HTML
     # ------------------------------------------------------------------
 
-    def export_html(self, content: str, filename: str, output_dir: Path | None = None) -> Path:
+    def export_html(
+        self, content: str, filename: str, output_dir: Path | None = None
+    ) -> Path:
         filename = _sanitize_filename(filename)
         if not filename.endswith(".html"):
             filename = filename + ".html"
@@ -233,7 +253,9 @@ class ExportEngine:
     # CSV
     # ------------------------------------------------------------------
 
-    def export_csv(self, projects: "list[Project]", filename: str, output_dir: Path | None = None) -> Path:
+    def export_csv(
+        self, projects: "list[Project]", filename: str, output_dir: Path | None = None
+    ) -> Path:
         """프로젝트 목록을 CSV로 내보낸다.
 
         각 행은 프로젝트 하나를 나타내며, 태스크 목록은 세미콜론으로 구분한다.
@@ -253,34 +275,50 @@ class ExportEngine:
         output_path = _validate_output_path(base / filename)
 
         fieldnames = [
-            "id", "name", "type", "status", "organization",
-            "period", "role", "team_size", "tech_stack",
-            "summary", "tags", "task_count", "tasks",
+            "id",
+            "name",
+            "type",
+            "status",
+            "organization",
+            "period",
+            "role",
+            "team_size",
+            "tech_stack",
+            "summary",
+            "tags",
+            "task_count",
+            "tasks",
         ]
 
         buf = io.StringIO()
-        writer = csv.DictWriter(buf, fieldnames=fieldnames, lineterminator="\n")
+        writer = csv.DictWriter(
+            buf, fieldnames=fieldnames, lineterminator="\n"
+        )  # Dict → CSV row 매핑.
         writer.writeheader()
 
         for p in projects:
             task_names = "; ".join(t.name for t in p.tasks)
-            writer.writerow({
-                "id": p.id,
-                "name": p.name,
-                "type": p.type,
-                "status": p.status,
-                "organization": p.organization,
-                "period": p.period.display(),
-                "role": p.role,
-                "team_size": p.team_size,
-                "tech_stack": "; ".join(p.tech_stack),
-                "summary": p.summary,
-                "tags": "; ".join(p.tags),
-                "task_count": len(p.tasks),
-                "tasks": task_names,
-            })
+            writer.writerow(
+                {
+                    "id": p.id,
+                    "name": p.name,
+                    "type": p.type,
+                    "status": p.status,
+                    "organization": p.organization,
+                    "period": p.period.display(),
+                    "role": p.role,
+                    "team_size": p.team_size,
+                    "tech_stack": "; ".join(p.tech_stack),
+                    "summary": p.summary,
+                    "tags": "; ".join(p.tags),
+                    "task_count": len(p.tasks),
+                    "tasks": task_names,
+                }
+            )
 
-        output_path.write_text(buf.getvalue(), encoding="utf-8-sig")  # utf-8-sig: Excel 호환
+        output_path.write_text(
+            buf.getvalue(), encoding="utf-8-sig"
+        )  # utf-8-sig: Excel에서 한글 깨짐 방지(BOM 포함).
         logger.debug("CSV export: %s (%d rows)", output_path, len(projects))
         return output_path
 
@@ -290,6 +328,7 @@ class ExportEngine:
 
     def copy_to(self, source: Path, destination: Path) -> Path:
         import shutil
+
         _validate_output_path(destination)
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
@@ -302,6 +341,7 @@ class ExportEngine:
     def _md_to_html_body(self, content: str) -> str:
         try:
             import markdown as md_lib
+
             return md_lib.markdown(
                 content,
                 extensions=["tables", "fenced_code", "nl2br"],
@@ -330,23 +370,30 @@ class ExportEngine:
 
         for line in lines:
             if line.startswith("#### "):
-                close_list(); out.append(f"<h4>{inline(line[5:])}</h4>")
+                close_list()
+                out.append(f"<h4>{inline(line[5:])}</h4>")
             elif line.startswith("### "):
-                close_list(); out.append(f"<h3>{inline(line[4:])}</h3>")
+                close_list()
+                out.append(f"<h3>{inline(line[4:])}</h3>")
             elif line.startswith("## "):
-                close_list(); out.append(f"<h2>{inline(line[3:])}</h2>")
+                close_list()
+                out.append(f"<h2>{inline(line[3:])}</h2>")
             elif line.startswith("# "):
-                close_list(); out.append(f"<h1>{inline(line[2:])}</h1>")
+                close_list()
+                out.append(f"<h1>{inline(line[2:])}</h1>")
             elif line.startswith("- ") or line.startswith("* "):
                 if not in_ul:
-                    out.append("<ul>"); in_ul = True
+                    out.append("<ul>")
+                    in_ul = True
                 out.append(f"<li>{inline(line[2:])}</li>")
             elif line.strip() == "---":
-                close_list(); out.append("<hr>")
+                close_list()
+                out.append("<hr>")
             elif not line.strip():
                 close_list()
             else:
-                close_list(); out.append(f"<p>{inline(line)}</p>")
+                close_list()
+                out.append(f"<p>{inline(line)}</p>")
 
         close_list()
         return "\n".join(out)

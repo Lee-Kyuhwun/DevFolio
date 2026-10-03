@@ -1,6 +1,10 @@
-"""내보내기 엔진 단위 테스트."""
+"""내보내기 엔진 단위 테스트.
 
-from pathlib import Path
+[Java 개발자 메모]
+  - patch로 EXPORTS_DIR 상수를 tmp_path로 바꿔 “테스트가 로컬 파일을 오염시키지 않게” 만든다.
+  - pytest.skip은 JUnit의 Assumption.assumeTrue(...)처럼 “환경 의존 테스트를 건너뛰는” 방식이다.
+"""
+
 from unittest.mock import patch
 
 import pytest
@@ -95,6 +99,7 @@ class TestDocxExport:
 class TestPdfExport:
     def test_raises_without_weasyprint(self, engine, tmp_exports):
         import sys
+
         # weasyprint가 없는 환경 시뮬레이션
         with patch.dict(sys.modules, {"weasyprint": None}):
             with pytest.raises((RuntimeError, ImportError)):

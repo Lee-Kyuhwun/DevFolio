@@ -1,4 +1,9 @@
-"""CLI 워크플로우 회귀 테스트."""
+"""CLI 워크플로우 회귀 테스트.
+
+[Java 개발자 메모]
+  - CliRunner는 “명령 실행을 테스트용으로 캡처”하는 도구로, Spring의 MockMvc에 가깝다.
+  - runner.invoke(app, [...], input="...")는 실제 사용자의 키 입력을 시뮬레이션한다.
+"""
 
 import json
 from types import SimpleNamespace
@@ -91,7 +96,9 @@ def test_data_import_accepts_json(cli_store):
 
 
 def test_sync_setup_saves_normalized_repo_url(cli_store):
-    with patch("devfolio.commands.sync.SyncService.validate_remote_access", return_value=None):
+    with patch(
+        "devfolio.commands.sync.SyncService.validate_remote_access", return_value=None
+    ):
         result = runner.invoke(
             app,
             ["sync", "setup", "--repo", "openai/devfolio-backup", "--branch", "backup"],
@@ -138,7 +145,9 @@ def test_ai_generate_project_can_save_summary(cli_store):
     config = storage.load_config()
     config.default_ai_provider = "anthropic"
     config.ai_providers = [
-        AIProviderConfig(name="anthropic", model="claude-sonnet-4-20250514", key_stored=True)
+        AIProviderConfig(
+            name="anthropic", model="claude-sonnet-4-20250514", key_stored=True
+        )
     ]
     storage.save_config(config)
 
@@ -162,7 +171,9 @@ def test_ai_generate_project_passes_sample_override(cli_store):
     config = storage.load_config()
     config.default_ai_provider = "anthropic"
     config.ai_providers = [
-        AIProviderConfig(name="anthropic", model="claude-sonnet-4-20250514", key_stored=True)
+        AIProviderConfig(
+            name="anthropic", model="claude-sonnet-4-20250514", key_stored=True
+        )
     ]
     storage.save_config(config)
 
@@ -172,7 +183,15 @@ def test_ai_generate_project_passes_sample_override(cli_store):
     ) as mocked:
         result = runner.invoke(
             app,
-            ["ai", "generate", "project", "AI 샘플 테스트", "--samples", "3", "--save-summary"],
+            [
+                "ai",
+                "generate",
+                "project",
+                "AI 샘플 테스트",
+                "--samples",
+                "3",
+                "--save-summary",
+            ],
         )
 
     assert result.exit_code == 0, result.stdout
@@ -181,10 +200,14 @@ def test_ai_generate_project_passes_sample_override(cli_store):
 
 def test_serve_reload_uses_uvicorn_factory_mode():
     run_calls = []
-    fake_uvicorn = SimpleNamespace(run=lambda *args, **kwargs: run_calls.append((args, kwargs)))
+    fake_uvicorn = SimpleNamespace(
+        run=lambda *args, **kwargs: run_calls.append((args, kwargs))
+    )
 
     with patch.dict("sys.modules", {"uvicorn": fake_uvicorn}):
-        result = runner.invoke(app, ["serve", "--host", "0.0.0.0", "--no-open", "--reload"])
+        result = runner.invoke(
+            app, ["serve", "--host", "0.0.0.0", "--no-open", "--reload"]
+        )
 
     assert result.exit_code == 0, result.stdout
     assert len(run_calls) == 1

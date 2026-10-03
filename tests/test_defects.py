@@ -1,10 +1,13 @@
 """보고된 결함 회귀 테스트.
 
 각 테스트는 발견된 버그가 수정되었음을 확인한다.
+
+[Java 개발자 메모]
+  - “결함 N” 섹션은 이슈 티켓처럼, 같은 버그가 다시 생기지 않게 고정하는 회귀 테스트다.
+  - patch는 테스트 동안만 환경/상수를 바꿔치기해 “실제 사용자 데이터”를 건드리지 않게 한다.
 """
 
 import json
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -21,6 +24,7 @@ from devfolio.models.project import Period, Project, Task
 # 공용 픽스처
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def tmp_store(tmp_path):
     projects_dir = tmp_path / "projects"
@@ -36,7 +40,9 @@ def tmp_store(tmp_path):
         patch("devfolio.core.template_engine.TEMPLATES_DIR", templates_dir),
         patch("devfolio.core.storage.CONFIG_FILE", tmp_path / "config" / "config.yaml"),
         patch("devfolio.core.storage._LEGACY_HOME", tmp_path / "legacy"),
-        patch("devfolio.core.storage._LEGACY_CONFIG", tmp_path / "legacy" / "config.yaml"),
+        patch(
+            "devfolio.core.storage._LEGACY_CONFIG", tmp_path / "legacy" / "config.yaml"
+        ),
     ):
         (tmp_path / "config").mkdir()
         (tmp_path / "exports").mkdir()
@@ -51,6 +57,7 @@ def pm(tmp_store):
 # ---------------------------------------------------------------------------
 # 결함 1: JSON import/export — from_dict/to_dict 미존재 오류
 # ---------------------------------------------------------------------------
+
 
 class TestDefect1JSONSerialization:
     """Project에 from_dict/to_dict가 없어도 model_validate/model_dump로 동작해야 한다."""
@@ -73,9 +80,7 @@ class TestDefect1JSONSerialization:
             name="라운드트립",
             period=Period(start="2024-01", end="2024-06"),
             tech_stack=["Java", "Spring"],
-            tasks=[
-                Task(id="t1", name="작업 1", period=Period(start="2024-02"))
-            ],
+            tasks=[Task(id="t1", name="작업 1", period=Period(start="2024-02"))],
         )
         data = project.model_dump()
         restored = Project.model_validate(data)
@@ -105,6 +110,7 @@ class TestDefect1JSONSerialization:
 # ---------------------------------------------------------------------------
 # 결함 2: Period — 빈 start 문자열이 ValidationError를 일으켜서는 안 됨
 # ---------------------------------------------------------------------------
+
 
 class TestDefect2PeriodEmptyString:
     """Period(start="")는 start=None으로 정규화되어야 한다."""
@@ -159,6 +165,7 @@ class TestDefect2PeriodEmptyString:
 # 결함 3: 중복 프로젝트 ID 충돌 — 같은 이름 생성 시 명시적 오류
 # ---------------------------------------------------------------------------
 
+
 class TestDefect3DuplicateProjectID:
     def test_same_name_raises_error(self, pm):
         pm.create_project(name="중복 테스트 프로젝트", period_start="2024-01")
@@ -176,9 +183,13 @@ class TestDefect3DuplicateProjectID:
 
     def test_no_silent_overwrite(self, pm, tmp_store):
         """같은 이름으로 두 번 생성해도 첫 번째 데이터가 유실되지 않는다."""
-        pm.create_project(name="원본 프로젝트", period_start="2024-01", summary="원본 요약")
+        pm.create_project(
+            name="원본 프로젝트", period_start="2024-01", summary="원본 요약"
+        )
         with pytest.raises(DevfolioError):
-            pm.create_project(name="원본 프로젝트", period_start="2024-06", summary="덮어쓴 요약")
+            pm.create_project(
+                name="원본 프로젝트", period_start="2024-06", summary="덮어쓴 요약"
+            )
         # 원본 데이터가 보존되어야 함
         existing = pm.get_project("원본 프로젝트")
         assert existing.summary == "원본 요약"
@@ -188,13 +199,18 @@ class TestDefect3DuplicateProjectID:
 # 결함 4: 프로젝트 rename — 구 파일 삭제 및 ID 갱신
 # ---------------------------------------------------------------------------
 
+
 class TestDefect4ProjectRename:
     def test_rename_updates_id(self, pm):
         old = pm.create_project(name="구 이름 프로젝트", period_start="2024-01")
         old_id = old.id
 
         # model_copy로 id/name 모두 갱신
-        from devfolio.core.storage import delete_project_file, project_id_from_name, save_project
+        from devfolio.core.storage import (
+            delete_project_file,
+            project_id_from_name,
+            save_project,
+        )
 
         new_name = "새 이름 프로젝트"
         new_id = project_id_from_name(new_name)
@@ -235,7 +251,6 @@ class TestDefect4ProjectRename:
     def test_rename_does_not_duplicate_records(self, pm, tmp_store):
         """rename 후 조회 시 두 개의 레코드가 생기면 안 된다."""
         from devfolio.core.storage import (
-            PROJECTS_DIR,
             delete_project_file,
             project_id_from_name,
             save_project,
@@ -258,6 +273,7 @@ class TestDefect4ProjectRename:
 # ---------------------------------------------------------------------------
 # 결함 5: 템플릿 오류 — TemplateNotFound는 폴백, 렌더링 오류는 전파
 # ---------------------------------------------------------------------------
+
 
 class TestDefect5TemplateErrors:
     def _make_config(self) -> Config:
@@ -309,7 +325,12 @@ class TestDefect5TemplateErrors:
 
     def test_template_render_error_raises_devfolio_error(self, tmp_path):
         """템플릿 파일은 있지만 렌더링 오류 → DevfolioTemplateError 전파."""
-        from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
+        from jinja2 import (
+            Environment,
+            FileSystemLoader,
+            StrictUndefined,
+            select_autoescape,
+        )
 
         # 렌더링 오류를 일으키는 악성 템플릿 생성
         broken_dir = tmp_path / "broken_templates"

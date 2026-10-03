@@ -1,4 +1,13 @@
-"""devfolio project * — 프로젝트 관리 커맨드."""
+"""devfolio project * — 프로젝트 관리 커맨드.
+
+[Spring 비교]
+  CLI 기반 CRUD Controller. ProjectManager(@Service)로 위임하고,
+  Rich로 사용자 입력/표 출력까지 담당한다.
+
+[Python 문법 메모 — Java 개발자용]
+  - `Prompt.ask(..., default="")`는 “입력 없으면 기본값”을 적용하는 대화형 입력이다.
+  - `name: Optional[str]` 같은 타입힌트는 문서화/검사용이고 런타임 강제는 아니다.
+"""
 
 from typing import Optional
 
@@ -16,20 +25,28 @@ pm = ProjectManager()
 
 _TYPE_CHOICES = {"1": "company", "2": "side", "3": "course"}
 _STATUS_CHOICES = {"1": "done", "2": "in_progress", "3": "planned"}
-_TYPE_LABELS = {"company": "회사 업무", "side": "사이드 프로젝트", "course": "인강/학습"}
+_TYPE_LABELS = {
+    "company": "회사 업무",
+    "side": "사이드 프로젝트",
+    "course": "인강/학습",
+}
 _STATUS_LABELS = {"done": "완료", "in_progress": "진행 중", "planned": "예정"}
 
 
 @app.command("add")
 def add_project(
     name: Optional[str] = typer.Option(None, "--name", "-n", help="프로젝트명"),
-    type: Optional[str] = typer.Option(None, "--type", "-t", help="유형 (company/side/course)"),
+    type: Optional[str] = typer.Option(
+        None, "--type", "-t", help="유형 (company/side/course)"
+    ),
 ):
     """새 프로젝트 등록."""
     check_init()
 
     console.print("\n[bold cyan]── 새 프로젝트 등록 ──[/bold cyan]\n")
-    console.print("[dim]Enter를 누르면 선택 항목은 비워둘 수 있고, 나중에 `project edit`로 수정할 수 있습니다.[/dim]\n")
+    console.print(
+        "[dim]Enter를 누르면 선택 항목은 비워둘 수 있고, 나중에 `project edit`로 수정할 수 있습니다.[/dim]\n"
+    )
 
     name = name or Prompt.ask("프로젝트명")
 
@@ -38,7 +55,9 @@ def add_project(
         console.print("  [bold]1[/bold]  회사 업무 (company)")
         console.print("  [bold]2[/bold]  사이드 프로젝트 (side)")
         console.print("  [bold]3[/bold]  인강/학습 (course)")
-        type = _TYPE_CHOICES[Prompt.ask("번호 선택", choices=["1", "2", "3"], default="1")]
+        type = _TYPE_CHOICES[
+            Prompt.ask("번호 선택", choices=["1", "2", "3"], default="1")
+        ]
 
     organization = Prompt.ask("소속/주관", default="")
     period_start = Prompt.ask("시작 월 (YYYY-MM, 선택)", default="")
@@ -60,10 +79,14 @@ def add_project(
     try:
         team_size = int(team_size_str)
         if team_size < 1:
-            console.print("[yellow]⚠ 팀 규모는 1 이상이어야 합니다. 기본값 1로 설정합니다.[/yellow]")
+            console.print(
+                "[yellow]⚠ 팀 규모는 1 이상이어야 합니다. 기본값 1로 설정합니다.[/yellow]"
+            )
             team_size = 1
     except ValueError:
-        console.print(f"[yellow]⚠ '{team_size_str}'은(는) 유효한 숫자가 아닙니다. 기본값 1로 설정합니다.[/yellow]")
+        console.print(
+            f"[yellow]⚠ '{team_size_str}'은(는) 유효한 숫자가 아닙니다. 기본값 1로 설정합니다.[/yellow]"
+        )
         team_size = 1
 
     tech_stack = [s.strip() for s in tech_stack_str.split(",") if s.strip()]
@@ -84,12 +107,11 @@ def add_project(
     )
 
     console.print(
-        f"\n[bold green]✓ 프로젝트 등록 완료![/bold green] "
-        f"ID: [dim]{project.id}[/dim]"
+        f"\n[bold green]✓ 프로젝트 등록 완료![/bold green] ID: [dim]{project.id}[/dim]"
     )
     console.print(
         f"[dim]다음 단계: `devfolio serve`에서 AI draft/preview 흐름으로 이어가거나 "
-        f"`devfolio task add --project \"{project.name}\"`를 실행하세요.[/dim]"
+        f'`devfolio task add --project "{project.name}"`를 실행하세요.[/dim]'
     )
 
     if Confirm.ask("\n작업 내역을 바로 추가하시겠습니까?", default=False):
@@ -99,25 +121,28 @@ def add_project(
 def _add_task_interactive(project_name: str) -> None:
     """task add를 프로젝트 추가 흐름 내에서 재사용."""
     from devfolio.commands.task import _do_add_task
+
     _do_add_task(project_name)
 
 
 @app.command("list")
 def list_projects(
     stack: Optional[str] = typer.Option(None, "--stack", help="기술 스택 필터"),
-    type: Optional[str] = typer.Option(None, "--type", "-t", help="유형 필터 (company/side/course)"),
+    type: Optional[str] = typer.Option(
+        None, "--type", "-t", help="유형 필터 (company/side/course)"
+    ),
     tag: Optional[str] = typer.Option(None, "--tag", help="태그 필터"),
 ):
     """전체 프로젝트 목록 조회."""
     check_init()
 
-    projects = pm.list_projects(
-        stack_filter=stack, type_filter=type, tag_filter=tag
-    )
+    projects = pm.list_projects(stack_filter=stack, type_filter=type, tag_filter=tag)
 
     if not projects:
         console.print("[yellow]등록된 프로젝트가 없습니다.[/yellow]")
-        console.print("  [dim]devfolio serve[/dim] 또는 [dim]devfolio project add[/dim] 로 첫 프로젝트를 등록하세요.")
+        console.print(
+            "  [dim]devfolio serve[/dim] 또는 [dim]devfolio project add[/dim] 로 첫 프로젝트를 등록하세요."
+        )
         return
 
     table = Table(title="프로젝트 목록", show_header=True, header_style="bold cyan")
@@ -172,9 +197,7 @@ def show_project(
                 console.print(f"      키워드: {', '.join(task.keywords)}")
     else:
         console.print("\n  [yellow]등록된 작업 내역이 없습니다.[/yellow]")
-        console.print(
-            f"  [dim]devfolio task add --project \"{project.name}\"[/dim]"
-        )
+        console.print(f'  [dim]devfolio task add --project "{project.name}"[/dim]')
 
 
 @app.command("edit")
@@ -192,10 +215,14 @@ def edit_project(
     new_name = Prompt.ask("프로젝트명", default=project.name)
     new_org = Prompt.ask("소속/주관", default=project.organization)
     new_start = Prompt.ask("시작 월 (YYYY-MM)", default=project.period.start or "")
-    new_end = Prompt.ask("종료 월 (YYYY-MM, 진행 중이면 빈 값)", default=project.period.end or "")
+    new_end = Prompt.ask(
+        "종료 월 (YYYY-MM, 진행 중이면 빈 값)", default=project.period.end or ""
+    )
     new_role = Prompt.ask("역할", default=project.role)
     new_size = Prompt.ask("팀 규모", default=str(project.team_size))
-    new_stack = Prompt.ask("기술 스택 (쉼표 구분)", default=", ".join(project.tech_stack))
+    new_stack = Prompt.ask(
+        "기술 스택 (쉼표 구분)", default=", ".join(project.tech_stack)
+    )
     new_summary = Prompt.ask("한 줄 요약", default=project.summary)
     new_tags = Prompt.ask("태그 (쉼표 구분)", default=", ".join(project.tags))
 

@@ -1,16 +1,33 @@
-"""Pydantic 모델 단위 테스트 (유효/무효 입력 포함)."""
+"""Pydantic 모델 단위 테스트 (유효/무효 입력 포함).
+
+[Java 개발자 메모]
+  - ValidationError는 Bean Validation(@Valid) 실패와 같은 의미다.
+  - model_dump/model_validate 라운드트립은 “JSON 직렬화/역직렬화가 깨지지 않는지” 보는 회귀 테스트다.
+"""
 
 import pytest
 from pydantic import ValidationError
 
-from devfolio.models.config import AIProviderConfig, Config, ExportConfig, ReasoningConfig, SyncConfig, UserConfig
-from devfolio.models.draft import DraftPreviewRequest, ExperienceDraft, ProjectDraft, TaskDraft
+from devfolio.models.config import (
+    AIProviderConfig,
+    Config,
+    ReasoningConfig,
+    SyncConfig,
+    UserConfig,
+)
+from devfolio.models.draft import (
+    DraftPreviewRequest,
+    ExperienceDraft,
+    ProjectDraft,
+    TaskDraft,
+)
 from devfolio.models.project import Period, Project, Task
 
 
 # ---------------------------------------------------------------------------
 # Period
 # ---------------------------------------------------------------------------
+
 
 class TestPeriod:
     def test_valid_period(self):
@@ -48,6 +65,7 @@ class TestPeriod:
 # Task
 # ---------------------------------------------------------------------------
 
+
 class TestTask:
     def test_valid_task(self):
         t = Task(
@@ -77,6 +95,7 @@ class TestTask:
 # ---------------------------------------------------------------------------
 # Project
 # ---------------------------------------------------------------------------
+
 
 class TestProject:
     def test_valid_project(self):
@@ -147,6 +166,7 @@ class TestProject:
 # Draft models
 # ---------------------------------------------------------------------------
 
+
 class TestDraftModels:
     def test_project_draft_allows_empty_name_before_save(self):
         draft = ProjectDraft()
@@ -168,7 +188,9 @@ class TestDraftModels:
         assert request.project_ids == ["alpha"]
 
     def test_preview_request_accepts_career_doc_type(self):
-        request = DraftPreviewRequest(source="saved", project_ids=["alpha"], doc_type="career")
+        request = DraftPreviewRequest(
+            source="saved", project_ids=["alpha"], doc_type="career"
+        )
         assert request.doc_type == "career"
 
     def test_experience_draft_defaults_and_round_trip_fields(self):
@@ -193,6 +215,7 @@ class TestDraftModels:
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
+
 
 class TestConfig:
     def test_default_config(self):
@@ -229,7 +252,9 @@ class TestConfig:
     def test_config_model_dump(self):
         c = Config(default_language="en")
         c.user = UserConfig(name="홍길동", email="hong@example.com")
-        c.sync = SyncConfig(enabled=True, repo_url="https://github.com/example/devfolio.git")
+        c.sync = SyncConfig(
+            enabled=True, repo_url="https://github.com/example/devfolio.git"
+        )
         data = c.model_dump()
         assert data["default_language"] == "en"
         assert data["reasoning"]["strategy"] == "single"

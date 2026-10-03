@@ -1,4 +1,12 @@
-"""devfolio export * — 문서 내보내기 커맨드."""
+"""devfolio export * — 문서 내보내기 커맨드.
+
+[Spring 비교]
+  Controller에서 ExportEngine(서비스) + TemplateEngine(뷰 렌더링)를 조합해 파일을 생성한다.
+  즉, “DTO(Project) → View(Markdown) → File(Path)” 변환 파이프라인의 진입점이다.
+
+[Python 문법 메모 — Java 개발자용]
+  - `format_map[fmt](...)`는 Map에서 함수를 꺼내 호출하는 패턴(전략 패턴)이다.
+"""
 
 from pathlib import Path
 from typing import Optional
@@ -45,9 +53,15 @@ def _do_export(content: str, fmt: str, filename: str, output: Optional[Path]) ->
 
 @app.command("resume")
 def export_resume(
-    format: Optional[str] = typer.Option(None, "--format", "-f", help="출력 포맷 (md/pdf/docx/html/json)"),
-    template: Optional[str] = typer.Option(None, "--template", "-t", help="템플릿 이름"),
-    output: Optional[Path] = typer.Option(None, "--output", "-o", help="출력 파일 경로"),
+    format: Optional[str] = typer.Option(
+        None, "--format", "-f", help="출력 포맷 (md/pdf/docx/html/json)"
+    ),
+    template: Optional[str] = typer.Option(
+        None, "--template", "-t", help="템플릿 이름"
+    ),
+    output: Optional[Path] = typer.Option(
+        None, "--output", "-o", help="출력 파일 경로"
+    ),
     projects_filter: Optional[str] = typer.Option(
         None, "--projects", help="포함할 프로젝트 (쉼표 구분, 기본: 전체)"
     ),
@@ -94,6 +108,7 @@ def export_resume(
             )
             if fmt == "json":
                 import json
+
                 content = json.dumps(
                     [p.model_dump() for p in selected], ensure_ascii=False, indent=2
                 )
@@ -101,6 +116,7 @@ def export_resume(
                     result = output
                 else:
                     from devfolio.core.storage import EXPORTS_DIR
+
                     result = EXPORTS_DIR / "resume.json"
                 result.write_text(content, encoding="utf-8")
             elif fmt == "csv":
@@ -117,14 +133,22 @@ def export_resume(
             ) from e
 
     console.print(f"[bold green]✓ 내보내기 완료:[/bold green] {result}")
-    console.print("[dim]다음 단계: `devfolio serve`에서 preview를 계속 다듬거나 `devfolio sync run`으로 GitHub 백업을 갱신할 수 있습니다.[/dim]")
+    console.print(
+        "[dim]다음 단계: `devfolio serve`에서 preview를 계속 다듬거나 `devfolio sync run`으로 GitHub 백업을 갱신할 수 있습니다.[/dim]"
+    )
 
 
 @app.command("portfolio")
 def export_portfolio(
-    format: Optional[str] = typer.Option(None, "--format", "-f", help="출력 포맷 (md/html/pdf)"),
-    template: Optional[str] = typer.Option(None, "--template", "-t", help="템플릿 이름"),
-    output: Optional[Path] = typer.Option(None, "--output", "-o", help="출력 파일 경로"),
+    format: Optional[str] = typer.Option(
+        None, "--format", "-f", help="출력 포맷 (md/html/pdf)"
+    ),
+    template: Optional[str] = typer.Option(
+        None, "--template", "-t", help="템플릿 이름"
+    ),
+    output: Optional[Path] = typer.Option(
+        None, "--output", "-o", help="출력 파일 경로"
+    ),
     projects_filter: Optional[str] = typer.Option(
         None, "--projects", help="포함할 프로젝트 (쉼표 구분)"
     ),
@@ -136,7 +160,9 @@ def export_portfolio(
     template_name = template or config.export.default_template or "default"
     supported_formats = {"md", "html", "pdf", "csv"}
     default_portfolio_format = (
-        config.export.default_format if config.export.default_format in supported_formats else "html"
+        config.export.default_format
+        if config.export.default_format in supported_formats
+        else "html"
     )
     fmt = (format or default_portfolio_format).lower()
     if fmt not in supported_formats:
@@ -186,14 +212,20 @@ def export_portfolio(
             ) from e
 
     console.print(f"[bold green]✓ 내보내기 완료:[/bold green] {result}")
-    console.print("[dim]다음 단계: `devfolio serve`에서 preview를 계속 다듬거나 `devfolio sync run`으로 GitHub 백업을 갱신할 수 있습니다.[/dim]")
+    console.print(
+        "[dim]다음 단계: `devfolio serve`에서 preview를 계속 다듬거나 `devfolio sync run`으로 GitHub 백업을 갱신할 수 있습니다.[/dim]"
+    )
 
 
 @app.command("project")
 def export_project(
     name: str = typer.Argument(..., help="프로젝트명"),
-    format: str = typer.Option("md", "--format", "-f", help="출력 포맷 (md/pdf/docx/html)"),
-    output: Optional[Path] = typer.Option(None, "--output", "-o", help="출력 파일 경로"),
+    format: str = typer.Option(
+        "md", "--format", "-f", help="출력 포맷 (md/pdf/docx/html)"
+    ),
+    output: Optional[Path] = typer.Option(
+        None, "--output", "-o", help="출력 파일 경로"
+    ),
 ):
     """단일 프로젝트 한 장 요약 내보내기."""
     check_init()

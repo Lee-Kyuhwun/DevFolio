@@ -1,4 +1,9 @@
-"""GitHub sync 서비스 단위 테스트."""
+"""GitHub sync 서비스 단위 테스트.
+
+[Java 개발자 메모]
+  - FakeGitRunner는 Mockito stub처럼 “외부 명령(git/gh) 호출”을 가짜로 대체한다.
+  - dataclass는 간단 DTO(record)처럼 필드만 있는 객체를 빠르게 만들 때 유용하다.
+"""
 
 from dataclasses import dataclass
 from pathlib import Path

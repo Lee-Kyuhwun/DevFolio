@@ -1,4 +1,13 @@
-"""devfolio config * — 설정 관리 커맨드."""
+"""devfolio config * — 설정 관리 커맨드.
+
+[Spring 비교]
+  운영/설정 화면에서 “application.yml을 편집”하는 것과 같은 역할을 CLI로 제공한다.
+  내부적으로는 storage.load_config/save_config + Pydantic 검증을 사용한다.
+
+[Python 문법 메모 — Java 개발자용]
+  - dict/list 컴프리헨션이 자주 나오며, Java의 stream map/filter + collect와 동일한 의도다.
+  - `Optional[T]`는 nullable 힌트다.
+"""
 
 from typing import Optional
 
@@ -18,16 +27,30 @@ app.add_typer(ai_app, name="ai")
 console = Console()
 
 _PROVIDER_MODELS: dict[str, list[str]] = {
-    "groq": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "gemma2-9b-it", "deepseek-r1-distill-llama-70b"],
+    "groq": [
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "gemma2-9b-it",
+        "deepseek-r1-distill-llama-70b",
+    ],
     "openrouter": [
         "meta-llama/llama-3.3-70b-instruct:free",
         "google/gemma-3-27b-it:free",
         "deepseek/deepseek-r1:free",
         "microsoft/phi-4:free",
     ],
-    "anthropic": ["claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-haiku-4-5-20251001"],
+    "anthropic": [
+        "claude-sonnet-4-20250514",
+        "claude-opus-4-20250514",
+        "claude-haiku-4-5-20251001",
+    ],
     "openai": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
-    "gemini": ["gemini-3.1-flash-lite-preview", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"],
+    "gemini": [
+        "gemini-3.1-flash-lite-preview",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+        "gemini-2.5-pro",
+    ],
     "ollama": ["llama3.2", "llama3.1", "mistral", "deepseek-coder"],
 }
 
@@ -48,7 +71,14 @@ def ai_set(
         console.print("  [bold]5[/bold]  OpenAI (GPT)")
         console.print("  [bold]6[/bold]  Ollama (로컬 실행)")
         choice = Prompt.ask("번호 선택", choices=["1", "2", "3", "4", "5", "6"])
-        provider_map = {"1": "groq", "2": "openrouter", "3": "gemini", "4": "anthropic", "5": "openai", "6": "ollama"}
+        provider_map = {
+            "1": "groq",
+            "2": "openrouter",
+            "3": "gemini",
+            "4": "anthropic",
+            "5": "openai",
+            "6": "ollama",
+        }
         provider = provider_map[choice]
 
     models = _PROVIDER_MODELS.get(provider, [])
@@ -76,7 +106,9 @@ def ai_set(
             ok = store_api_key(provider, api_key)
             provider_cfg.key_stored = ok
             if not ok:
-                console.print("[yellow]⚠ 키체인 저장 실패. 환경 변수로 관리하세요.[/yellow]")
+                console.print(
+                    "[yellow]⚠ 키체인 저장 실패. 환경 변수로 관리하세요.[/yellow]"
+                )
             else:
                 console.print("[green]✓ API 키가 키체인에 저장되었습니다.[/green]")
 
@@ -110,8 +142,13 @@ def ai_list() -> None:
 
     for p in config.ai_providers:
         from devfolio.utils.security import get_api_key
+
         api_key = get_api_key(p.name) if p.name != "ollama" else None
-        key_display = mask_api_key(api_key) if api_key else ("[dim]없음[/dim]" if p.name != "ollama" else "[dim]불필요[/dim]")
+        key_display = (
+            mask_api_key(api_key)
+            if api_key
+            else ("[dim]없음[/dim]" if p.name != "ollama" else "[dim]불필요[/dim]")
+        )
         is_default = "[green]✓[/green]" if p.name == config.default_ai_provider else ""
         table.add_row(p.name, p.model, key_display, is_default)
 
@@ -120,12 +157,15 @@ def ai_list() -> None:
 
 @ai_app.command("test")
 def ai_test(
-    provider: Optional[str] = typer.Option(None, "--provider", help="테스트할 Provider"),
+    provider: Optional[str] = typer.Option(
+        None, "--provider", help="테스트할 Provider"
+    ),
 ):
     """AI Provider 연결 테스트."""
     config = load_config()
 
     from devfolio.core.ai_service import AIService
+
     service = AIService(config)
 
     provider_name = provider or config.default_ai_provider
@@ -165,7 +205,9 @@ def ai_remove(
 
     config.ai_providers = [p for p in config.ai_providers if p.name != provider]
     if config.default_ai_provider == provider:
-        config.default_ai_provider = config.ai_providers[0].name if config.ai_providers else ""
+        config.default_ai_provider = (
+            config.ai_providers[0].name if config.ai_providers else ""
+        )
     delete_api_key(provider)
     save_config(config)
     console.print(f"[bold green]✓[/bold green] '{provider}' 제거되었습니다.")
@@ -182,15 +224,17 @@ def show_config() -> None:
     console.print(f"  기본 언어: {config.default_language}")
     console.print(f"  추론 전략: {config.reasoning.strategy}")
     console.print(f"  추론 샘플 수: {config.reasoning.samples}")
-    console.print(f"  리뷰 Provider: {config.reasoning.judge_provider or '기본 생성 Provider와 동일'}")
+    console.print(
+        f"  리뷰 Provider: {config.reasoning.judge_provider or '기본 생성 Provider와 동일'}"
+    )
     console.print(f"  기본 출력 포맷: {config.export.default_format}")
     console.print(f"  출력 디렉터리: {config.export.output_dir}")
-    console.print(f"\n  [bold]사용자 정보[/bold]")
+    console.print("\n  [bold]사용자 정보[/bold]")
     console.print(f"    이름: {config.user.name}")
     console.print(f"    이메일: {config.user.email}")
     console.print(f"    GitHub: {config.user.github}")
     console.print(f"    블로그: {config.user.blog}")
-    console.print(f"\n  [bold]GitHub Sync[/bold]")
+    console.print("\n  [bold]GitHub Sync[/bold]")
     console.print(f"    활성화: {'예' if config.sync.enabled else '아니오'}")
     console.print(f"    저장소: {config.sync.repo_url or '미설정'}")
     console.print(f"    브랜치: {config.sync.branch}")
@@ -198,12 +242,20 @@ def show_config() -> None:
 
 @app.command("set-default")
 def set_default(
-    format: Optional[str] = typer.Option(None, "--format", help="기본 출력 포맷 (pdf/docx/md/html)"),
+    format: Optional[str] = typer.Option(
+        None, "--format", help="기본 출력 포맷 (pdf/docx/md/html)"
+    ),
     lang: Optional[str] = typer.Option(None, "--lang", help="기본 언어 (ko/en/both)"),
     provider: Optional[str] = typer.Option(None, "--provider", help="기본 AI Provider"),
-    reasoning_strategy: Optional[str] = typer.Option(None, "--reasoning-strategy", help="추론 전략 (single/best_of_n)"),
-    reasoning_samples: Optional[int] = typer.Option(None, "--reasoning-samples", min=1, max=5, help="best-of-N 후보 수"),
-    judge_provider: Optional[str] = typer.Option(None, "--judge-provider", help="리뷰/재선택용 AI Provider"),
+    reasoning_strategy: Optional[str] = typer.Option(
+        None, "--reasoning-strategy", help="추론 전략 (single/best_of_n)"
+    ),
+    reasoning_samples: Optional[int] = typer.Option(
+        None, "--reasoning-samples", min=1, max=5, help="best-of-N 후보 수"
+    ),
+    judge_provider: Optional[str] = typer.Option(
+        None, "--judge-provider", help="리뷰/재선택용 AI Provider"
+    ),
 ):
     """기본값 설정."""
     config = load_config()
@@ -233,7 +285,9 @@ def set_default(
 
     if reasoning_strategy:
         if reasoning_strategy not in {"single", "best_of_n"}:
-            console.print(f"[red]오류:[/red] 유효하지 않은 추론 전략: {reasoning_strategy}")
+            console.print(
+                f"[red]오류:[/red] 유효하지 않은 추론 전략: {reasoning_strategy}"
+            )
             raise typer.Exit(1)
         config.reasoning.strategy = reasoning_strategy
         changed = True
@@ -245,7 +299,9 @@ def set_default(
         elif reasoning_samples == 1 and reasoning_strategy is None:
             config.reasoning.strategy = "single"
         elif reasoning_samples == 1 and reasoning_strategy == "best_of_n":
-            console.print("[red]오류:[/red] best_of_n 전략은 샘플 수가 2 이상이어야 합니다.")
+            console.print(
+                "[red]오류:[/red] best_of_n 전략은 샘플 수가 2 이상이어야 합니다."
+            )
             raise typer.Exit(1)
         changed = True
 

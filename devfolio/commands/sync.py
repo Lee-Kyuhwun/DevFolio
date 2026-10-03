@@ -1,4 +1,9 @@
-"""devfolio sync * — GitHub 백업 동기화."""
+"""devfolio sync * — GitHub 백업 동기화.
+
+[Spring 비교]
+  운영 커맨드(배치 트리거) 역할. SyncService(@Service)를 호출해
+  clone/fetch/commit/push를 수행하고 결과를 출력한다.
+"""
 
 from typing import Optional
 
@@ -17,8 +22,12 @@ console = Console()
 
 @app.command("setup")
 def sync_setup(
-    repo: Optional[str] = typer.Option(None, "--repo", "-r", help="GitHub 저장소 URL 또는 owner/repo"),
-    branch: Optional[str] = typer.Option(None, "--branch", "-b", help="동기화 브랜치 (기본: main)"),
+    repo: Optional[str] = typer.Option(
+        None, "--repo", "-r", help="GitHub 저장소 URL 또는 owner/repo"
+    ),
+    branch: Optional[str] = typer.Option(
+        None, "--branch", "-b", help="동기화 브랜치 (기본: main)"
+    ),
 ):
     """GitHub 백업 저장소 연결."""
     check_init()
@@ -28,7 +37,9 @@ def sync_setup(
         "GitHub 저장소 URL 또는 owner/repo",
         default=config.sync.repo_url or "",
     )
-    branch_name = (branch or Prompt.ask("동기화 브랜치", default=config.sync.branch or "main")).strip() or "main"
+    branch_name = (
+        branch or Prompt.ask("동기화 브랜치", default=config.sync.branch or "main")
+    ).strip() or "main"
     normalized = SyncService.normalize_repo_url(repo_input)
 
     config.sync = SyncConfig(enabled=True, repo_url=normalized, branch=branch_name)
@@ -38,7 +49,9 @@ def sync_setup(
     with console.status("[cyan]GitHub 저장소 연결을 확인하는 중...[/cyan]"):
         service.validate_remote_access()
 
-    console.print(f"[bold green]✓[/bold green] GitHub 동기화 저장소가 연결되었습니다: {normalized}")
+    console.print(
+        f"[bold green]✓[/bold green] GitHub 동기화 저장소가 연결되었습니다: {normalized}"
+    )
     console.print(f"[dim]브랜치: {branch_name} | 실행: `devfolio sync run`[/dim]")
 
 
@@ -77,5 +90,7 @@ def sync_run() -> None:
         console.print(f"  커밋: {result['commit']}")
         console.print(f"  저장소: {result['repo_dir']}")
     else:
-        console.print("[bold green]✓ 변경 사항이 없어 GitHub 동기화는 건너뛰었습니다.[/bold green]")
+        console.print(
+            "[bold green]✓ 변경 사항이 없어 GitHub 동기화는 건너뛰었습니다.[/bold green]"
+        )
         console.print(f"  저장소: {result['repo_dir']}")

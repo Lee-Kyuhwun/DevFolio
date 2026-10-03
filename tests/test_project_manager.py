@@ -1,4 +1,11 @@
-"""프로젝트 관리자 단위 테스트."""
+"""프로젝트 관리자 단위 테스트.
+
+[Java 개발자 메모]
+  - pytest fixture는 JUnit의 @BeforeEach + DI(테스트 컨텍스트 주입)처럼 “공용 준비 로직”을 재사용한다.
+  - unittest.mock.patch는 Spring의 @MockBean / Mockito mockito-inline과 비슷하게
+    모듈 변수(상수 경로)를 테스트 동안만 바꿔치기한다.
+"""
+
 from unittest.mock import patch
 
 import pytest
@@ -6,7 +13,7 @@ import pytest
 from devfolio.core.project_manager import ProjectManager
 from devfolio.exceptions import DevfolioProjectNotFoundError, DevfolioTaskNotFoundError
 from devfolio.models.draft import ProjectDraft
-from devfolio.models.project import Period, Project, Task
+from devfolio.models.project import Project
 
 
 @pytest.fixture
@@ -30,7 +37,9 @@ def tmp_devfolio(tmp_path):
         patch("devfolio.core.template_engine.TEMPLATES_DIR", templates_dir),
         patch("devfolio.core.storage.CONFIG_FILE", config_dir / "config.yaml"),
         patch("devfolio.core.storage._LEGACY_HOME", tmp_path / "legacy"),
-        patch("devfolio.core.storage._LEGACY_CONFIG", tmp_path / "legacy" / "config.yaml"),
+        patch(
+            "devfolio.core.storage._LEGACY_CONFIG", tmp_path / "legacy" / "config.yaml"
+        ),
     ):
         yield tmp_path
 
@@ -43,6 +52,7 @@ def pm(tmp_devfolio):
 # ---------------------------------------------------------------------------
 # 프로젝트 생성
 # ---------------------------------------------------------------------------
+
 
 class TestCreateProject:
     def test_basic_create(self, pm):
@@ -66,13 +76,16 @@ class TestCreateProject:
         assert project.id == "my_project_2024"
 
     def test_in_progress_project(self, pm):
-        project = pm.create_project(name="진행 중", period_start="2024-01", period_end=None)
+        project = pm.create_project(
+            name="진행 중", period_start="2024-01", period_end=None
+        )
         assert project.period.end is None
         assert project.period.display() == "2024-01 ~ 현재"
 
     def test_persisted_to_yaml(self, pm, tmp_devfolio):
         pm.create_project(name="저장 테스트", period_start="2024-01")
         from devfolio.core.storage import PROJECTS_DIR
+
         files = list(PROJECTS_DIR.glob("*.yaml"))
         assert len(files) == 1
 
@@ -88,6 +101,7 @@ class TestCreateProject:
 # ---------------------------------------------------------------------------
 # 프로젝트 조회
 # ---------------------------------------------------------------------------
+
 
 class TestGetProject:
     def test_get_by_name(self, pm):
@@ -119,9 +133,12 @@ class TestGetProject:
 # 프로젝트 수정
 # ---------------------------------------------------------------------------
 
+
 class TestUpdateProject:
     def test_update_summary(self, pm):
-        pm.create_project(name="수정 테스트", period_start="2024-01", summary="기존 요약")
+        pm.create_project(
+            name="수정 테스트", period_start="2024-01", summary="기존 요약"
+        )
         updated = pm.update_project("수정 테스트", summary="새 요약")
         assert updated.summary == "새 요약"
 
@@ -194,6 +211,7 @@ class TestRenameProject:
 # 프로젝트 삭제
 # ---------------------------------------------------------------------------
 
+
 class TestDeleteProject:
     def test_delete_existing(self, pm, tmp_devfolio):
         pm.create_project(name="삭제 테스트", period_start="2024-01")
@@ -210,6 +228,7 @@ class TestDeleteProject:
 # 프로젝트 목록 및 필터
 # ---------------------------------------------------------------------------
 
+
 class TestListProjects:
     def test_list_all(self, pm):
         pm.create_project(name="A", type="company", period_start="2024-01")
@@ -224,8 +243,12 @@ class TestListProjects:
         assert result[0].name == "회사"
 
     def test_filter_by_stack(self, pm):
-        pm.create_project(name="A", tech_stack=["Spring Boot", "Java"], period_start="2024-01")
-        pm.create_project(name="B", tech_stack=["Django", "Python"], period_start="2024-02")
+        pm.create_project(
+            name="A", tech_stack=["Spring Boot", "Java"], period_start="2024-01"
+        )
+        pm.create_project(
+            name="B", tech_stack=["Django", "Python"], period_start="2024-02"
+        )
         result = pm.list_projects(stack_filter="spring")
         assert len(result) == 1
         assert result[0].name == "A"
@@ -243,6 +266,7 @@ class TestListProjects:
 # ---------------------------------------------------------------------------
 # 작업 내역 (Task)
 # ---------------------------------------------------------------------------
+
 
 class TestTaskManagement:
     def test_add_task(self, pm):

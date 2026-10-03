@@ -17,13 +17,13 @@
 {{
   "pass": true,
   "scores": {{
-    "factuality": 0,
-    "specificity": 0,
-    "result_orientation": 0,
-    "hiring_relevance": 0,
-    "redundancy": 0,
-    "output_contract": 0,
-    "naturalness": 0
+    "factuality": 3,
+    "specificity": 3,
+    "result_orientation": 3,
+    "hiring_relevance": 3,
+    "redundancy": 3,
+    "output_contract": 3,
+    "naturalness": 4
   }},
   "issues": [],
   "missing_points": [],

@@ -1,7 +1,13 @@
-"""AI 서비스 단위 테스트 (litellm 모킹)."""
+"""AI 서비스 단위 테스트 (litellm 모킹).
+
+[Java 개발자 메모]
+  - MagicMock/patch는 Mockito의 mock()/when()/verify() 역할이다.
+  - side_effect를 list로 주면 “호출 순서대로 반환값을 바꾸는” 스텁이 된다.
+"""
 
 from __future__ import annotations
 
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -10,7 +16,6 @@ from devfolio.core.ai_service import AIService, resolve_generation_model
 from devfolio.exceptions import (
     DevfolioAIAuthError,
     DevfolioAIError,
-    DevfolioAINotConfiguredError,
     DevfolioAIRateLimitError,
 )
 from devfolio.models.config import AIProviderConfig, Config
@@ -34,13 +39,16 @@ from devfolio.models.project import (
 # 헬퍼
 # ---------------------------------------------------------------------------
 
+
 def make_config(provider_name: str = "anthropic") -> Config:
     config = Config()
     config.default_ai_provider = provider_name
     config.ai_providers = [
         AIProviderConfig(
             name=provider_name,
-            model="claude-sonnet-4-20250514" if provider_name == "anthropic" else "gpt-4o",
+            model="claude-sonnet-4-20250514"
+            if provider_name == "anthropic"
+            else "gpt-4o",
             key_stored=True,
         )
     ]
@@ -80,11 +88,22 @@ def make_project() -> Project:
             goals=["배포 안정성 향상", "운영 자동화"],
         ),
         user_flow=[
-            UserFlowStep(step=1, title="배포 요청", description="운영자가 배포를 시작합니다."),
-            UserFlowStep(step=2, title="자동 배포", description="블루그린 배포 전략으로 무중단 전환합니다."),
+            UserFlowStep(
+                step=1, title="배포 요청", description="운영자가 배포를 시작합니다."
+            ),
+            UserFlowStep(
+                step=2,
+                title="자동 배포",
+                description="블루그린 배포 전략으로 무중단 전환합니다.",
+            ),
         ],
         tech_stack_detail=TechStackDetail(
-            backend=[StackReason(name="Spring Boot", reason="API와 배포 제어 로직을 안정적으로 구성하기 위해 사용했습니다.")],
+            backend=[
+                StackReason(
+                    name="Spring Boot",
+                    reason="API와 배포 제어 로직을 안정적으로 구성하기 위해 사용했습니다.",
+                )
+            ],
         ),
         features=[
             ProjectFeature(
@@ -105,8 +124,14 @@ def make_project() -> Project:
                 tech_used=["Jenkins", "AWS ECS"],
             )
         ],
-        results=ProjectResults(qualitative=["운영 안정성과 배포 재현성을 개선했습니다."]),
-        retrospective=ProjectRetrospective(what_i_learned=["운영 자동화는 배포 속도보다 롤백 전략까지 포함해야 합니다."]),
+        results=ProjectResults(
+            qualitative=["운영 안정성과 배포 재현성을 개선했습니다."]
+        ),
+        retrospective=ProjectRetrospective(
+            what_i_learned=[
+                "운영 자동화는 배포 속도보다 롤백 전략까지 포함해야 합니다."
+            ]
+        ),
         tags=["backend"],
         tasks=[make_task()],
     )
@@ -115,6 +140,7 @@ def make_project() -> Project:
 # ---------------------------------------------------------------------------
 # Provider 설정 테스트
 # ---------------------------------------------------------------------------
+
 
 class TestProviderConfig:
     def test_get_provider_found(self):
@@ -131,6 +157,18 @@ class TestProviderConfig:
         service = AIService(Config())
         provider = service._get_provider(None)
         assert provider.name == "pollinations"
+
+    def test_pollinations_provider_recovers_default_base_url(self):
+        config = Config()
+        config.default_ai_provider = "pollinations"
+        config.ai_providers = [
+            AIProviderConfig(name="pollinations", model="openai-fast", key_stored=False)
+        ]
+
+        service = AIService(config)
+        provider = service._get_provider("pollinations")
+
+        assert provider.base_url == "https://text.pollinations.ai/openai"
 
     def test_model_string_anthropic(self):
         service = AIService(make_config("anthropic"))
@@ -184,7 +222,9 @@ class TestProviderConfig:
         ]
 
     def test_resolve_generation_model_uses_safe_fallback_for_preview_model(self):
-        resolution = resolve_generation_model("gemini", "gemini-2.5-flash-preview-09-2025")
+        resolution = resolve_generation_model(
+            "gemini", "gemini-2.5-flash-preview-09-2025"
+        )
 
         assert resolution.display_model == "gemini-2.5-flash-preview-09-2025"
         assert resolution.generation_model == "gemini-2.5-flash"
@@ -195,6 +235,7 @@ class TestProviderConfig:
 # ---------------------------------------------------------------------------
 # API 키 처리
 # ---------------------------------------------------------------------------
+
 
 class TestAPIKey:
     def test_missing_api_key_raises_auth_error(self):
@@ -208,7 +249,9 @@ class TestAPIKey:
         config = Config()
         config.default_ai_provider = "ollama"
         config.ai_providers = [
-            AIProviderConfig(name="ollama", model="llama3.2", base_url="http://localhost:11434")
+            AIProviderConfig(
+                name="ollama", model="llama3.2", base_url="http://localhost:11434"
+            )
         ]
         service = AIService(config)
         provider = service._get_provider("ollama")
@@ -216,18 +259,36 @@ class TestAPIKey:
         with patch("devfolio.core.ai_service.get_api_key", return_value=None):
             service._set_env_key(provider)  # 예외 없이 통과
 
+    def test_pollinations_sets_dummy_key_when_openai_env_is_blank(self):
+        config = Config()
+        config.default_ai_provider = "pollinations"
+        config.ai_providers = [
+            AIProviderConfig(name="pollinations", model="openai-fast")
+        ]
+        service = AIService(config)
+        provider = service._get_provider("pollinations")
+
+        with patch.dict("os.environ", {"OPENAI_API_KEY": ""}, clear=False):
+            service._set_env_key(provider)
+
+            assert provider.base_url == "https://text.pollinations.ai/openai"
+            assert os.environ["OPENAI_API_KEY"] == "pollinations-free"
+
 
 # ---------------------------------------------------------------------------
 # 작업 내역 문구 생성
 # ---------------------------------------------------------------------------
 
+
 class TestGenerateTaskText:
     def test_calls_ai_for_new_task(self):
         service = AIService(make_config())
-        service._call_messages = MagicMock(side_effect=[
-            "- 블루그린 배포 전략을 적용해 다운타임을 제거했습니다.\n- Jenkins와 ECS 배포 파이프라인을 연결해 배포 시간을 단축했습니다.\n- 운영 배포 절차를 표준화해 장애 대응 부담을 줄였습니다.\n- 배포 자동화 흐름을 정리해 운영 안정성을 높였습니다.",
-            '{"pass": true, "scores": {"factuality": 5}, "issues": [], "missing_points": [], "revision_instructions": []}',
-        ])
+        service._call_messages = MagicMock(
+            side_effect=[
+                "- 블루그린 배포 전략을 적용해 다운타임을 제거했습니다.\n- Jenkins와 ECS 배포 파이프라인을 연결해 배포 시간을 단축했습니다.\n- 운영 배포 절차를 표준화해 장애 대응 부담을 줄였습니다.\n- 배포 자동화 흐름을 정리해 운영 안정성을 높였습니다.",
+                '{"pass": true, "scores": {"factuality": 5, "specificity": 5, "result_orientation": 5, "hiring_relevance": 5, "redundancy": 5, "output_contract": 5, "naturalness": 5}, "issues": [], "missing_points": [], "revision_instructions": []}',
+            ]
+        )
         task = make_task()
 
         result = service.generate_task_text(task, lang="ko")
@@ -246,10 +307,12 @@ class TestGenerateTaskText:
 
     def test_force_refresh_ignores_cache(self):
         service = AIService(make_config())
-        service._call_messages = MagicMock(side_effect=[
-            "- 새 bullet 1입니다.\n- 새 bullet 2입니다.\n- 새 bullet 3입니다.\n- 새 bullet 4입니다.",
-            '{"pass": true, "scores": {"factuality": 5}, "issues": [], "missing_points": [], "revision_instructions": []}',
-        ])
+        service._call_messages = MagicMock(
+            side_effect=[
+                "- 새 bullet 1입니다.\n- 새 bullet 2입니다.\n- 새 bullet 3입니다.\n- 새 bullet 4입니다.",
+                '{"pass": true, "scores": {"factuality": 5, "specificity": 5, "result_orientation": 5, "hiring_relevance": 5, "redundancy": 5, "output_contract": 5, "naturalness": 5}, "issues": [], "missing_points": [], "revision_instructions": []}',
+            ]
+        )
         task = make_task()
         task = task.model_copy(update={"ai_generated_text": "캐시된 문구"})
 
@@ -261,13 +324,19 @@ class TestGenerateTaskText:
         service = AIService(make_config())
         captured: dict = {}
 
-        def capture(messages, provider_name=None, temperature=None, max_tokens=None, json_mode=False):
+        def capture(
+            messages,
+            provider_name=None,
+            temperature=None,
+            max_tokens=None,
+            json_mode=False,
+        ):
             if "writer_user" not in captured:
                 captured["writer_system"] = messages[0]["content"]
                 captured["writer_user"] = messages[1]["content"]
                 return "- 결과 1\n- 결과 2\n- 결과 3\n- 결과 4"
             captured["review_user"] = messages[1]["content"]
-            return '{"pass": true, "scores": {"factuality": 5}, "issues": [], "missing_points": [], "revision_instructions": []}'
+            return '{"pass": true, "scores": {"factuality": 5, "specificity": 5, "result_orientation": 5, "hiring_relevance": 5, "redundancy": 5, "output_contract": 5, "naturalness": 5}, "issues": [], "missing_points": [], "revision_instructions": []}'
 
         service._call_messages = capture
         task = make_task()
@@ -282,29 +351,34 @@ class TestGenerateTaskText:
 
     def test_revises_task_text_when_review_requests_changes(self):
         service = AIService(make_config())
-        service._call_messages = MagicMock(side_effect=[
-            "- 첫 초안입니다.\n- 둘째 초안입니다.\n- 셋째 초안입니다.\n- 넷째 초안입니다.",
-            '{"pass": false, "scores": {"specificity": 2}, "issues": ["추상적 표현"], "missing_points": ["기술적 근거"], "revision_instructions": ["기술 선택과 결과를 더 구체화하세요."]}',
-            "- 배포 자동화를 구축해 다운타임을 제거했습니다.\n- Jenkins와 ECS 배포 전략을 연결해 배포 시간을 줄였습니다.\n- 운영 배포 절차를 표준화해 유지보수성을 높였습니다.\n- 장애 대응 흐름을 단순화해 운영 부담을 낮췄습니다.",
-        ])
+        service._call_messages = MagicMock(
+            side_effect=[
+                "- 첫 초안입니다.\n- 둘째 초안입니다.\n- 셋째 초안입니다.\n- 넷째 초안입니다.",
+                '{"pass": false, "scores": {"specificity": 2, "factuality": 5, "result_orientation": 5, "hiring_relevance": 5, "redundancy": 5, "output_contract": 5, "naturalness": 5}, "issues": ["추상적 표현"], "missing_points": ["기술적 근거"], "revision_instructions": ["기술 선택과 결과를 더 구체화하세요."]}',
+                "- 배포 자동화를 구축해 다운타임을 제거했습니다.\n- Jenkins와 ECS 배포 전략을 연결해 배포 시간을 줄였습니다.\n- 운영 배포 절차를 표준화해 유지보수성을 높였습니다.\n- 장애 대응 흐름을 단순화해 운영 부담을 낮췄습니다.",
+                _PASS_REVIEW,
+            ]
+        )
 
         result = service.generate_task_text(make_task(), lang="ko")
 
         assert "장애 대응 흐름" in result
-        assert service._call_messages.call_count == 3
+        assert service._call_messages.call_count == 4
 
     def test_best_of_n_selects_highest_scoring_candidate(self):
         service = AIService(make_config())
         service.config.reasoning.strategy = "best_of_n"
         service.config.reasoning.samples = 3
-        service._call_messages = MagicMock(side_effect=[
-            "- 후보 1\n- 후보 1\n- 후보 1\n- 후보 1",
-            '{"pass": false, "scores": {"factuality": 5, "specificity": 1, "result_orientation": 1, "hiring_relevance": 1, "redundancy": 4, "output_contract": 5}, "issues": ["추상적 표현"], "missing_points": [], "revision_instructions": []}',
-            "- 후보 2\n- 후보 2\n- 후보 2\n- 후보 2",
-            '{"pass": true, "scores": {"factuality": 5, "specificity": 5, "result_orientation": 5, "hiring_relevance": 5, "redundancy": 4, "output_contract": 5}, "issues": [], "missing_points": [], "revision_instructions": []}',
-            "- 후보 3\n- 후보 3\n- 후보 3\n- 후보 3",
-            '{"pass": true, "scores": {"factuality": 5, "specificity": 3, "result_orientation": 3, "hiring_relevance": 3, "redundancy": 4, "output_contract": 5}, "issues": [], "missing_points": [], "revision_instructions": []}',
-        ])
+        service._call_messages = MagicMock(
+            side_effect=[
+                "- 후보 1\n- 후보 1\n- 후보 1\n- 후보 1",
+                '{"pass": false, "scores": {"factuality": 5, "specificity": 1, "result_orientation": 1, "hiring_relevance": 1, "redundancy": 4, "output_contract": 5, "naturalness": 5}, "issues": ["추상적 표현"], "missing_points": [], "revision_instructions": []}',
+                "- 후보 2\n- 후보 2\n- 후보 2\n- 후보 2",
+                '{"pass": true, "scores": {"factuality": 5, "specificity": 5, "result_orientation": 5, "hiring_relevance": 5, "redundancy": 4, "output_contract": 5, "naturalness": 5}, "issues": [], "missing_points": [], "revision_instructions": []}',
+                "- 후보 3\n- 후보 3\n- 후보 3\n- 후보 3",
+                '{"pass": true, "scores": {"factuality": 5, "specificity": 3, "result_orientation": 3, "hiring_relevance": 3, "redundancy": 4, "output_contract": 5, "naturalness": 5}, "issues": [], "missing_points": [], "revision_instructions": []}',
+            ]
+        )
 
         result = service.generate_task_text(make_task(), lang="ko")
 
@@ -313,16 +387,24 @@ class TestGenerateTaskText:
 
     def test_review_can_use_dedicated_judge_provider(self):
         config = make_config()
-        config.upsert_provider(AIProviderConfig(name="openai", model="gpt-4o", key_stored=True))
+        config.upsert_provider(
+            AIProviderConfig(name="openai", model="gpt-4o", key_stored=True)
+        )
         config.reasoning.judge_provider = "openai"
         service = AIService(config)
         providers: list[str | None] = []
 
-        def capture(messages, provider_name=None, temperature=None, max_tokens=None, json_mode=False):
+        def capture(
+            messages,
+            provider_name=None,
+            temperature=None,
+            max_tokens=None,
+            json_mode=False,
+        ):
             providers.append(provider_name)
             if len(providers) == 1:
                 return "- 결과 1\n- 결과 2\n- 결과 3\n- 결과 4"
-            return '{"pass": true, "scores": {"factuality": 5, "output_contract": 5}, "issues": [], "missing_points": [], "revision_instructions": []}'
+            return '{"pass": true, "scores": {"factuality": 5, "output_contract": 5, "specificity": 5, "result_orientation": 5, "hiring_relevance": 5, "redundancy": 5, "naturalness": 5}, "issues": [], "missing_points": [], "revision_instructions": []}'
 
         service._call_messages = capture
 
@@ -336,13 +418,16 @@ class TestGenerateTaskText:
 # 프로젝트 요약 생성
 # ---------------------------------------------------------------------------
 
+
 class TestGenerateProjectSummary:
     def test_returns_ai_result(self):
         service = AIService(make_config())
-        service._call_messages = MagicMock(side_effect=[
-            "첫째 문장입니다. 둘째 문장입니다. 셋째 문장입니다. 넷째 문장입니다. 다섯째 문장입니다.",
-            '{"pass": true, "scores": {"factuality": 5}, "issues": [], "missing_points": [], "revision_instructions": []}',
-        ])
+        service._call_messages = MagicMock(
+            side_effect=[
+                "첫째 문장입니다. 둘째 문장입니다. 셋째 문장입니다. 넷째 문장입니다. 다섯째 문장입니다.",
+                '{"pass": true, "scores": {"factuality": 5, "specificity": 5, "result_orientation": 5, "hiring_relevance": 5, "redundancy": 5, "output_contract": 5, "naturalness": 5}, "issues": [], "missing_points": [], "revision_instructions": []}',
+            ]
+        )
         result = service.generate_project_summary(make_project(), lang="ko")
         assert "다섯째 문장입니다." in result
 
@@ -350,11 +435,17 @@ class TestGenerateProjectSummary:
         service = AIService(make_config())
         captured: dict = {}
 
-        def capture(messages, provider_name=None, temperature=None, max_tokens=None, json_mode=False):
+        def capture(
+            messages,
+            provider_name=None,
+            temperature=None,
+            max_tokens=None,
+            json_mode=False,
+        ):
             if "writer_user" not in captured:
                 captured["writer_user"] = messages[1]["content"]
                 return "첫째 문장입니다. 둘째 문장입니다. 셋째 문장입니다. 넷째 문장입니다. 다섯째 문장입니다."
-            return '{"pass": true, "scores": {"factuality": 5}, "issues": [], "missing_points": [], "revision_instructions": []}'
+            return '{"pass": true, "scores": {"factuality": 5, "specificity": 5, "result_orientation": 5, "hiring_relevance": 5, "redundancy": 5, "output_contract": 5, "naturalness": 5}, "issues": [], "missing_points": [], "revision_instructions": []}'
 
         service._call_messages = capture
         service.generate_project_summary(make_project(), lang="ko")
@@ -364,16 +455,19 @@ class TestGenerateProjectSummary:
 
     def test_revises_summary_when_review_requests_changes(self):
         service = AIService(make_config())
-        service._call_messages = MagicMock(side_effect=[
-            "짧은 첫 문장입니다. 둘째 문장입니다. 셋째 문장입니다.",
-            '{"pass": false, "scores": {"output_contract": 2}, "issues": ["문장이 짧음"], "missing_points": ["운영상 효과"], "revision_instructions": ["5~7문장으로 늘리고 결과를 보강하세요."]}',
-            "첫째 문장입니다. 둘째 문장입니다. 셋째 문장입니다. 넷째 문장입니다. 다섯째 문장입니다.",
-        ])
+        service._call_messages = MagicMock(
+            side_effect=[
+                "짧은 첫 문장입니다. 둘째 문장입니다. 셋째 문장입니다.",
+                '{"pass": false, "scores": {"output_contract": 2, "factuality": 5, "specificity": 5, "result_orientation": 5, "hiring_relevance": 5, "redundancy": 5, "naturalness": 5}, "issues": ["문장이 짧음"], "missing_points": ["운영상 효과"], "revision_instructions": ["5~7문장으로 늘리고 결과를 보강하세요."]}',
+                "첫째 문장입니다. 둘째 문장입니다. 셋째 문장입니다. 넷째 문장입니다. 다섯째 문장입니다.",
+                _PASS_REVIEW,
+            ]
+        )
 
         result = service.generate_project_summary(make_project(), lang="ko")
 
         assert "다섯째 문장" in result
-        assert service._call_messages.call_count == 3
+        assert service._call_messages.call_count == 4
 
 
 class TestGenerateProjectDraft:
@@ -456,7 +550,9 @@ class TestGenerateProjectDraft:
 """
 
         service._call = capture
-        service.generate_project_draft("배포 자동화와 성능 개선을 진행했습니다.", lang="ko")
+        service.generate_project_draft(
+            "배포 자동화와 성능 개선을 진행했습니다.", lang="ko"
+        )
 
         assert "배포, 운영, 성능, 안정성, 자동화" in captured["user"]
         assert "role, organization, team_size" in captured["user"]
@@ -474,7 +570,10 @@ class TestEvidenceAndPromptPack:
 
         assert evidence.name == "테스트 프로젝트"
         assert evidence.role == "백엔드 개발자"
-        assert evidence.overview["problem"] == "다운타임과 운영 부담을 줄일 백엔드 자동화 구조가 필요했습니다."
+        assert (
+            evidence.overview["problem"]
+            == "다운타임과 운영 부담을 줄일 백엔드 자동화 구조가 필요했습니다."
+        )
         assert evidence.problem_solving_cases[0]["title"] == "다운타임 제거"
         assert evidence.tasks[0].name == "블루그린 배포 구축"
         assert "다운타임 0" in " ".join(evidence.metrics)
@@ -495,10 +594,12 @@ class TestDraftAugmentation:
             tech_stack=["Python"],
             tasks=[TaskDraft(name="작업", result="성과")],
         )
-        service._call_messages = MagicMock(side_effect=[
-            "첫째 문장입니다. 둘째 문장입니다. 셋째 문장입니다. 넷째 문장입니다. 다섯째 문장입니다.",
-            '{"pass": true, "scores": {"factuality": 5}, "issues": [], "missing_points": [], "revision_instructions": []}',
-        ])
+        service._call_messages = MagicMock(
+            side_effect=[
+                "첫째 문장입니다. 둘째 문장입니다. 셋째 문장입니다. 넷째 문장입니다. 다섯째 문장입니다.",
+                '{"pass": true, "scores": {"factuality": 5, "specificity": 5, "result_orientation": 5, "hiring_relevance": 5, "redundancy": 5, "output_contract": 5, "naturalness": 5}, "issues": [], "missing_points": [], "revision_instructions": []}',
+            ]
+        )
 
         result = service.generate_draft_project_summary(draft, lang="ko")
 
@@ -510,8 +611,20 @@ class TestDraftAugmentation:
         draft = ProjectDraft(
             name="초안 프로젝트",
             tasks=[
-                TaskDraft(name="작업 1", problem="문제", solution="해결", result="성과", tech_used=["Python"]),
-                TaskDraft(name="작업 2", problem="문제", solution="해결", result="성과", tech_used=["Docker"]),
+                TaskDraft(
+                    name="작업 1",
+                    problem="문제",
+                    solution="해결",
+                    result="성과",
+                    tech_used=["Python"],
+                ),
+                TaskDraft(
+                    name="작업 2",
+                    problem="문제",
+                    solution="해결",
+                    result="성과",
+                    tech_used=["Docker"],
+                ),
             ],
         )
         service.generate_task_text = MagicMock(side_effect=["bullet 1", "bullet 2"])
@@ -526,6 +639,7 @@ class TestDraftAugmentation:
 # ---------------------------------------------------------------------------
 # 전체 경력기술서 생성
 # ---------------------------------------------------------------------------
+
 
 class TestGenerateFullResume:
     def test_returns_markdown(self):
@@ -551,6 +665,7 @@ class TestGenerateFullResume:
 # 재시도 로직
 # ---------------------------------------------------------------------------
 
+
 class TestRetryLogic:
     def test_rate_limit_retries_then_raises(self):
         service = AIService(make_config())
@@ -562,11 +677,20 @@ class TestRetryLogic:
         FakeRateLimitError.__name__ = "RateLimitError"
         fake_litellm.completion.side_effect = FakeRateLimitError("limit")
 
-        with patch("devfolio.core.ai_service.get_api_key", return_value="sk-test"), \
-             patch("devfolio.core.ai_service.time.sleep"), \
-             patch.dict("sys.modules", {"litellm": fake_litellm}):
+        with (
+            patch("devfolio.core.ai_service.get_api_key", return_value="sk-test"),
+            patch("devfolio.core.ai_service.time.sleep"),
+            patch.dict("sys.modules", {"litellm": fake_litellm}),
+        ):
             with pytest.raises(DevfolioAIRateLimitError):
-                service._call("system", "user", "anthropic")
+                service._call_single_provider(
+                    fake_litellm,
+                    service._get_provider("anthropic"),
+                    [{"role": "user", "content": "test"}],
+                    None,
+                    None,
+                    False,
+                )
 
         assert fake_litellm.completion.call_count == 2
 
@@ -580,10 +704,19 @@ class TestRetryLogic:
         FakeAuthError.__name__ = "AuthenticationError"
         fake_litellm.completion.side_effect = FakeAuthError("auth")
 
-        with patch("devfolio.core.ai_service.get_api_key", return_value="sk-test"), \
-             patch.dict("sys.modules", {"litellm": fake_litellm}):
+        with (
+            patch("devfolio.core.ai_service.get_api_key", return_value="sk-test"),
+            patch.dict("sys.modules", {"litellm": fake_litellm}),
+        ):
             with pytest.raises(DevfolioAIAuthError):
-                service._call("system", "user", "anthropic")
+                service._call_single_provider(
+                    fake_litellm,
+                    service._get_provider("anthropic"),
+                    [{"role": "user", "content": "test"}],
+                    None,
+                    None,
+                    False,
+                )
 
         # 재시도 없이 즉시 실패
         assert fake_litellm.completion.call_count == 1
@@ -592,7 +725,9 @@ class TestRetryLogic:
         config = Config()
         config.default_ai_provider = "gemini"
         config.ai_providers = [
-            AIProviderConfig(name="gemini", model="gemini-2.0-flash-001", key_stored=True)
+            AIProviderConfig(
+                name="gemini", model="gemini-2.0-flash-001", key_stored=True
+            )
         ]
         service = AIService(config)
         fake_litellm = MagicMock()
@@ -611,12 +746,16 @@ class TestRetryLogic:
 
         fake_litellm.completion.side_effect = completion_side_effect
 
-        with patch("devfolio.core.ai_service.get_api_key", return_value="AIza-test"), \
-             patch.dict("sys.modules", {"litellm": fake_litellm}):
+        with (
+            patch("devfolio.core.ai_service.get_api_key", return_value="AIza-test"),
+            patch.dict("sys.modules", {"litellm": fake_litellm}),
+        ):
             result = service._call("system", "user", "gemini")
 
         assert result == "ok"
-        assert [call.kwargs["model"] for call in fake_litellm.completion.call_args_list] == [
+        assert [
+            call.kwargs["model"] for call in fake_litellm.completion.call_args_list
+        ] == [
             "gemini/gemini-3.1-flash-lite-preview",
             "gemini/gemini-3-flash-preview",
         ]
@@ -625,6 +764,7 @@ class TestRetryLogic:
 # ---------------------------------------------------------------------------
 # 연결 테스트
 # ---------------------------------------------------------------------------
+
 
 class TestConnectionTest:
     def test_success(self):
@@ -645,6 +785,7 @@ class TestConnectionTest:
 # ---------------------------------------------------------------------------
 # JD 매칭
 # ---------------------------------------------------------------------------
+
 
 class TestMatchJD:
     def test_basic_match(self):
@@ -686,6 +827,7 @@ _PASS_REVIEW = (
 
 def _review(pass_: bool, score: int, issues: list[str] | None = None) -> str:
     import json as _json
+
     return _json.dumps(
         {
             "pass": pass_,
@@ -712,14 +854,16 @@ class TestS1Refine:
         service.config.reasoning.strategy = "s1_refine"
         service.config.reasoning.refinement_budget = 3
 
-        service._call_messages = MagicMock(side_effect=[
-            "- 초안 1\n- 초안 1\n- 초안 1\n- 초안 1",
-            _review(False, 2, issues=["추상적"]),
-            "- 개선 1\n- 개선 1\n- 개선 1\n- 개선 1",
-            _review(False, 3, issues=["여전히 약함"]),
-            "- 최종 버전\n- 최종 버전\n- 최종 버전\n- 최종 버전",
-            _PASS_REVIEW,
-        ])
+        service._call_messages = MagicMock(
+            side_effect=[
+                "- 초안 1\n- 초안 1\n- 초안 1\n- 초안 1",
+                _review(False, 2, issues=["추상적"]),
+                "- 개선 1\n- 개선 1\n- 개선 1\n- 개선 1",
+                _review(False, 3, issues=["여전히 약함"]),
+                "- 최종 버전\n- 최종 버전\n- 최종 버전\n- 최종 버전",
+                _PASS_REVIEW,
+            ]
+        )
 
         result = service.generate_task_text(make_task(), lang="ko")
         assert "최종 버전" in result
@@ -734,34 +878,39 @@ class TestS1Refine:
         service.config.reasoning.early_stop_patience = 2
 
         # draft 점수 3 → refine1 점수 2 (정체) → refine2 점수 2 (정체, patience 도달)
-        # → 안전망 revision 1회 (writer 만, review 없음)
-        service._call_messages = MagicMock(side_effect=[
-            "- 초안\n- 초안\n- 초안\n- 초안",
-            _review(False, 3),
-            "- 1차\n- 1차\n- 1차\n- 1차",
-            _review(False, 2),
-            "- 2차\n- 2차\n- 2차\n- 2차",
-            _review(False, 2),
-            # 안전망 revision 출력 (review 호출 없음)
-            "- 최종\n- 최종\n- 최종\n- 최종",
-        ])
+        # → 안전망 revision 1회 (writer + review)
+        service._call_messages = MagicMock(
+            side_effect=[
+                "- 초안\n- 초안\n- 초안\n- 초안",
+                _review(False, 3),
+                "- 1차\n- 1차\n- 1차\n- 1차",
+                _review(False, 2),
+                "- 2차\n- 2차\n- 2차\n- 2차",
+                _review(False, 2),
+                # 안전망 revision 출력 및 최종 심사
+                "- 최종\n- 최종\n- 최종\n- 최종",
+                _PASS_REVIEW,
+            ]
+        )
 
         result = service.generate_task_text(make_task(), lang="ko")
         # 안전망 revision 결과가 반환됨 (검증 통과).
         assert "최종" in result
         # refine 4회 모두 돌지 않고 patience=2 에서 끊겨야 함.
-        # writer 3회 + review 3회 + 안전망 writer 1회 = 7
-        assert service._call_messages.call_count == 7
+        # writer 3회 + review 3회 + 안전망 writer/review = 8
+        assert service._call_messages.call_count == 8
 
     def test_refinement_budget_zero_falls_back_to_single(self):
         service = AIService(make_config())
         service.config.reasoning.strategy = "s1_refine"
         service.config.reasoning.refinement_budget = 0
 
-        service._call_messages = MagicMock(side_effect=[
-            "- 결과 1\n- 결과 2\n- 결과 3\n- 결과 4",
-            _PASS_REVIEW,
-        ])
+        service._call_messages = MagicMock(
+            side_effect=[
+                "- 결과 1\n- 결과 2\n- 결과 3\n- 결과 4",
+                _PASS_REVIEW,
+            ]
+        )
         result = service.generate_task_text(make_task(), lang="ko")
         assert "결과 1" in result
         assert service._call_messages.call_count == 2
@@ -774,17 +923,19 @@ class TestHybrid:
         service.config.reasoning.samples = 2
         service.config.reasoning.refinement_budget = 1
 
-        service._call_messages = MagicMock(side_effect=[
-            # sample 1 draft (약함)
-            "- S1\n- S1\n- S1\n- S1",
-            _review(False, 2),
-            # sample 1 refine
-            "- S1 개선\n- S1 개선\n- S1 개선\n- S1 개선",
-            _review(True, 4),
-            # sample 2 draft (바로 통과)
-            "- 최고 후보\n- 최고 후보\n- 최고 후보\n- 최고 후보",
-            _PASS_REVIEW,
-        ])
+        service._call_messages = MagicMock(
+            side_effect=[
+                # sample 1 draft (약함)
+                "- S1\n- S1\n- S1\n- S1",
+                _review(False, 2),
+                # sample 1 refine
+                "- S1 개선\n- S1 개선\n- S1 개선\n- S1 개선",
+                _review(True, 4),
+                # sample 2 draft (바로 통과)
+                "- 최고 후보\n- 최고 후보\n- 최고 후보\n- 최고 후보",
+                _PASS_REVIEW,
+            ]
+        )
 
         result = service.generate_task_text(make_task(), lang="ko")
         # sample 2 가 가장 높은 점수 (naturalness 5 포함) 라 선택됨
@@ -854,6 +1005,7 @@ class TestReasoningPlan:
 class TestEvidencePruning:
     def test_empty_fields_not_in_prompt(self):
         from devfolio.core.ai_service import _prune_empty
+
         data = {"a": "", "b": [], "c": {}, "d": None, "e": "keep", "team_size": 0}
         pruned = _prune_empty(data)
         assert "a" not in pruned

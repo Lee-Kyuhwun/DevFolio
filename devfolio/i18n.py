@@ -9,6 +9,14 @@
     # → "프로젝트 등록 완료! ID: my_project"
 
 환경 변수 ``DEVFOLIO_LANG`` 또는 config 의 ``default_language`` 로도 로케일을 제어한다.
+
+[Spring 비교]
+  MessageSource + LocaleResolver 조합을 아주 단순한 dict 카탈로그로 구현한 버전.
+  key("project.created") → 텍스트를 가져오고, 필요하면 `{id}` 같은 placeholder를 format 한다.
+
+[Python 문법 메모 — Java 개발자용]
+  - `global _current_locale`은 “모듈 전역 변수”를 함수 안에서 수정하겠다는 선언이다.
+  - `template.format(**kwargs)`는 Java의 `MessageFormat`/`String.format`과 유사한 placeholder 치환이다.
 """
 
 from __future__ import annotations
@@ -29,6 +37,7 @@ _catalog_cache: dict[str, dict[str, str]] = {}
 def _load_catalog(locale: str) -> dict[str, str]:
     """로케일 카탈로그를 로드한다. 지원하지 않는 로케일은 한국어 폴백."""
     if locale not in _catalog_cache:
+        # lazy load: 실제로 번역이 필요할 때만 locales 모듈을 import한다(시작 속도/의존성 관리).
         if locale == "en":
             from devfolio.locales.en import STRINGS
         else:
@@ -73,6 +82,7 @@ def t(key: str, **kwargs: object) -> str:
         # 폴백: 한국어 카탈로그에서 재시도
         if _current_locale != "ko":
             from devfolio.locales.ko import STRINGS as ko_strings
+
             template = ko_strings.get(key)
         if template is None:
             return key  # 최종 폴백: 키 자체 반환

@@ -32,6 +32,7 @@ def create_app():  # type: ignore[return]
     try:
         # FastAPI : ASGI 웹 프레임워크. [Spring] DispatcherServlet + Spring MVC 전체.
         from fastapi import FastAPI
+
         # StaticFiles : /static 경로로 정적 파일(CSS, JS, 이미지)을 서빙하는 미들웨어.
         # [Spring] WebMvcConfigurer.addResourceHandlers("classpath:/static/**") 와 동일.
         from fastapi.staticfiles import StaticFiles
@@ -42,6 +43,16 @@ def create_app():  # type: ignore[return]
 
     from devfolio.web.routes.api import router as api_router
     from devfolio.web.routes.ui import router as ui_router
+
+    # litellm background spawn 억제 — spawn 시작 방식 환경(Docker, macOS)에서
+    # multiprocessing 자식 프로세스가 __main__을 재실행하며 오류를 낸다.
+    try:
+        import litellm as _litellm
+
+        _litellm.telemetry = False
+        _litellm.suppress_debug_info = True
+    except Exception:
+        pass
 
     # FastAPI(...) : 앱 인스턴스 생성.
     # docs_url=None, redoc_url=None : /docs(Swagger UI), /redoc 엔드포인트 비활성화.

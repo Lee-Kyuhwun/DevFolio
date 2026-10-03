@@ -1,4 +1,13 @@
-"""웹 Experience DTO 와 기존 ProjectDraft/Project 간 매핑."""
+"""웹 Experience DTO 와 기존 ProjectDraft/Project 간 매핑.
+
+[Spring 비교]
+  Entity/DTO 변환(Mapper) 계층.
+  Web UI에서 사용하는 ExperienceDraft ↔ 내부 저장 포맷(ProjectDraft) 사이를 변환한다.
+
+[Python 문법 메모 — Java 개발자용]
+  - `model_copy(deep=True)`는 중첩 객체까지 복사해 “원본 객체를 건드리지 않는” 방식으로 변환한다.
+  - `getattr/setattr`는 리플렉션처럼 속성명을 문자열로 접근/설정하는 유틸이다.
+"""
 
 from __future__ import annotations
 
@@ -30,21 +39,30 @@ def project_type_for_experience_kind(experience_kind: str) -> str:
 
 
 def _link_kind_from_url(url: str) -> str | None:
+    # URL의 host를 보고 github/docs/video/demo 중 어느 카테고리인지 추정한다.
     host = urlparse(url.strip()).netloc.lower()
     if not host:
         return None
     if "github.com" in host:
         return "github"
-    if any(domain in host for domain in ("youtube.com", "youtu.be", "vimeo.com", "loom.com")):
+    if any(
+        domain in host
+        for domain in ("youtube.com", "youtu.be", "vimeo.com", "loom.com")
+    ):
         return "video"
-    if any(domain in host for domain in ("readme.com", "notion.site", "notion.so", "gitbook.io", "docs.")):
+    if any(
+        domain in host
+        for domain in ("readme.com", "notion.site", "notion.so", "gitbook.io", "docs.")
+    ):
         return "docs"
     if host:
         return "demo"
     return None
 
 
-def sync_canonical_links(links: ProjectLinks, extra_links: Iterable[StudioExtraLink]) -> ProjectLinks:
+def sync_canonical_links(
+    links: ProjectLinks, extra_links: Iterable[StudioExtraLink]
+) -> ProjectLinks:
     updated = links.model_copy(deep=True)
     for item in extra_links:
         url = (item.url or "").strip()
@@ -57,7 +75,9 @@ def sync_canonical_links(links: ProjectLinks, extra_links: Iterable[StudioExtraL
 
 
 def experience_from_project_draft(draft: ProjectDraft) -> ExperienceDraft:
-    experience_kind = draft.studio_meta.experience_kind or derive_experience_kind(draft.type)
+    experience_kind = draft.studio_meta.experience_kind or derive_experience_kind(
+        draft.type
+    )
     studio_meta = draft.studio_meta.model_copy(
         update={
             "experience_kind": experience_kind,
@@ -82,8 +102,12 @@ def experience_from_project_draft(draft: ProjectDraft) -> ExperienceDraft:
         tech_stack_detail=draft.tech_stack_detail.model_copy(deep=True),
         architecture=draft.architecture.model_copy(deep=True),
         features=[feature.model_copy(deep=True) for feature in draft.features],
-        problem_solving_cases=[case.model_copy(deep=True) for case in draft.problem_solving_cases],
-        performance_security_operations=draft.performance_security_operations.model_copy(deep=True),
+        problem_solving_cases=[
+            case.model_copy(deep=True) for case in draft.problem_solving_cases
+        ],
+        performance_security_operations=draft.performance_security_operations.model_copy(
+            deep=True
+        ),
         results=draft.results.model_copy(deep=True),
         retrospective=draft.retrospective.model_copy(deep=True),
         assets=draft.assets.model_copy(deep=True),
@@ -98,7 +122,8 @@ def project_draft_from_experience(experience: ExperienceDraft) -> ProjectDraft:
     base_studio_meta = experience.studio_meta.model_copy(
         update={
             "experience_kind": experience.type,
-            "collaboration": experience.studio_meta.collaboration or experience.team_size > 1,
+            "collaboration": experience.studio_meta.collaboration
+            or experience.team_size > 1,
         }
     )
     synced_links = sync_canonical_links(experience.links, base_studio_meta.extra_links)
@@ -120,8 +145,12 @@ def project_draft_from_experience(experience: ExperienceDraft) -> ProjectDraft:
         tech_stack_detail=experience.tech_stack_detail.model_copy(deep=True),
         architecture=experience.architecture.model_copy(deep=True),
         features=[feature.model_copy(deep=True) for feature in experience.features],
-        problem_solving_cases=[case.model_copy(deep=True) for case in experience.problem_solving_cases],
-        performance_security_operations=experience.performance_security_operations.model_copy(deep=True),
+        problem_solving_cases=[
+            case.model_copy(deep=True) for case in experience.problem_solving_cases
+        ],
+        performance_security_operations=experience.performance_security_operations.model_copy(
+            deep=True
+        ),
         results=experience.results.model_copy(deep=True),
         retrospective=experience.retrospective.model_copy(deep=True),
         assets=experience.assets.model_copy(deep=True),

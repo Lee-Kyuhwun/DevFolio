@@ -1,4 +1,13 @@
-"""devfolio scan — git 저장소를 분석해 본인 커밋 기반 포트폴리오를 자동 생성한다."""
+"""devfolio scan — git 저장소를 분석해 본인 커밋 기반 포트폴리오를 자동 생성한다.
+
+[Spring 비교]
+  CLI Controller 레이어(typer 커맨드)로, Service(`git_scanner`, `project_manager`)를 호출해
+  화면 출력(Rich) + 저장(storage.save_project)을 조합한다.
+
+[Python 문법 메모 — Java 개발자용]
+  - `typer.Argument/Option`은 Java의 @RequestParam/@Option 처럼 “입력 스키마”를 선언한다.
+  - `Optional[str]`는 nullable 힌트이며, `.strip()`로 공백을 정리하는 습관이 자주 나온다.
+"""
 
 from __future__ import annotations
 
@@ -17,7 +26,9 @@ from devfolio.core.storage import list_projects, load_config, save_project
 from devfolio.exceptions import DevfolioError
 from devfolio.models.project import Period, Project, Task
 
-app = typer.Typer(help="Git 저장소 스캔 기반 포트폴리오 자동 생성", rich_markup_mode="rich")
+app = typer.Typer(
+    help="Git 저장소 스캔 기반 포트폴리오 자동 생성", rich_markup_mode="rich"
+)
 console = Console()
 pm = ProjectManager()
 
@@ -36,7 +47,7 @@ def _payload_to_project(payload: dict, project_id: str) -> Project:
     for i, task_data in enumerate(payload["tasks"]):
         tasks.append(
             Task(
-                id=f"task_{i+1:03d}",
+                id=f"task_{i + 1:03d}",
                 name=task_data["name"],
                 period=Period(
                     start=task_data.get("period_start") or None,
@@ -79,13 +90,15 @@ def _print_scan_summary(payload: dict, cached: bool) -> None:
         f"기간: {payload.get('period_start') or '?'} ~ "
         f"{payload.get('period_end') or '현재'}",
         f"커밋: {metrics.get('commit_count', 0)}건 / "
-        f"전체 대비 {metrics.get('authorship_ratio', 0)*100:.0f}%",
+        f"전체 대비 {metrics.get('authorship_ratio', 0) * 100:.0f}%",
         f"변경: +{metrics.get('insertions', 0)} / -{metrics.get('deletions', 0)} LOC, "
         f"{metrics.get('files_touched', 0)} 파일",
         f"언어: {', '.join(metrics.get('languages', {}).keys()) or '-'}",
         f"분류: {metrics.get('categories', {}) or '-'}",
     ]
-    console.print(Panel("\n".join(body_lines), title="Scan Summary", border_style="cyan"))
+    console.print(
+        Panel("\n".join(body_lines), title="Scan Summary", border_style="cyan")
+    )
 
     table = Table(title="생성된 Task", show_lines=False)
     table.add_column("#", style="dim", width=3)
@@ -109,31 +122,43 @@ def scan(
         dir_okay=True,
     ),
     author: Optional[str] = typer.Option(
-        None, "--author", "-a",
+        None,
+        "--author",
+        "-a",
         help="필터링할 author email (미지정 시 설정의 user.email 사용)",
     ),
     refresh: bool = typer.Option(
-        False, "--refresh",
+        False,
+        "--refresh",
         help="이미 등록된 프로젝트가 있어도 다시 스캔해서 갱신",
     ),
     analyze: bool = typer.Option(
-        False, "--analyze", "-A",
+        False,
+        "--analyze",
+        "-A",
         help="소스 코드·README를 읽어 AI로 프로젝트를 심층 분석합니다 (AI 설정 필요).",
     ),
     lang: str = typer.Option(
-        "ko", "--lang", "-l",
+        "ko",
+        "--lang",
+        "-l",
         help="AI 출력 언어 (ko / en / both)",
     ),
     provider: Optional[str] = typer.Option(
-        None, "--provider", "-p",
+        None,
+        "--provider",
+        "-p",
         help="사용할 AI provider 이름 (미지정 시 기본 provider 사용)",
     ),
     dry_run: bool = typer.Option(
-        False, "--dry-run",
+        False,
+        "--dry-run",
         help="저장하지 않고 분석 결과만 출력",
     ),
     yes: bool = typer.Option(
-        False, "--yes", "-y",
+        False,
+        "--yes",
+        "-y",
         help="확인 프롬프트 없이 바로 저장",
     ),
 ):
@@ -156,7 +181,12 @@ def scan(
     existing = _find_existing_project_by_repo(scan_result.repo_url)
 
     # 캐시 히트: 동일 HEAD SHA 면 재분석 없이 바로 사용 (analyze 모드는 캐시 건너뜀)
-    if existing and existing.last_commit_sha == scan_result.head_sha and not refresh and not analyze:
+    if (
+        existing
+        and existing.last_commit_sha == scan_result.head_sha
+        and not refresh
+        and not analyze
+    ):
         console.print(
             f"[green]✓[/green] 이미 최신 상태입니다: [bold]{existing.name}[/bold] "
             f"(sha={existing.last_commit_sha[:8]})"
@@ -182,10 +212,11 @@ def scan(
     ai_analysis = None
     if analyze and scan_result.project_context:
         from devfolio.core.ai_service import AIService
+
         console.print("[dim]AI 딥 분석 중...[/dim]")
         try:
             scan_metrics = {
-                "commits": scan_result.commit_count,
+                "commits": scan_result.commit_count,  # 스캔 결과 요약 메트릭(커밋 수 등)을 AI에 전달.
                 "period_months": 0,
                 "languages": {k: v for k, v in scan_result.languages.most_common(5)},
             }
@@ -198,7 +229,9 @@ def scan(
             )
             console.print("[green]✓[/green] AI 딥 분석 완료")
         except DevfolioError as exc:
-            console.print(f"[yellow]⚠ AI 분석 실패 (기본 스캔 결과 사용): {exc.message}[/yellow]")
+            console.print(
+                f"[yellow]⚠ AI 분석 실패 (기본 스캔 결과 사용): {exc.message}[/yellow]"
+            )
 
     payload = build_project_payload(scan_result, ai_analysis=ai_analysis)
     _print_scan_summary(payload, cached=False)

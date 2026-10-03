@@ -15,9 +15,7 @@ import sys
 import typer
 
 # rich.console.Console : ANSI 컬러 출력 라이브러리. 터미널에 색상/스타일 텍스트 출력.
-# rich.panel.Panel   : 박스 테두리를 그려주는 컴포넌트.
 from rich.console import Console
-from rich.panel import Panel
 
 # 각 서브 커맨드 모듈을 임포트. [Spring] @ComponentScan 으로 Controller 를 찾는 것과 유사.
 from devfolio.commands import ai, config, data, export, project, scan, sync, task
@@ -69,7 +67,9 @@ app.add_typer(serve_cmd.app, name="serve", help="웹 기반 Portfolio Studio 시
 def init(
     # typer.Option(...) : CLI 옵션 선언. "--force" 또는 "-f" 플래그.
     # [Spring] @Option(names={"--force", "-f"}) 와 동일.
-    force: bool = typer.Option(False, "--force", "-f", help="이미 초기화된 경우에도 재설정"),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="이미 초기화된 경우에도 재설정"
+    ),
 ):
     """DevFolio 최초 설정 (대화형)."""
     run_init(force=force)
@@ -103,6 +103,7 @@ def cli():
     #   함수 안으로 넣으면 실제로 필요할 때만 로드되어 안전하다.
     try:
         from devfolio.core.storage import is_initialized, load_config
+
         if is_initialized():
             cfg = load_config()
             init_from_config(cfg.default_language)
