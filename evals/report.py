@@ -9,7 +9,7 @@ import argparse
 from collections import defaultdict
 from pathlib import Path
 
-from evals.label import _read_jsonl
+from evals.label import _read_jsonl, latest_rows
 from evals.metrics import (
     AGREEMENT_THRESHOLD,
     FACTUALITY_MISS_THRESHOLD,
@@ -143,7 +143,7 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     report = build_report(
-        _read_jsonl(args.run_dir / "outputs.jsonl"),
+        latest_rows(_read_jsonl(args.run_dir / "outputs.jsonl")),
         _read_jsonl(args.run_dir / "labels.jsonl"),
     )
     out = args.run_dir / "report.md"

@@ -79,6 +79,15 @@ def load_cases(directory: Path) -> list[tuple[str, Project]]:
     return cases
 
 
+def _succeeded_ids(out_path: Path) -> set[str]:
+    """이미 성공한 출력 ID (재실행할 때 건너뛴다)."""
+    from evals.label import _read_jsonl, latest_rows
+
+    return {
+        r["output_id"] for r in latest_rows(_read_jsonl(out_path)) if not r.get("error")
+    }
+
+
 def estimate_max_calls(n_cases: int, strategies: list[str]) -> int:
     return n_cases * sum(_MAX_CALLS[s] for s in strategies)
 
@@ -117,13 +126,17 @@ def run_eval(
     provider: str,
     out_dir: Path,
     model: Optional[str] = None,
+    resume: bool = False,
 ) -> Path:
     """결과를 out_dir/outputs.jsonl에 한 줄씩 기록하고 그 경로를 반환한다(중단돼도 앞부분은 남는다)."""
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "outputs.jsonl"
+    done = _succeeded_ids(out_path) if resume else set()
     with out_path.open("a", encoding="utf-8") as fh:
         for case_id, project in cases:
             for strategy in strategies:
+                if f"{case_id}:{strategy}" in done:
+                    continue
                 cfg = _config_for(config, strategy, provider, model)
                 service = CountingAIService(cfg)
                 row: dict = {
@@ -177,6 +190,12 @@ def main(argv: Optional[list[str]] = None) -> None:
         "--model", default=None, help="측정에서만 쓸 모델 (사용자 설정은 바꾸지 않음)"
     )
     parser.add_argument("--yes", action="store_true", help="AI 호출 확인 생략")
+    parser.add_argument(
+        "--resume",
+        type=Path,
+        default=None,
+        help="이 실행 폴더에서 실패·누락된 출력만 다시 실행",
+    )
     args = parser.parse_args(argv)
 
     strategies = [s.strip() for s in args.strategies.split(",") if s.strip()]
@@ -187,8 +206,16 @@ def main(argv: Optional[list[str]] = None) -> None:
     if not cases:
         parser.error(f"사례가 없습니다: {args.cases}/*.yaml")
 
+    out_dir = args.resume or Path("evals/runs") / datetime.now().strftime(
+        "%Y%m%d-%H%M%S"
+    )
+    done = _succeeded_ids(out_dir / "outputs.jsonl") if args.resume else set()
+    pending = [
+        s for case_id, _ in cases for s in strategies if f"{case_id}:{s}" not in done
+    ]
     print(
         f"사례 {len(cases)}개 × 전략 {len(strategies)}개 = 출력 {len(cases) * len(strategies)}개"
+        f" (이번에 실행: {len(pending)}개)"
     )
     config = load_config()
     preview_cfg = _config_for(config, strategies[0], args.provider, args.model)
@@ -196,15 +223,22 @@ def main(argv: Optional[list[str]] = None) -> None:
     chain = preview._provider_fallback_chain(args.provider)
     model = preview._runtime_model_candidates(preview_cfg.ai_providers[0])[0]
     print(
-        f"예상 최대 AI 호출: {estimate_max_calls(len(cases), strategies)}회, "
+        f"예상 최대 AI 호출: {sum(_MAX_CALLS[s] for s in pending)}회, "
         f"전송 대상: {' → '.join(p.name for p in chain)} / 모델 {model} (생성·심사 모두)"
     )
     if not args.yes and input("실행할까요? [y/N] ").strip().lower() != "y":
         print("취소했습니다.")
         return
 
-    out_dir = Path("evals/runs") / datetime.now().strftime("%Y%m%d-%H%M%S")
-    out_path = run_eval(cases, strategies, config, args.provider, out_dir, args.model)
+    out_path = run_eval(
+        cases,
+        strategies,
+        config,
+        args.provider,
+        out_dir,
+        args.model,
+        resume=bool(args.resume),
+    )
     print(f"완료: {out_path}")
     print(f"다음 단계: python -m evals.label {out_dir}")
 

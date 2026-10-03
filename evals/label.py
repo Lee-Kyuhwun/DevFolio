@@ -85,6 +85,14 @@ def evidence_summary(project: Project) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
+def latest_rows(rows: list[dict]) -> list[dict]:
+    """같은 output_id가 여러 번 있으면(재실행) 마지막 행만 남긴다. 순서는 처음 나온 순서."""
+    latest: dict[str, dict] = {}
+    for row in rows:
+        latest[row["output_id"]] = row
+    return list(latest.values())
+
+
 def _read_jsonl(path: Path) -> list[dict]:
     if not path.exists():
         return []
@@ -103,7 +111,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--cases", type=Path, default=Path("evals/cases"))
     args = parser.parse_args(argv)
 
-    outputs = _read_jsonl(args.run_dir / "outputs.jsonl")
+    outputs = latest_rows(_read_jsonl(args.run_dir / "outputs.jsonl"))
     labels_path = args.run_dir / "labels.jsonl"
     labeled = {row["output_id"] for row in _read_jsonl(labels_path)}
     summaries = {case_id: evidence_summary(p) for case_id, p in load_cases(args.cases)}

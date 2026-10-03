@@ -176,3 +176,54 @@ def test_model_is_pinned_without_silent_model_fallback():
         "gemini-3-flash-preview"
     ]
     assert config.ai_providers[0].model == "gemini-2.5-flash"  # 사용자 설정은 그대로
+
+
+def test_resume_reruns_only_failed_outputs(tmp_path):
+    _write_case(tmp_path, "sample_case", "샘플 프로젝트")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "outputs.jsonl").write_text(
+        json.dumps(
+            {"output_id": "sample_case:single", "error": None, "text": "기존"},
+            ensure_ascii=False,
+        )
+        + "\n"
+        + json.dumps(
+            {"output_id": "sample_case:best_of_n", "error": "503"}, ensure_ascii=False
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with patch.object(AIService, "_call_messages", _fake_ai(_review(True))):
+        run_eval(
+            load_cases(tmp_path),
+            ["single", "best_of_n"],
+            Config(),
+            "pollinations",
+            run_dir,
+            resume=True,
+        )
+
+    rows = _rows(run_dir / "outputs.jsonl")
+    assert [r["output_id"] for r in rows] == [
+        "sample_case:single",
+        "sample_case:best_of_n",
+        "sample_case:best_of_n",
+    ]
+    assert rows[-1]["error"] is None
+
+
+def test_latest_row_per_output_wins():
+    from evals.label import latest_rows
+
+    rows = [
+        {"output_id": "a:single", "error": "503"},
+        {"output_id": "b:single", "error": None},
+        {"output_id": "a:single", "error": None, "text": "재실행"},
+    ]
+
+    assert latest_rows(rows) == [
+        {"output_id": "a:single", "error": None, "text": "재실행"},
+        {"output_id": "b:single", "error": None},
+    ]
