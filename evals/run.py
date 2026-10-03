@@ -56,6 +56,10 @@ class CountingAIService(AIService):
             if p.name == allowed
         ]
 
+    def _runtime_model_candidates(self, provider) -> list[str]:
+        """측정 중에는 모델을 바꾸지 않는다. 실패하면 다른 모델로 넘어가지 않고 오류로 기록한다."""
+        return super()._runtime_model_candidates(provider)[:1]
+
     def _call_messages(self, *args, **kwargs) -> str:
         self.calls += 1
         started = time.monotonic()
@@ -79,7 +83,9 @@ def estimate_max_calls(n_cases: int, strategies: list[str]) -> int:
     return n_cases * sum(_MAX_CALLS[s] for s in strategies)
 
 
-def _config_for(config: Config, strategy: str, provider: str) -> Config:
+def _config_for(
+    config: Config, strategy: str, provider: str, model: Optional[str] = None
+) -> Config:
     """전략 설정을 덮어쓰고, 지정한 provider 하나로만 호출되게 한다.
 
     사례에는 실제 경력 정보가 들어가므로, 설정에 등록된 다른 provider나 심사 전용 provider로
@@ -97,6 +103,8 @@ def _config_for(config: Config, strategy: str, provider: str) -> Config:
             f"provider '{provider}'가 설정에 없습니다.",
             hint="devfolio config ai set 으로 등록하거나 --provider pollinations 를 쓰세요.",
         )
+    if model:
+        chosen = chosen.model_copy(update={"model": model})
     cfg.ai_providers = [chosen]
     cfg.default_ai_provider = chosen.name
     return cfg
@@ -108,6 +116,7 @@ def run_eval(
     config: Config,
     provider: str,
     out_dir: Path,
+    model: Optional[str] = None,
 ) -> Path:
     """결과를 out_dir/outputs.jsonl에 한 줄씩 기록하고 그 경로를 반환한다(중단돼도 앞부분은 남는다)."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -115,12 +124,14 @@ def run_eval(
     with out_path.open("a", encoding="utf-8") as fh:
         for case_id, project in cases:
             for strategy in strategies:
-                service = CountingAIService(_config_for(config, strategy, provider))
+                cfg = _config_for(config, strategy, provider, model)
+                service = CountingAIService(cfg)
                 row: dict = {
                     "output_id": f"{case_id}:{strategy}",
                     "case_id": case_id,
                     "strategy": strategy,
                     "provider": provider,
+                    "model": service._runtime_model_candidates(cfg.ai_providers[0])[0],
                     "resolved_strategy": None,
                     "text": "",
                     "judge_scores": {},
@@ -162,6 +173,9 @@ def main(argv: Optional[list[str]] = None) -> None:
     parser.add_argument("--cases", type=Path, default=Path("evals/cases"))
     parser.add_argument("--strategies", default=",".join(STRATEGIES))
     parser.add_argument("--provider", default="pollinations")
+    parser.add_argument(
+        "--model", default=None, help="측정에서만 쓸 모델 (사용자 설정은 바꾸지 않음)"
+    )
     parser.add_argument("--yes", action="store_true", help="AI 호출 확인 생략")
     args = parser.parse_args(argv)
 
@@ -177,19 +191,20 @@ def main(argv: Optional[list[str]] = None) -> None:
         f"사례 {len(cases)}개 × 전략 {len(strategies)}개 = 출력 {len(cases) * len(strategies)}개"
     )
     config = load_config()
-    chain = CountingAIService(
-        _config_for(config, strategies[0], args.provider)
-    )._provider_fallback_chain(args.provider)
+    preview_cfg = _config_for(config, strategies[0], args.provider, args.model)
+    preview = CountingAIService(preview_cfg)
+    chain = preview._provider_fallback_chain(args.provider)
+    model = preview._runtime_model_candidates(preview_cfg.ai_providers[0])[0]
     print(
         f"예상 최대 AI 호출: {estimate_max_calls(len(cases), strategies)}회, "
-        f"전송 대상: {' → '.join(p.name for p in chain)} (생성·심사 모두)"
+        f"전송 대상: {' → '.join(p.name for p in chain)} / 모델 {model} (생성·심사 모두)"
     )
     if not args.yes and input("실행할까요? [y/N] ").strip().lower() != "y":
         print("취소했습니다.")
         return
 
     out_dir = Path("evals/runs") / datetime.now().strftime("%Y%m%d-%H%M%S")
-    out_path = run_eval(cases, strategies, config, args.provider, out_dir)
+    out_path = run_eval(cases, strategies, config, args.provider, out_dir, args.model)
     print(f"완료: {out_path}")
     print(f"다음 단계: python -m evals.label {out_dir}")
 

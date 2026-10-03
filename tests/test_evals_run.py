@@ -156,3 +156,23 @@ def test_run_never_falls_back_to_builtin_pollinations():
     service = CountingAIService(_config_for(config, "single", "gemini"))
 
     assert [p.name for p in service._provider_fallback_chain("gemini")] == ["gemini"]
+
+
+def test_model_is_pinned_without_silent_model_fallback():
+    from devfolio.models.config import AIProviderConfig
+    from evals.run import CountingAIService, _config_for
+
+    config = Config(
+        default_ai_provider="gemini",
+        ai_providers=[
+            AIProviderConfig(name="gemini", model="gemini-2.5-flash", key_stored=True)
+        ],
+    )
+
+    cfg = _config_for(config, "single", "gemini", model="gemini-3-flash-preview")
+    service = CountingAIService(cfg)
+
+    assert service._runtime_model_candidates(cfg.ai_providers[0]) == [
+        "gemini-3-flash-preview"
+    ]
+    assert config.ai_providers[0].model == "gemini-2.5-flash"  # 사용자 설정은 그대로
