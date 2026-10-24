@@ -1603,7 +1603,7 @@
           <div>
             <div class="eyebrow">Dashboard</div>
             <h2>경험에서 문서까지 한 번에 이어지는 작업 공간</h2>
-            <p>Claude 시안의 워크스페이스 구조를 기준으로 경험 관리, 문서 생성, 편집, 내보내기를 한 흐름으로 정리했습니다.</p>
+            <p>경험을 정리하고 문서를 만든 뒤, 미리보기에서 확인하고 원하는 형식으로 내보내세요.</p>
           </div>
           <div class="hero-actions">
             <button class="btn btn-primary" data-action="new-experience" type="button">새 경험 추가</button>
@@ -1788,7 +1788,7 @@
           <div>
             <div class="eyebrow">Experiences</div>
             <h2>경험 관리</h2>
-            <p>저장된 경험을 유형별로 정리하고, 새 시안의 섹션형 편집기로 바로 수정합니다.</p>
+            <p>저장된 경험을 유형별로 찾아보고, 각 섹션의 내용을 수정하세요.</p>
           </div>
           <div class="hero-actions">
             <button class="btn btn-primary" data-action="new-experience" type="button">새 경험 추가</button>
@@ -2645,7 +2645,7 @@
     if (!state.currentDoc.preview) {
       return `<div class="empty-panel">미리보기가 아직 없습니다. 갱신 버튼을 눌러 preview를 생성하세요.</div>`;
     }
-    return `<iframe class="preview-frame" data-preview-frame="current"></iframe>`;
+    return `<iframe class="preview-frame" data-preview-frame="current" sandbox="allow-scripts" title="문서 미리보기"></iframe>`;
   }
 
   function mountPreviewFrames() {
@@ -2700,7 +2700,7 @@
           <div>
             <div class="eyebrow">Settings</div>
             <h2>설정</h2>
-            <p>프로필, AI provider, export 기본값, reasoning 전략을 시안 스타일에 맞게 재배치했습니다.</p>
+            <p>문서에 사용할 프로필, AI 제공자, 내보내기 기본값과 생성 방식을 설정하세요.</p>
           </div>
         </div>
         <div class="settings-grid">

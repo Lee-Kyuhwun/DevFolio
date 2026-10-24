@@ -20,7 +20,13 @@ from ruamel.yaml import YAML
 
 from devfolio.commands.common import check_init
 from devfolio.core.project_manager import ProjectManager
-from devfolio.core.storage import backup, restore, save_project
+from devfolio.core.storage import (
+    backup,
+    list_projects,
+    load_project,
+    restore,
+    save_project,
+)
 from devfolio.core.storage import project_id_from_name
 from devfolio.exceptions import DevfolioError
 from devfolio.models.project import Project
@@ -61,7 +67,7 @@ def backup_cmd(
         "-o",
         help="백업 파일 경로 (기본: ~/devfolio_backup_YYYYMMDD.zip)",
     ),
-):
+) -> None:
     """DevFolio 데이터 전체를 ZIP으로 백업."""
     check_init()
 
@@ -81,7 +87,7 @@ def backup_cmd(
 def restore_cmd(
     backup_path: Path = typer.Argument(..., help="복원할 백업 ZIP 파일 경로"),
     yes: bool = typer.Option(False, "--yes", "-y", help="확인 프롬프트 건너뜀"),
-):
+) -> None:
     """백업 ZIP에서 데이터 복원."""
     if not backup_path.exists():
         raise DevfolioError(
@@ -106,7 +112,7 @@ def restore_cmd(
 def import_data(
     file: Path = typer.Argument(..., help="가져올 YAML/JSON 파일 경로 (고급 import용)"),
     yes: bool = typer.Option(False, "--yes", "-y", help="중복 확인 건너뜀"),
-):
+) -> None:
     """YAML 또는 JSON 형식으로 프로젝트를 일괄 가져오는 고급 import 기능.
 
     일반 사용자는 `devfolio serve`의 Intake 플로우를 우선 권장합니다.
@@ -133,14 +139,19 @@ def import_data(
 
     imported = 0
     skipped = 0
+    failed = 0
 
     for item in data:
         if not isinstance(item, dict) or "name" not in item:
             console.print(f"[yellow]⚠ 건너뜀 (형식 오류):[/yellow] {item}")
             skipped += 1
+            failed += 1
             continue
 
-        existing = pm.get_project(item["name"])
+        existing = next(
+            (project for project in list_projects() if project.name == item["name"]),
+            None,
+        )
         if existing and not yes:
             if not Confirm.ask(
                 f"  [yellow]'{item['name']}'[/yellow] 이미 존재합니다. 덮어쓰시겠습니까?",
@@ -153,8 +164,13 @@ def import_data(
             payload = _normalize_project_payload(
                 item, existing.name if existing else None
             )
-            if existing and yes:
+            if existing:
                 payload["id"] = existing.id
+            elif load_project(payload["id"]) is not None:
+                raise DevfolioError(
+                    f"다른 프로젝트가 같은 ID를 사용하고 있습니다: {payload['id']}",
+                    hint="가져올 파일의 ID를 고유하게 바꾼 뒤 다시 시도하세요.",
+                )
             project = Project.model_validate(payload)
             save_project(project)
             imported += 1
@@ -162,6 +178,13 @@ def import_data(
         except Exception as e:
             console.print(f"  [red]✗[/red] {item.get('name', '?')}: {e}")
             skipped += 1
+            failed += 1
+
+    if failed:
+        raise DevfolioError(
+            f"고급 import 일부 실패 (성공: {imported}, 건너뜀: {skipped}, 오류: {failed})",
+            hint="위에 표시된 항목의 형식이나 중복 ID를 수정하고 다시 가져오세요.",
+        )
 
     console.print(
         f"\n[bold green]✓ 고급 import 완료[/bold green] "
@@ -177,7 +200,7 @@ def export_json(
     output: Optional[Path] = typer.Option(
         None, "--output", "-o", help="출력 파일 경로"
     ),
-):
+) -> None:
     """모든 프로젝트를 JSON으로 내보내기."""
     check_init()
 

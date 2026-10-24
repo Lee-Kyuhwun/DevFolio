@@ -5,8 +5,10 @@
 """
 
 import importlib
+import json
 import pkgutil
 import sys
+import zipfile
 from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -18,10 +20,371 @@ from devfolio.core import storage
 from devfolio.core.ai_service import AIService, _strip_foreign_chars
 from devfolio.exceptions import DevfolioAIError
 from devfolio.models.config import AIProviderConfig
+from devfolio.models.config import Config, UserConfig
+from devfolio.models.project import Period, Project
 from tests.test_ai_service import make_config
 
 # 모듈 import 시점의 실제 경로 (테스트 중에는 conftest가 임시 경로로 바꾼다)
 _USER_AI_LOG_FILE = storage.AI_LOG_FILE
+
+
+@pytest.fixture
+def audit_store(tmp_path, monkeypatch):
+    """OS별 디렉터리 이름 중복까지 재현하며 실제 사용자 파일을 격리한다."""
+    config_dir = tmp_path / "preferences" / "devfolio"
+    data_dir = tmp_path / "application-support" / "devfolio"
+    legacy_dir = tmp_path / "legacy" / ".devfolio"
+    for name, value in {
+        "DEVFOLIO_CONFIG_DIR": config_dir,
+        "DEVFOLIO_DATA_DIR": data_dir,
+        "CONFIG_FILE": config_dir / "config.yaml",
+        "PROJECTS_DIR": data_dir / "projects",
+        "EXPORTS_DIR": data_dir / "exports",
+        "TEMPLATES_DIR": data_dir / "templates",
+        "_LEGACY_HOME": legacy_dir,
+        "_LEGACY_CONFIG": legacy_dir / "config.yaml",
+    }.items():
+        monkeypatch.setattr(storage, name, value)
+    storage.ensure_dirs()
+    return tmp_path
+
+
+def test_inc13_exact_project_name_wins_over_normalized_id(audit_store):
+    from devfolio.core.project_manager import ProjectManager
+
+    manager = ProjectManager()
+    first = manager.create_project("a b", summary="first")
+    second = manager.create_project("A B", summary="second")
+
+    assert manager.get_project("A B").id == second.id
+    manager.delete_project("A B")
+    assert storage.load_project(second.id) is None
+    assert storage.load_project(first.id).summary == "first"
+
+
+def test_inc13_import_does_not_overwrite_partial_name_match(audit_store):
+    from typer.testing import CliRunner
+
+    from devfolio.core.project_manager import ProjectManager
+    from devfolio.main import app
+
+    storage.save_config(Config())
+    manager = ProjectManager()
+    original = manager.create_project("Backend API", summary="original")
+    source = audit_store / "import.json"
+    source.write_text(json.dumps({"name": "Backend", "summary": "new"}))
+    result = CliRunner().invoke(app, ["data", "import", str(source), "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert storage.load_project(original.id).summary == "original"
+    assert len(storage.list_projects()) == 2
+
+
+def test_inc13_import_rejects_id_owned_by_a_different_project(audit_store):
+    from typer.testing import CliRunner
+
+    from devfolio.core.project_manager import ProjectManager
+    from devfolio.main import app
+
+    storage.save_config(Config())
+    original = ProjectManager().create_project("Original", summary="keep")
+    source = audit_store / "collision.json"
+    source.write_text(json.dumps({"id": original.id, "name": "Different"}))
+
+    result = CliRunner().invoke(app, ["data", "import", str(source), "--yes"])
+
+    assert result.exit_code == 1
+    assert "import 완료" not in result.output
+    assert storage.load_project(original.id).summary == "keep"
+
+
+def test_inc13_empty_lookup_never_selects_a_project(audit_store):
+    storage.save_project(Project(id="demo", name="Demo"))
+    assert storage.find_project_by_name("") is None
+
+
+def test_inc14_backup_round_trip_separates_config_and_data(audit_store):
+    storage.save_config(Config(user=UserConfig(name="backup-user")))
+    storage.save_project(Project(id="demo", name="Demo"))
+    archive = audit_store / "backup.zip"
+    storage.backup(archive)
+    storage.CONFIG_FILE.unlink()
+    (storage.PROJECTS_DIR / "demo.yaml").unlink()
+
+    storage.restore(archive)
+
+    assert storage.load_config().user.name == "backup-user"
+    assert storage.load_project("demo").name == "Demo"
+    assert storage.CONFIG_FILE.stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.parametrize("root", ["devfolio", ".devfolio"])
+def test_inc14_restore_old_backups_into_current_paths(audit_store, root):
+    archive = audit_store / "old.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr(f"{root}/config.yaml", "user:\n  name: restored\n")
+        zf.writestr(f"{root}/projects/demo.yaml", "id: demo\nname: Demo\n")
+
+    storage.restore(archive)
+
+    assert storage.load_config().user.name == "restored"
+    assert storage.load_project("demo").name == "Demo"
+    assert storage.CONFIG_FILE.stat().st_mode & 0o777 == 0o600
+
+
+def test_inc14_invalid_backup_does_not_partially_overwrite(audit_store):
+    from devfolio.exceptions import DevfolioError
+
+    storage.save_config(Config(user=UserConfig(name="original")))
+    original = storage.CONFIG_FILE.read_bytes()
+    archive = audit_store / "invalid.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("devfolio/config.yaml", "user:\n  name: changed\n")
+        zf.writestr("devfolio/projects/broken.yaml", "name: [\n")
+
+    with pytest.raises(DevfolioError) as exc:
+        storage.restore(archive)
+    assert exc.value.hint
+    assert storage.CONFIG_FILE.read_bytes() == original
+    assert list(storage.PROJECTS_DIR.iterdir()) == []
+
+
+def test_inc14_backup_inside_data_dir_excludes_itself(audit_store):
+    archive = storage.EXPORTS_DIR / "backup.zip"
+    storage.save_project(Project(id="demo", name="Demo"))
+    storage.backup(archive)
+
+    with zipfile.ZipFile(archive) as zf:
+        assert not any(name.endswith("backup.zip") for name in zf.namelist())
+
+
+def test_inc14_restore_write_failure_rolls_back_written_files(audit_store, monkeypatch):
+    from devfolio.exceptions import DevfolioError
+
+    storage.save_config(Config(user=UserConfig(name="original")))
+    original = storage.CONFIG_FILE.read_bytes()
+    archive = audit_store / "write-failure.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("config/config.yaml", "user:\n  name: changed\n")
+        zf.writestr("data/projects/demo.yaml", "id: demo\nname: Demo\n")
+    atomic_write = storage._atomic_write
+
+    def fail_project_write(path, content, mode=0o600):
+        if path.parent == storage.PROJECTS_DIR:
+            raise OSError("disk full")
+        atomic_write(path, content, mode)
+
+    monkeypatch.setattr(storage, "_atomic_write", fail_project_write)
+    with pytest.raises(DevfolioError):
+        storage.restore(archive)
+    assert storage.CONFIG_FILE.read_bytes() == original
+    assert storage.load_project("demo") is None
+
+
+@pytest.mark.parametrize(
+    "member", ["../config.yaml", "/devfolio/config.yaml", "data/../config.yaml"]
+)
+def test_inc14_restore_rejects_unsafe_paths(audit_store, member):
+    from devfolio.exceptions import DevfolioError
+
+    archive = audit_store / "unsafe.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr(member, "user:\n  name: unsafe\n")
+    with pytest.raises(DevfolioError):
+        storage.restore(archive)
+    assert not storage.CONFIG_FILE.exists()
+
+
+@pytest.mark.parametrize("kind", ["project", "config"])
+def test_inc15_failed_yaml_write_preserves_original(audit_store, monkeypatch, kind):
+    from ruamel.yaml import YAML
+
+    from devfolio.exceptions import DevfolioError
+
+    model = Project(id="demo", name="Original") if kind == "project" else Config()
+    save = storage.save_project if kind == "project" else storage.save_config
+    path = (
+        storage.PROJECTS_DIR / "demo.yaml" if kind == "project" else storage.CONFIG_FILE
+    )
+    save(model)
+    original = path.read_bytes()
+
+    def fail_dump(self, data, stream, **kwargs):
+        stream.write("partial:")
+        raise OSError("disk full")
+
+    monkeypatch.setattr(YAML, "dump", fail_dump)
+    with pytest.raises(DevfolioError) as exc:
+        save(model)
+    assert exc.value.hint
+    assert path.read_bytes() == original
+    assert sorted(p.name for p in path.parent.iterdir()) == [path.name]
+
+
+def test_inc15_failed_replace_preserves_original_and_cleans_temp(
+    audit_store, monkeypatch
+):
+    from pathlib import Path
+
+    from devfolio.exceptions import DevfolioError
+
+    storage.save_config(Config(user=UserConfig(name="original")))
+    original = storage.CONFIG_FILE.read_bytes()
+
+    def fail_replace(self, target):
+        raise PermissionError("replacement denied")
+
+    monkeypatch.setattr(Path, "replace", fail_replace)
+    with pytest.raises(DevfolioError):
+        storage.save_config(Config(user=UserConfig(name="changed")))
+    assert storage.CONFIG_FILE.read_bytes() == original
+    assert list(storage.CONFIG_FILE.parent.iterdir()) == [storage.CONFIG_FILE]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"start": "2024-00"},
+        {"end": "2024-13"},
+        {"start": "0000-01"},
+        {"start": "2024-06", "end": "2024-01"},
+    ],
+)
+def test_inc16_invalid_period_is_rejected(payload):
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        Period.model_validate(payload)
+
+
+def test_inc16_invalid_update_keeps_stored_project_readable(audit_store):
+    from devfolio.core.project_manager import ProjectManager
+    from devfolio.exceptions import DevfolioError
+
+    manager = ProjectManager()
+    project = manager.create_project("Demo")
+    path = storage.PROJECTS_DIR / f"{project.id}.yaml"
+    original = path.read_bytes()
+
+    with pytest.raises(DevfolioError) as exc:
+        manager.update_project(project.id, team_size=0)
+    assert exc.value.hint
+    assert path.read_bytes() == original
+    assert storage.load_project(project.id).team_size == 1
+
+
+def test_inc16_project_id_cannot_escape_projects_dir(audit_store):
+    from devfolio.exceptions import DevfolioError
+
+    with pytest.raises(DevfolioError):
+        storage.save_project(Project(id="../outside", name="Unsafe"))
+    assert not (storage.DEVFOLIO_DATA_DIR / "outside.yaml").exists()
+
+
+def test_inc16_whitespace_name_cannot_overwrite_existing_project(audit_store):
+    from devfolio.core.project_manager import ProjectManager
+    from devfolio.exceptions import DevfolioError
+
+    manager = ProjectManager()
+    original = manager.create_project("Demo", summary="keep")
+    with pytest.raises(DevfolioError):
+        manager.create_project(" Demo ", summary="replace")
+    assert storage.load_project(original.id).summary == "keep"
+
+
+def test_inc16_blank_project_name_is_rejected():
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        Project(id="empty", name="  ")
+
+
+def test_inc16_cli_validation_error_has_hint_without_traceback(
+    audit_store, monkeypatch, capsys
+):
+    from devfolio import main
+
+    def invalid_command():
+        Period(start="2024-13")
+
+    monkeypatch.setattr(main, "app", invalid_command)
+    with pytest.raises(SystemExit) as exc:
+        main.cli()
+    assert exc.value.code == 1
+    output = capsys.readouterr().err
+    assert "입력값" in output
+    assert "다시 시도" in output
+    assert "Traceback" not in output
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "<script>window.parent.document.body.remove()</script>",
+        '<img src="x" onerror="alert(1)">',
+        "[click](javascript:alert%281%29)",
+        '<a href="java&#x73;cript:alert(1)">click</a>',
+        '<svg onload="alert(1)"></svg>',
+    ],
+)
+def test_inc17_html_preview_never_emits_executable_user_markup(
+    audit_store, monkeypatch, content
+):
+    from html.parser import HTMLParser
+
+    from devfolio.core import export_engine
+
+    monkeypatch.setattr(export_engine, "EXPORTS_DIR", storage.EXPORTS_DIR)
+    rendered = export_engine.ExportEngine()._md_to_html_body(content)
+    dangerous = []
+
+    class Inspector(HTMLParser):
+        def handle_starttag(self, tag, attrs):
+            if tag in {"script", "svg", "iframe", "object", "embed"}:
+                dangerous.append(tag)
+            for key, value in attrs:
+                if key.startswith("on") or (
+                    key in {"href", "src"}
+                    and (value or "").lower().startswith("javascript:")
+                ):
+                    dangerous.append(key)
+
+    Inspector().feed(rendered)
+    assert dangerous == []
+
+
+def test_inc17_html_keeps_markdown_links_tables_and_mermaid(audit_store, monkeypatch):
+    from devfolio.core import export_engine
+
+    monkeypatch.setattr(export_engine, "EXPORTS_DIR", storage.EXPORTS_DIR)
+    rendered = export_engine.ExportEngine()._md_to_html_body(
+        "[GitHub](https://github.com/example)\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n```mermaid\ngraph TD\nA-->B\n```"
+    )
+    assert 'href="https://github.com/example"' in rendered
+    assert "<table>" in rendered
+    assert 'class="language-mermaid"' in rendered
+
+
+def test_inc18_export_rejects_parent_traversal(audit_store):
+    from devfolio.core.export_engine import _validate_output_path
+    from devfolio.exceptions import DevfolioExportError
+
+    with pytest.raises(DevfolioExportError):
+        _validate_output_path(audit_store / "subdir" / ".." / "resume.md")
+
+
+def test_inc18_export_rejects_sibling_with_same_prefix(audit_store, monkeypatch):
+    from pathlib import Path
+
+    from devfolio.core.export_engine import _validate_output_path
+    from devfolio.exceptions import DevfolioExportError
+
+    allowed = audit_store / "allowed"
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: allowed))
+    monkeypatch.setattr(Path, "cwd", classmethod(lambda cls: allowed))
+    monkeypatch.setattr("tempfile.gettempdir", lambda: str(allowed))
+    with pytest.raises(DevfolioExportError):
+        _validate_output_path(audit_store / "allowed-sibling" / "resume.md")
 
 
 def _response(text: str) -> SimpleNamespace:

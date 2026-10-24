@@ -85,6 +85,7 @@ class ProjectManager:
           DB 의 UNIQUE 제약 체크를 코드 레벨에서 미리 수행하는 것.
           JPA 에서 @UniqueConstraint 위반 시 DataIntegrityViolationException 을 던지는 것과 유사.
         """
+        name = name.strip()
         projects = list_projects()
 
         # 동일 이름이 이미 존재하면 즉시 오류.
@@ -306,6 +307,7 @@ class ProjectManager:
         [Spring 비교]
           ProjectService.create(dto) — DTO 를 받아 Entity 로 변환 후 save.
         """
+        name = name.strip()
         project_id = self._next_project_id(name)
 
         project = Project(
@@ -373,6 +375,7 @@ class ProjectManager:
         [Spring 비교]
           Entity rename → DB 에서 기존 row 삭제 + 새 row 삽입 (파일 기반이므로 동일 패턴).
         """
+        new_name = new_name.strip()
         project = self.get_project_or_raise(name_or_id)
 
         # {k: v ... if v is not None} : None 이 아닌 필드만 모아 dict 로.

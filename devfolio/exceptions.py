@@ -42,6 +42,26 @@ class DevfolioError(Exception):
         self.hint = hint
 
 
+class DevfolioValidationError(DevfolioError):
+    """저장할 사용자 입력이 도메인 제약을 위반했다."""
+
+    def __init__(self, detail: str):
+        super().__init__(
+            f"입력값을 확인하세요: {detail}",
+            hint="이름, 기간(YYYY-MM), 팀 규모와 프로젝트 ID를 확인한 뒤 다시 시도하세요.",
+        )
+
+
+class DevfolioStorageError(DevfolioError):
+    """파일 저장 또는 백업·복원에 실패했다."""
+
+    def __init__(self, detail: str):
+        super().__init__(
+            f"데이터를 처리할 수 없습니다: {detail}",
+            hint="파일 형식, 경로의 쓰기 권한과 남은 디스크 공간을 확인하세요.",
+        )
+
+
 # class 자식(부모): ... → Java class 자식 extends 부모 와 동일.
 class DevfolioConfigError(DevfolioError):
     """설정 관련 오류 — 기반 클래스.

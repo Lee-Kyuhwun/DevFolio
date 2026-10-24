@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import re
+from datetime import date
 
 # Optional[X] = "X 이거나 None". Java 의 @Nullable 또는 Optional<X> 와 같은 의미.
 from typing import Literal, Optional
@@ -82,7 +83,20 @@ class Period(BaseModel):
             # [Spring] MethodArgumentNotValidException 을 던지는 것과 같은 효과.
             # {v!r} : v 를 repr() 로 출력 — 따옴표 포함한 디버그 표현.
             raise ValueError(f"날짜 형식이 올바르지 않습니다 (YYYY-MM 필요): {v!r}")
-        return str(v).strip()
+        value = str(v).strip()
+        try:
+            date.fromisoformat(f"{value}-01")
+        except ValueError as exc:
+            raise ValueError(
+                "실제 존재하는 연월을 YYYY-MM 형식으로 입력하세요."
+            ) from exc
+        return value
+
+    @model_validator(mode="after")
+    def validate_order(self) -> "Period":
+        if self.start and self.end and self.start > self.end:
+            raise ValueError("종료 월은 시작 월보다 빠를 수 없습니다.")
+        return self
 
     def display(self) -> str:
         # "A or B" : A 가 falsy(None/""/0) 이면 B 를 반환. Java 의 삼항연산자 대체.
@@ -262,6 +276,11 @@ class Project(BaseModel):
 
     id: str
     name: str = Field(min_length=1, description="프로젝트명")
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        return value.strip() if isinstance(value, str) else value
 
     # pattern="^...$" : @Pattern(regexp="...") 과 동일.
     # "|" 는 정규식 OR 연산 — 세 값 중 하나만 허용.

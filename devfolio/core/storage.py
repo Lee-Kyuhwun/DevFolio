@@ -15,12 +15,15 @@
 """
 
 import json
+import os
 import re
+import tempfile
 import zipfile
+from io import StringIO
 
 # pathlib.Path : OS 독립 파일/디렉터리 경로 클래스.
 # [Spring] java.nio.file.Path 와 동일.
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 # Any : 어떤 타입이든 허용. [Spring] Object 와 동일.
 # Optional[X] : X or None. [Spring] @Nullable X.
@@ -45,7 +48,11 @@ from pydantic import ValidationError
 # [Spring] Jackson ObjectMapper 와 동일한 역할 (직렬화 / 역직렬화).
 from ruamel.yaml import YAML
 
-from devfolio.exceptions import DevfolioYAMLError
+from devfolio.exceptions import (
+    DevfolioStorageError,
+    DevfolioValidationError,
+    DevfolioYAMLError,
+)
 from devfolio.log import get_logger
 from devfolio.models.config import Config
 from devfolio.models.project import Project
@@ -81,15 +88,48 @@ AI_LOG_FILE = DEVFOLIO_DATA_DIR / "ai_logs.jsonl"
 _LEGACY_HOME = Path.home() / ".devfolio"
 _LEGACY_CONFIG = _LEGACY_HOME / "config.yaml"
 
-# YAML() : ruamel.yaml 인스턴스. 파일마다 새로 만들지 않고 모듈 레벨에서 하나만 유지.
-# [Spring] ObjectMapper 싱글톤과 동일한 패턴.
-_yaml = YAML()
-# default_flow_style=False : 블록 스타일(들여쓰기)로 YAML 출력. 가독성 우선.
-_yaml.default_flow_style = False
-# preserve_quotes=True : 원본의 따옴표 스타일을 유지.
-_yaml.preserve_quotes = True
-# width=4096 : 한 줄이 4096자 이상일 때만 줄바꿈. 긴 URL 이 잘리지 않도록.
-_yaml.width = 4096
+
+def _new_yaml() -> YAML:
+    """요청마다 파서 상태를 분리해 동시 웹 요청이 서로 간섭하지 않게 한다."""
+    yaml = YAML()
+    yaml.default_flow_style = False
+    yaml.preserve_quotes = True
+    yaml.width = 4096
+    return yaml
+
+
+def _atomic_write(path: Path, content: bytes, mode: int = 0o600) -> None:
+    """같은 디렉터리의 임시 파일을 완성한 뒤 원본을 원자적으로 교체한다."""
+    temporary: Optional[Path] = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        temporary.chmod(mode)
+        temporary.replace(path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def _save_yaml(path: Path, payload: dict[str, Any]) -> None:
+    try:
+        ensure_dirs()
+        buffer = StringIO()
+        _new_yaml().dump(payload, buffer)
+        _atomic_write(path, buffer.getvalue().encode("utf-8"))
+    except Exception as exc:
+        raise DevfolioStorageError(f"YAML 저장 실패: {path}") from exc
+
+
+def _validate_project_id(project_id: str) -> None:
+    if not re.fullmatch(r"[\w.-]+", project_id) or project_id in {".", ".."}:
+        raise DevfolioValidationError(
+            "프로젝트 ID에 경로 구분자나 특수문자를 사용할 수 없습니다."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -154,7 +194,7 @@ def load_config() -> Config:
         with open(path, "r", encoding="utf-8") as f:
             # _yaml.load(f) : YAML → Python dict 로 역직렬화.
             # or {} : 빈 파일이면 None 을 반환하므로 빈 dict 로 대체.
-            data = _yaml.load(f) or {}
+            data = _new_yaml().load(f) or {}
         # Config.model_validate(data) : dict → Config 모델 변환 + 검증.
         # [Spring] ObjectMapper.convertValue(data, Config.class) 와 동일.
         return Config.model_validate(data)
@@ -171,17 +211,8 @@ def save_config(config: Config) -> None:
       application.yml 을 런타임에 덮어쓰는 것과 유사.
       저장 후 0o600 권한으로 설정 (소유자만 읽기/쓰기) — API 키 보호용.
     """
-    ensure_dirs()
     path = _resolve_config_path()
-    with open(path, "w", encoding="utf-8") as f:
-        # config.model_dump(exclude_none=False) : Config → dict 변환.
-        #   exclude_none=False → None 값도 포함해서 직렬화.
-        #   [Spring] @JsonInclude(Include.ALWAYS) 와 동일.
-        _yaml.dump(config.model_dump(exclude_none=False), f)
-    # path.chmod(0o600) : Unix 파일 권한을 octal 로 설정.
-    #   0o600 = 소유자 읽기+쓰기, 그룹/기타 접근 불가.
-    # [Spring] Files.setPosixFilePermissions(path, Set.of(OWNER_READ, OWNER_WRITE)) 와 동일.
-    path.chmod(0o600)
+    _save_yaml(path, config.model_dump(exclude_none=False))
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +248,7 @@ def load_project(project_id: str) -> Optional[Project]:
     [Spring 비교]
       ProjectRepository.findById(id) — 없으면 None(Optional.empty()).
     """
+    _validate_project_id(project_id)
     path = PROJECTS_DIR / f"{project_id}.yaml"
     # 레거시 경로 폴백 — 신규 경로에 없으면 레거시에서 찾는다.
     if not path.exists():
@@ -227,7 +259,7 @@ def load_project(project_id: str) -> Optional[Project]:
             return None
     try:
         with open(path, "r", encoding="utf-8") as f:
-            data = _yaml.load(f) or {}
+            data = _new_yaml().load(f) or {}
         # Project.model_validate(data) : dict → Project 모델로 검증/변환.
         return Project.model_validate(data)
     except ValidationError as e:
@@ -242,11 +274,13 @@ def save_project(project: Project) -> None:
     [Spring 비교]
       ProjectRepository.save(project) — ID 를 기반으로 파일명 결정.
     """
-    ensure_dirs()
+    _validate_project_id(project.id)
+    try:
+        project = Project.model_validate(project.model_dump(exclude_none=False))
+    except ValidationError as exc:
+        raise DevfolioValidationError(str(exc)) from exc
     path = PROJECTS_DIR / f"{project.id}.yaml"
-    with open(path, "w", encoding="utf-8") as f:
-        # project.model_dump(exclude_none=False) : Project → dict.
-        _yaml.dump(project.model_dump(exclude_none=False), f)
+    _save_yaml(path, project.model_dump(exclude_none=False))
 
 
 def delete_project_file(project_id: str) -> bool:
@@ -255,6 +289,7 @@ def delete_project_file(project_id: str) -> bool:
     [Spring 비교]
       ProjectRepository.deleteById(id).
     """
+    _validate_project_id(project_id)
     path = PROJECTS_DIR / f"{project_id}.yaml"
     if not path.exists():
         # 레거시 경로 확인
@@ -297,7 +332,7 @@ def list_projects() -> list[Project]:
                 continue
             try:
                 with open(yaml_file, "r", encoding="utf-8") as f:
-                    data = _yaml.load(f) or {}
+                    data = _new_yaml().load(f) or {}
                 projects.append(Project.model_validate(data))
                 # set.add() : ID 를 seen 에 추가. [Spring] Set.add(id).
                 seen_ids.add(project_id)
@@ -340,10 +375,10 @@ def find_project_by_name(name_or_id: str) -> Optional[Project]:
       우선순위를 명시적으로 구현.
     """
     # 1. 정확한 ID 매칭
-    candidate_id = project_id_from_name(name_or_id)
-    project = load_project(candidate_id)
-    if project:
-        return project
+    if re.fullmatch(r"[\w.-]+", name_or_id) and name_or_id not in {".", ".."}:
+        project = load_project(name_or_id)
+        if project:
+            return project
 
     all_projects = list_projects()
 
@@ -353,7 +388,9 @@ def find_project_by_name(name_or_id: str) -> Optional[Project]:
             return p
 
     # 3. 대소문자 무시 부분 일치 — 결과가 정확히 1개일 때만 반환.
-    name_lower = name_or_id.lower()
+    name_lower = name_or_id.strip().lower()
+    if not name_lower:
+        return None
     # [Spring] stream().filter(p -> p.getName().toLowerCase().contains(name_lower)).collect(toList()).
     matches = [p for p in all_projects if name_lower in p.name.lower()]
     if len(matches) == 1:
@@ -373,24 +410,32 @@ def backup(output_path: Path) -> None:
     [Spring 비교]
       파일 시스템 전체를 ZipOutputStream 으로 묶는 것과 동일.
     """
-    dirs_to_backup = [DEVFOLIO_CONFIG_DIR, DEVFOLIO_DATA_DIR]
-    if _LEGACY_CONFIG.exists():
-        dirs_to_backup.append(_LEGACY_HOME)
-
-    # zipfile.ZipFile(path, "w", ZIP_DEFLATED) : 압축 ZIP 파일을 쓰기 모드로 열기.
-    # [Spring] new ZipOutputStream(new FileOutputStream(path)) 와 동일.
-    with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for base_dir in dirs_to_backup:
-            if not base_dir.exists():
-                continue
-            # Path.rglob("*") : 하위 디렉터리까지 재귀 탐색.
-            # [Spring] Files.walk(base_dir) 와 동일.
-            for file_path in base_dir.rglob("*"):
-                if file_path.is_file():
-                    # arcname : ZIP 안에서의 경로 이름.
-                    # file_path.relative_to(base_dir) : 상대 경로로 변환.
-                    arcname = f"{base_dir.name}/{file_path.relative_to(base_dir)}"
-                    zf.write(file_path, arcname)
+    directories = [("config", DEVFOLIO_CONFIG_DIR), ("data", DEVFOLIO_DATA_DIR)]
+    if _LEGACY_HOME.exists():
+        directories.append(("legacy", _LEGACY_HOME))
+    temporary: Optional[Path] = None
+    try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            dir=output_path.parent, delete=False
+        ) as stream:
+            temporary = Path(stream.name)
+        excluded = {output_path.resolve(), temporary.resolve()}
+        with zipfile.ZipFile(temporary, "w", zipfile.ZIP_DEFLATED) as zf:
+            for label, base_dir in directories:
+                for file_path in sorted(base_dir.rglob("*")):
+                    if file_path.is_symlink() or not file_path.is_file():
+                        continue
+                    if file_path.resolve() in excluded:
+                        continue
+                    relative = file_path.relative_to(base_dir).as_posix()
+                    zf.write(file_path, f"{label}/{relative}")
+        temporary.replace(output_path)
+    except (OSError, zipfile.BadZipFile) as exc:
+        raise DevfolioStorageError(f"백업 실패: {output_path}") from exc
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def restore(backup_path: Path) -> None:
@@ -399,17 +444,99 @@ def restore(backup_path: Path) -> None:
     [Spring 비교]
       ZipInputStream 으로 파일을 순서대로 읽어 저장하는 것과 동일.
     """
-    ensure_dirs()
-    # zipfile.ZipFile(path, "r") : ZIP 파일을 읽기 모드로 열기.
-    with zipfile.ZipFile(backup_path, "r") as zf:
-        # zf.namelist() : ZIP 내 모든 파일 이름 목록.
-        for member in zf.namelist():
-            if "config.yaml" in member:
-                zf.extract(member, DEVFOLIO_CONFIG_DIR.parent)
-            elif (
-                "projects/" in member or "exports/" in member or "templates/" in member
-            ):
-                zf.extract(member, DEVFOLIO_DATA_DIR.parent)
+    # 파일 전체를 읽고 검증한 뒤에만 현재 저장소에 반영한다.
+    pending: dict[Path, tuple[int, bytes]] = {}
+    originals: dict[Path, tuple[bytes, int] | None] = {}
+    written: list[Path] = []
+    try:
+        with zipfile.ZipFile(backup_path, "r") as zf:
+            for member in zf.infolist():
+                parts = PurePosixPath(member.filename).parts
+                if (
+                    not parts
+                    or PurePosixPath(member.filename).is_absolute()
+                    or ".." in parts
+                    or "\\" in member.filename
+                    or ":" in parts[0]
+                    or (member.external_attr >> 16) & 0o170000 == 0o120000
+                ):
+                    raise ValueError("백업에 안전하지 않은 경로가 있습니다.")
+                if member.is_dir() or len(parts) < 2:
+                    continue
+                root, *relative = parts
+                priority = 2 if root in {"legacy", ".devfolio"} else 1
+                if relative == ["config.yaml"] and root in {
+                    "config",
+                    "devfolio",
+                    ".devfolio",
+                    "legacy",
+                    DEVFOLIO_CONFIG_DIR.name,
+                }:
+                    base = DEVFOLIO_CONFIG_DIR
+                    target = CONFIG_FILE
+                elif root == "data":
+                    base = DEVFOLIO_DATA_DIR
+                    target = base.joinpath(*relative)
+                elif root in {
+                    "devfolio",
+                    ".devfolio",
+                    "legacy",
+                    DEVFOLIO_DATA_DIR.name,
+                } and relative[0] in {"projects", "exports", "templates"}:
+                    base = DEVFOLIO_DATA_DIR
+                    target = base.joinpath(*relative)
+                else:
+                    continue
+                if root in {"config", "data"}:
+                    priority = 0
+                if not target.resolve().is_relative_to(base.resolve()):
+                    raise ValueError("복원 경로가 데이터 디렉터리를 벗어납니다.")
+                content = zf.read(member)
+                if target == CONFIG_FILE:
+                    Config.model_validate(
+                        _new_yaml().load(content.decode("utf-8")) or {}
+                    )
+                elif target.parent == PROJECTS_DIR and target.suffix == ".yaml":
+                    project = Project.model_validate(
+                        _new_yaml().load(content.decode("utf-8")) or {}
+                    )
+                    _validate_project_id(project.id)
+                    if project.id != target.stem:
+                        raise ValueError("프로젝트 ID와 백업 파일명이 다릅니다.")
+                if target in pending:
+                    previous_priority, _ = pending[target]
+                    if previous_priority == priority:
+                        raise ValueError("백업에 중복된 복원 경로가 있습니다.")
+                    if previous_priority < priority:
+                        continue
+                pending[target] = (priority, content)
+        if not pending:
+            raise ValueError("복원할 DevFolio 데이터가 없습니다.")
+        ensure_dirs()
+        for target in pending:
+            originals[target] = (
+                (target.read_bytes(), target.stat().st_mode & 0o777)
+                if target.exists()
+                else None
+            )
+        for target, (_, content) in pending.items():
+            _atomic_write(target, content)
+            written.append(target)
+    except Exception as exc:
+        rollback_failures: list[str] = []
+        for target in reversed(written):
+            try:
+                original = originals[target]
+                if original is None:
+                    target.unlink(missing_ok=True)
+                else:
+                    _atomic_write(target, *original)
+            except OSError:
+                rollback_failures.append(str(target))
+        detail = f"백업 복원 실패: {backup_path}"
+        if rollback_failures:
+            detail += " (원본 복구 실패: " + ", ".join(rollback_failures) + ")"
+        raise DevfolioStorageError(detail) from exc
 
 
 def load_sync_state() -> dict[str, Any]:

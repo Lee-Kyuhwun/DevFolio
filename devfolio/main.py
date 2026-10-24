@@ -13,6 +13,7 @@ import sys
 # typer : Click 기반 CLI 프레임워크. 타입 힌트로 CLI 옵션/인수를 선언한다.
 # [Spring] Spring Shell @ShellComponent + @ShellMethod, 또는 Picocli @Command.
 import typer
+from pydantic import ValidationError
 
 # rich.console.Console : ANSI 컬러 출력 라이브러리. 터미널에 색상/스타일 텍스트 출력.
 from rich.console import Console
@@ -21,7 +22,7 @@ from rich.console import Console
 from devfolio.commands import ai, config, data, export, project, scan, sync, task
 from devfolio.commands.init_cmd import run_init
 from devfolio.commands import serve as serve_cmd
-from devfolio.exceptions import DevfolioError
+from devfolio.exceptions import DevfolioError, DevfolioValidationError
 
 # i18n : 다국어(ko/en) 문자열 카탈로그. DEVFOLIO_LANG 환경변수로 제어.
 from devfolio.i18n import init_from_config
@@ -70,7 +71,7 @@ def init(
     force: bool = typer.Option(
         False, "--force", "-f", help="이미 초기화된 경우에도 재설정"
     ),
-):
+) -> None:
     """DevFolio 최초 설정 (대화형)."""
     run_init(force=force)
 
@@ -80,7 +81,7 @@ def init(
 #   [Spring] 기본 핸들러 — 매핑 없는 요청 시 도움말 출력.
 # ctx: typer.Context : 현재 CLI 실행 컨텍스트. 어떤 서브 커맨드가 호출됐는지 알 수 있다.
 @app.callback(invoke_without_command=True)
-def main(ctx: typer.Context):
+def main(ctx: typer.Context) -> None:
     """DevFolio — 개발자 포트폴리오 & 경력기술서 자동화 시스템"""
     # ctx.invoked_subcommand : 서브 커맨드가 있으면 그 이름, 없으면 None.
     if ctx.invoked_subcommand is None:
@@ -89,7 +90,7 @@ def main(ctx: typer.Context):
         console_out.print(ctx.get_help())
 
 
-def cli():
+def cli() -> None:
     """CLI 진입점 — 전역 DevfolioError 처리.
 
     [Spring 비교]
@@ -114,7 +115,9 @@ def cli():
     try:
         # app() : Typer 앱 실행. sys.argv 를 파싱해 해당 커맨드 함수를 호출.
         app()
-    except DevfolioError as e:
+    except (DevfolioError, ValidationError) as e:
+        if isinstance(e, ValidationError):
+            e = DevfolioValidationError(str(e))
         # DevfolioError 를 잡아 사용자 친화적인 메시지로 출력.
         # [Spring] @ExceptionHandler(DevfolioError.class) 와 동일한 역할.
         # [bold red] : Rich 마크업으로 빨간색 굵은 텍스트 출력.

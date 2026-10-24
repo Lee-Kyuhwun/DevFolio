@@ -25,6 +25,7 @@ if TYPE_CHECKING:  # 타입체커(mypy/IDE)만 보는 import(런타임에는 실
 from devfolio.core.storage import EXPORTS_DIR
 from devfolio.exceptions import DevfolioExportError
 from devfolio.log import get_logger
+from devfolio.utils.html import sanitize_document_html
 
 logger = get_logger(__name__)
 
@@ -78,7 +79,7 @@ _MERMAID_BOOTSTRAP = """
 <script>
   document.addEventListener("DOMContentLoaded", async () => {
     if (typeof mermaid === "undefined") return;
-    mermaid.initialize({ startOnLoad: false, securityLevel: "loose" });
+    mermaid.initialize({ startOnLoad: false, securityLevel: "strict" });
     const blocks = document.querySelectorAll("pre code.language-mermaid");
     let index = 0;
     for (const code of blocks) {
@@ -109,14 +110,18 @@ def _sanitize_filename(filename: str) -> str:
 
 def _validate_output_path(path: Path) -> Path:
     """출력 경로가 안전한지 검증 (path traversal 방지)."""
+    if ".." in path.parts:
+        raise DevfolioExportError(
+            f"출력 경로에 상위 디렉터리 이동(..)을 사용할 수 없습니다: {path}",
+            hint="상위 디렉터리 이동 없이 출력 파일의 경로를 지정하세요.",
+        )
     resolved = path.resolve()
     allowed_roots = [
         Path.home().resolve(),
         Path.cwd().resolve(),
         Path(tempfile.gettempdir()).resolve(),
     ]
-    # startswith 기반 체크로 홈/작업폴더/임시폴더 밖 경로를 차단(경로 탈출 방지).
-    if not any(str(resolved).startswith(str(root)) for root in allowed_roots):
+    if not any(resolved.is_relative_to(root) for root in allowed_roots):
         raise DevfolioExportError(
             f"출력 경로가 허용 범위를 벗어났습니다: {path}",
             hint="홈 디렉터리, 현재 작업 디렉터리, 또는 시스템 임시 디렉터리 하위 경로를 지정하세요.",
@@ -342,12 +347,13 @@ class ExportEngine:
         try:
             import markdown as md_lib
 
-            return md_lib.markdown(
+            rendered = md_lib.markdown(
                 content,
                 extensions=["tables", "fenced_code", "nl2br"],
             )
         except ImportError:
-            return self._simple_md_to_html(content)
+            rendered = self._simple_md_to_html(content)
+        return sanitize_document_html(rendered)
 
     def _simple_md_to_html(self, content: str) -> str:
         """최소 Markdown → HTML 변환 (markdown 패키지 없을 때 폴백)."""
