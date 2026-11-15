@@ -1,0 +1,39 @@
+name: AI Evaluation (manual)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  nvidia-eval:
+    runs-on: ubuntu-latest
+    env:
+      NVIDIA_NIM_API_KEY: ${{ secrets.NVIDIA_NIM_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,all]"
+
+      - name: Run live NVIDIA evaluation
+        run: |
+          if [ -z "${NVIDIA_NIM_API_KEY}" ]; then
+            echo "NVIDIA_NIM_API_KEY is not set. Skipping live evaluation; no failure."
+            exit 0
+          fi
+          python -m evals.impact.run --live
+
+      - name: Upload evaluation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: impactnote-ai-evaluation
+          path: evals/runs/impact-*/
+          if-no-files-found: warn

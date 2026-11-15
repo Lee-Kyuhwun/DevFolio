@@ -1,0 +1,425 @@
+{
+  "run_at": "2026-11-15T23:09:12+09:00",
+  "git_sha": "48e35fc",
+  "dataset_version": "impactnote-ai-eval-1.0.0",
+  "dataset_sha": "6cf68ed945bc6b91",
+  "mode": "live",
+  "generator_provider": "nvidia_nim",
+  "generator_model": "nvidia_nim/openai/gpt-oss-20b",
+  "judge_model": "minimaxai/minimax-m3.1-flash",
+  "judge_status": "LIVE_VERIFIED",
+  "thresholds": {
+    "hallucination_combined_max": 0.2,
+    "extraction_f1_min": 0.7,
+    "quality_mean_min": 3.5,
+    "quality_factual_mean_min": 3.0,
+    "quality_low_factuality_max": 0.25,
+    "attribution_exact_min": 0.8,
+    "doc_code_accuracy_min": 0.7,
+    "semantic_accuracy_min": 0.7
+  },
+  "verdicts": {
+    "hallucination": "FAIL",
+    "extraction": "PASS",
+    "quality": "FAIL",
+    "attribution": "PASS",
+    "doc_code": "PASS",
+    "semantic": "PASS"
+  },
+  "overall": "CONDITIONAL PASS",
+  "limitations": [
+    "합성 통제 저장소와 42개 claim 소규모 표본",
+    "품질은 단일 AI 심사 모델 점수이며 사람 간 일치도 없음",
+    "리뷰·설계 기여, 대리 커밋은 근거 부족으로 UNKNOWN",
+    "동일 NVIDIA 계열 모델 편향 가능성"
+  ],
+  "claims": {
+    "n": 42,
+    "hallucination": {
+      "n": 42,
+      "supported": 22,
+      "contradicted": 3,
+      "unsupported": 17,
+      "contradiction_rate": 0.07142857142857142,
+      "unsupported_claim_rate": 0.40476190476190477,
+      "combined_unsupported_or_contradicted_rate": 0.47619047619047616,
+      "entailment_rate": 0.5238095238095238,
+      "ci": [
+        0.3333333333333333,
+        0.6190476190476191
+      ]
+    },
+    "semantic": {
+      "n": 42,
+      "accuracy": 0.8333333333333334,
+      "macro_f1": 0.7095959595959597,
+      "per_class": {
+        "ENTAILMENT": {
+          "tp": 22,
+          "fp": 0,
+          "fn": 0,
+          "support": 22,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        },
+        "CONTRADICTION": {
+          "tp": 3,
+          "fp": 3,
+          "fn": 0,
+          "support": 3,
+          "precision": 0.5,
+          "recall": 1.0,
+          "f1": 0.6666666666666666
+        },
+        "NEUTRAL": {
+          "tp": 8,
+          "fp": 1,
+          "fn": 5,
+          "support": 13,
+          "precision": 0.8888888888888888,
+          "recall": 0.6153846153846154,
+          "f1": 0.7272727272727274
+        },
+        "INSUFFICIENT_EVIDENCE": {
+          "tp": 2,
+          "fp": 3,
+          "fn": 2,
+          "support": 4,
+          "precision": 0.4,
+          "recall": 0.5,
+          "f1": 0.4444444444444445
+        }
+      },
+      "confusion": {
+        "ENTAILMENT": {
+          "ENTAILMENT": 22,
+          "CONTRADICTION": 0,
+          "NEUTRAL": 0,
+          "INSUFFICIENT_EVIDENCE": 0
+        },
+        "CONTRADICTION": {
+          "ENTAILMENT": 0,
+          "CONTRADICTION": 3,
+          "NEUTRAL": 0,
+          "INSUFFICIENT_EVIDENCE": 0
+        },
+        "NEUTRAL": {
+          "ENTAILMENT": 0,
+          "CONTRADICTION": 2,
+          "NEUTRAL": 8,
+          "INSUFFICIENT_EVIDENCE": 3
+        },
+        "INSUFFICIENT_EVIDENCE": {
+          "ENTAILMENT": 0,
+          "CONTRADICTION": 1,
+          "NEUTRAL": 1,
+          "INSUFFICIENT_EVIDENCE": 2
+        }
+      },
+      "predicted_distribution": {
+        "CONTRADICTION": 6,
+        "INSUFFICIENT_EVIDENCE": 5,
+        "ENTAILMENT": 22,
+        "NEUTRAL": 9
+      },
+      "gold_distribution": {
+        "CONTRADICTION": 3,
+        "INSUFFICIENT_EVIDENCE": 4,
+        "NEUTRAL": 13,
+        "ENTAILMENT": 22
+      }
+    },
+    "citation": {
+      "predicted_entailment": 22,
+      "unsupported_citation_rate": 0.0,
+      "contradiction_recall": 1.0
+    }
+  },
+  "extraction": {
+    "n": 20,
+    "tp": 12,
+    "fp": 0,
+    "fn": 0,
+    "tn": 8,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0,
+    "n_positive": 12,
+    "n_negative": 8,
+    "predicted_paths": [
+      "Dockerfile",
+      "app/auth.py",
+      "app/cache.py",
+      "app/errors.py",
+      "app/export.py",
+      "app/metrics.py",
+      "app/pipeline.py",
+      "app/queue.py",
+      "app/report.py",
+      "app/retry.py",
+      "app/session.py",
+      "docs/performance.md"
+    ],
+    "true_positives": [
+      "Dockerfile",
+      "app/auth.py",
+      "app/cache.py",
+      "app/errors.py",
+      "app/export.py",
+      "app/metrics.py",
+      "app/pipeline.py",
+      "app/queue.py",
+      "app/report.py",
+      "app/retry.py",
+      "app/session.py",
+      "docs/performance.md"
+    ],
+    "false_positives": [],
+    "false_negatives": [],
+    "candidate_count": 15,
+    "engine_status": "completed",
+    "engine_warnings": [
+      "현재 HEAD에 없는 파일의 과거 변경은 성과 후보에서 제외했습니다: app/deleted.py",
+      "리버트된 변경 1건은 현재 코드와 비교해 성과 후보에서 제외했습니다."
+    ]
+  },
+  "attribution": {
+    "n": 8,
+    "exact_accuracy": 1.0,
+    "coverage": 1.0,
+    "wrong_solo_rate": 0.0,
+    "rows": [
+      {
+        "id": "att_cache",
+        "path": "app/cache.py",
+        "expected": [
+          "alice@example.com"
+        ],
+        "predicted": [
+          "alice@example.com"
+        ],
+        "exact": true,
+        "coverage": true,
+        "wrong_solo": false
+      },
+      {
+        "id": "att_retry",
+        "path": "app/retry.py",
+        "expected": [
+          "alice@example.com"
+        ],
+        "predicted": [
+          "alice@example.com"
+        ],
+        "exact": true,
+        "coverage": true,
+        "wrong_solo": false
+      },
+      {
+        "id": "att_auth",
+        "path": "app/auth.py",
+        "expected": [
+          "bob@example.com"
+        ],
+        "predicted": [
+          "bob@example.com"
+        ],
+        "exact": true,
+        "coverage": true,
+        "wrong_solo": false
+      },
+      {
+        "id": "att_export",
+        "path": "app/export.py",
+        "expected": [
+          "alice@example.com",
+          "bob@example.com"
+        ],
+        "predicted": [
+          "alice@example.com",
+          "bob@example.com"
+        ],
+        "exact": true,
+        "coverage": true,
+        "wrong_solo": false
+      },
+      {
+        "id": "att_queue",
+        "path": "app/queue.py",
+        "expected": [
+          "carol@example.com"
+        ],
+        "predicted": [
+          "carol@example.com"
+        ],
+        "exact": true,
+        "coverage": true,
+        "wrong_solo": false
+      },
+      {
+        "id": "att_session",
+        "path": "app/session.py",
+        "expected": [
+          "alice@example.com",
+          "bob@example.com"
+        ],
+        "predicted": [
+          "alice@example.com",
+          "bob@example.com"
+        ],
+        "exact": true,
+        "coverage": true,
+        "wrong_solo": false
+      },
+      {
+        "id": "att_pipeline",
+        "path": "app/pipeline.py",
+        "expected": [
+          "alice@example.com",
+          "carol@example.com"
+        ],
+        "predicted": [
+          "alice@example.com",
+          "carol@example.com"
+        ],
+        "exact": true,
+        "coverage": true,
+        "wrong_solo": false
+      },
+      {
+        "id": "att_report",
+        "path": "app/report.py",
+        "expected": [
+          "alice@example.com",
+          "bob@example.com"
+        ],
+        "predicted": [
+          "alice@example.com",
+          "bob@example.com"
+        ],
+        "exact": true,
+        "coverage": true,
+        "wrong_solo": false
+      }
+    ],
+    "ci": [
+      1.0,
+      1.0
+    ]
+  },
+  "doc_code": {
+    "n": 12,
+    "accuracy": 0.8333333333333334,
+    "macro_f1": 0.8392857142857143,
+    "false_match_rate": 0.0,
+    "confusion": {
+      "MATCH": {
+        "MATCH": 3,
+        "PARTIAL_MATCH": 0,
+        "MISMATCH": 0,
+        "NOT_IMPLEMENTED": 0,
+        "INSUFFICIENT_EVIDENCE": 0
+      },
+      "PARTIAL_MATCH": {
+        "MATCH": 0,
+        "PARTIAL_MATCH": 1,
+        "MISMATCH": 1,
+        "NOT_IMPLEMENTED": 0,
+        "INSUFFICIENT_EVIDENCE": 0
+      },
+      "MISMATCH": {
+        "MATCH": 0,
+        "PARTIAL_MATCH": 0,
+        "MISMATCH": 3,
+        "NOT_IMPLEMENTED": 0,
+        "INSUFFICIENT_EVIDENCE": 0
+      },
+      "NOT_IMPLEMENTED": {
+        "MATCH": 0,
+        "PARTIAL_MATCH": 0,
+        "MISMATCH": 0,
+        "NOT_IMPLEMENTED": 3,
+        "INSUFFICIENT_EVIDENCE": 0
+      },
+      "INSUFFICIENT_EVIDENCE": {
+        "MATCH": 0,
+        "PARTIAL_MATCH": 1,
+        "MISMATCH": 0,
+        "NOT_IMPLEMENTED": 0,
+        "INSUFFICIENT_EVIDENCE": 0
+      }
+    }
+  },
+  "quality": {
+    "n": 20,
+    "mean": 3.6799999999999997,
+    "axis_means": {
+      "factual_accuracy": 2.65,
+      "specificity": 4.55,
+      "contribution_clarity": 3.7,
+      "problem_solution": 4.05,
+      "internal_report_tone": 3.45
+    },
+    "low_factuality_count": 11,
+    "low_factuality_rate": 0.55,
+    "ci": [
+      3.5100000000000002,
+      3.88
+    ]
+  },
+  "live": {
+    "status": "LIVE_VERIFIED",
+    "n": 3,
+    "succeeded": 3,
+    "failed": 0,
+    "mean_latency_ms": 145844.0,
+    "total_prompt_tokens": 1966,
+    "total_completion_tokens": 2795,
+    "unsupported_number_rate": 0.0,
+    "raw_unsupported_number_rate": 0.07142857142857142,
+    "removed_metric_count": 1,
+    "forbidden_hit_count": 0,
+    "rows": [
+      {
+        "id": "live_deploy",
+        "status": "LIVE_VERIFIED",
+        "latency_ms": 307546,
+        "json_ok": true,
+        "raw_unsupported_numbers": [
+          75.0
+        ],
+        "unsupported_numbers": [],
+        "forbidden_hits": [],
+        "removed_metrics": [
+          {
+            "value": "75",
+            "unit": "%",
+            "raw": "75%",
+            "field": "statements.monthly"
+          }
+        ]
+      },
+      {
+        "id": "live_cache",
+        "status": "LIVE_VERIFIED",
+        "latency_ms": 87117,
+        "json_ok": true,
+        "raw_unsupported_numbers": [],
+        "unsupported_numbers": [],
+        "forbidden_hits": [],
+        "removed_metrics": []
+      },
+      {
+        "id": "live_team",
+        "status": "LIVE_VERIFIED",
+        "latency_ms": 42869,
+        "json_ok": true,
+        "raw_unsupported_numbers": [],
+        "unsupported_numbers": [],
+        "forbidden_hits": [],
+        "removed_metrics": []
+      }
+    ]
+  }
+}

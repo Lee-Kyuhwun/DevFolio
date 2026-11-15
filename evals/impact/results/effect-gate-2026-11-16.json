@@ -1,0 +1,842 @@
+{
+  "run_at": "2026-11-16T00:25:27+09:00",
+  "git_sha": "6e6ce68",
+  "dataset_version": "impactnote-ai-eval-1.0.0",
+  "dataset_sha": "6cf68ed945bc6b91",
+  "mode": "offline",
+  "generator_provider": "nvidia_nim",
+  "generator_model": "nvidia_nim/openai/gpt-oss-20b",
+  "judge_model": "NOT_CONFIGURED",
+  "judge_status": "NOT_CONFIGURED",
+  "judge_meta": null,
+  "thresholds": {
+    "hallucination_combined_max": 0.2,
+    "extraction_f1_min": 0.7,
+    "quality_mean_min": 3.5,
+    "quality_factual_mean_min": 3.0,
+    "quality_low_factuality_max": 0.25,
+    "attribution_exact_min": 0.8,
+    "doc_code_accuracy_min": 0.7,
+    "semantic_accuracy_min": 0.7,
+    "effect_gate_false_accept_max": 0.05,
+    "effect_gate_retention_min": 0.8
+  },
+  "claims": {
+    "n": 42,
+    "hallucination": {
+      "n": 42,
+      "supported": 22,
+      "contradicted": 3,
+      "unsupported": 17,
+      "contradiction_rate": 0.07142857142857142,
+      "unsupported_claim_rate": 0.40476190476190477,
+      "combined_unsupported_or_contradicted_rate": 0.47619047619047616,
+      "entailment_rate": 0.5238095238095238,
+      "ci": [
+        0.3333333333333333,
+        0.6190476190476191
+      ]
+    },
+    "semantic": {
+      "deterministic": {
+        "n": 42,
+        "accuracy": 0.6190476190476191,
+        "macro_f1": 0.558695652173913,
+        "per_class": {
+          "ENTAILMENT": {
+            "tp": 18,
+            "fp": 2,
+            "fn": 4,
+            "support": 22,
+            "precision": 0.9,
+            "recall": 0.8181818181818182,
+            "f1": 0.8571428571428572
+          },
+          "CONTRADICTION": {
+            "tp": 2,
+            "fp": 0,
+            "fn": 1,
+            "support": 3,
+            "precision": 1.0,
+            "recall": 0.6666666666666666,
+            "f1": 0.8
+          },
+          "NEUTRAL": {
+            "tp": 5,
+            "fp": 5,
+            "fn": 8,
+            "support": 13,
+            "precision": 0.5,
+            "recall": 0.38461538461538464,
+            "f1": 0.4347826086956522
+          },
+          "INSUFFICIENT_EVIDENCE": {
+            "tp": 1,
+            "fp": 9,
+            "fn": 3,
+            "support": 4,
+            "precision": 0.1,
+            "recall": 0.25,
+            "f1": 0.14285714285714288
+          }
+        },
+        "confusion": {
+          "ENTAILMENT": {
+            "ENTAILMENT": 18,
+            "CONTRADICTION": 0,
+            "NEUTRAL": 1,
+            "INSUFFICIENT_EVIDENCE": 3
+          },
+          "CONTRADICTION": {
+            "ENTAILMENT": 0,
+            "CONTRADICTION": 2,
+            "NEUTRAL": 1,
+            "INSUFFICIENT_EVIDENCE": 0
+          },
+          "NEUTRAL": {
+            "ENTAILMENT": 2,
+            "CONTRADICTION": 0,
+            "NEUTRAL": 5,
+            "INSUFFICIENT_EVIDENCE": 6
+          },
+          "INSUFFICIENT_EVIDENCE": {
+            "ENTAILMENT": 0,
+            "CONTRADICTION": 0,
+            "NEUTRAL": 3,
+            "INSUFFICIENT_EVIDENCE": 1
+          }
+        },
+        "predicted_distribution": {
+          "NEUTRAL": 10,
+          "INSUFFICIENT_EVIDENCE": 10,
+          "ENTAILMENT": 20,
+          "CONTRADICTION": 2
+        },
+        "gold_distribution": {
+          "CONTRADICTION": 3,
+          "INSUFFICIENT_EVIDENCE": 4,
+          "NEUTRAL": 13,
+          "ENTAILMENT": 22
+        }
+      },
+      "deterministic_citation": {
+        "predicted_entailment": 20,
+        "unsupported_citation_rate": 0.1,
+        "contradiction_recall": 0.6666666666666666
+      },
+      "judge": {
+        "n": 0,
+        "accuracy": null,
+        "macro_f1": null,
+        "per_class": {},
+        "confusion": {
+          "ENTAILMENT": {
+            "ENTAILMENT": 0,
+            "CONTRADICTION": 0,
+            "NEUTRAL": 0,
+            "INSUFFICIENT_EVIDENCE": 0
+          },
+          "CONTRADICTION": {
+            "ENTAILMENT": 0,
+            "CONTRADICTION": 0,
+            "NEUTRAL": 0,
+            "INSUFFICIENT_EVIDENCE": 0
+          },
+          "NEUTRAL": {
+            "ENTAILMENT": 0,
+            "CONTRADICTION": 0,
+            "NEUTRAL": 0,
+            "INSUFFICIENT_EVIDENCE": 0
+          },
+          "INSUFFICIENT_EVIDENCE": {
+            "ENTAILMENT": 0,
+            "CONTRADICTION": 0,
+            "NEUTRAL": 0,
+            "INSUFFICIENT_EVIDENCE": 0
+          }
+        }
+      },
+      "judge_citation": {
+        "unsupported_citation_rate": null,
+        "contradiction_recall": null
+      },
+      "status": "SKIPPED"
+    },
+    "effect_gate": {
+      "n_total_claims": 42,
+      "n_effect_claims": 22,
+      "coverage": 0.5238095238095238,
+      "accepted": 10,
+      "blocked": 12,
+      "supported_effect_claims": 10,
+      "unsupported_effect_claims": 12,
+      "false_accepts": 0,
+      "false_rejections": 0,
+      "false_accept_rate": 0.0,
+      "blocked_unsupported_rate": 1.0,
+      "retention": 1.0,
+      "accepted_precision": 1.0,
+      "false_accept_ci": [
+        0.0,
+        0.2425007574992425
+      ],
+      "false_accept_ids": [],
+      "false_rejection_ids": [],
+      "rows": [
+        {
+          "id": "c002",
+          "claim": "운영 비용을 절감했다.",
+          "evidence": "case1: 백오피스 기능 목록만 있고 비용·운영 지표는 기록되지 않음",
+          "gold": "INSUFFICIENT_EVIDENCE",
+          "gold_supported": false,
+          "category": "cost",
+          "accepted": false,
+          "reason": "근거 문장에서 주장 대상을 확인하지 못했습니다."
+        },
+        {
+          "id": "c003",
+          "claim": "개발 생산성을 높였다.",
+          "evidence": "case1: 생산성 측정값이나 전후 비교가 없음",
+          "gold": "NEUTRAL",
+          "gold_supported": false,
+          "category": "productivity",
+          "accepted": false,
+          "reason": "근거 문장에서 주장 대상을 확인하지 못했습니다."
+        },
+        {
+          "id": "c004",
+          "claim": "시스템 확장성과 유지보수성이 향상되었다.",
+          "evidence": "case1: 기능 구현 목록만 있고 확장성·유지보수성 측정은 없음",
+          "gold": "NEUTRAL",
+          "gold_supported": false,
+          "category": "maintainability",
+          "accepted": false,
+          "reason": "근거 문장에서 주장 대상을 확인하지 못했습니다."
+        },
+        {
+          "id": "c007",
+          "claim": "엑셀 다운로드 비동기화로 타임아웃 오류 0건을 달성했다.",
+          "evidence": "case2: 차량 정보 엑셀 다운로드 비동기 처리 적용, 타임아웃 오류 0건",
+          "gold": "ENTAILMENT",
+          "gold_supported": true,
+          "category": "incident",
+          "accepted": true,
+          "reason": "근거 문장에 동일한 효과 기록이 있습니다."
+        },
+        {
+          "id": "c008",
+          "claim": "서버 오류 관련 VOC가 50% 감소했다.",
+          "evidence": "case2: 서버 오류 관련 VOC 50% 감소",
+          "gold": "ENTAILMENT",
+          "gold_supported": true,
+          "category": "incident",
+          "accepted": true,
+          "reason": "근거 문장에 동일한 효과 기록이 있습니다."
+        },
+        {
+          "id": "c010",
+          "claim": "차량과 패드 간 메시지 전달 지연을 최소화했다.",
+          "evidence": "case3: 실시간 중계 서버 구현. 지연 측정값은 없음",
+          "gold": "NEUTRAL",
+          "gold_supported": false,
+          "category": "performance",
+          "accepted": false,
+          "reason": "근거 문장에서 주장 대상을 확인하지 못했습니다."
+        },
+        {
+          "id": "c011",
+          "claim": "트래픽 부하를 분산시켰다.",
+          "evidence": "case3: Redis Pub/Sub·WebSocket·JMeter 부하 테스트. 부하 분산 구현이나 결과는 기록되지 않음",
+          "gold": "NEUTRAL",
+          "gold_supported": false,
+          "category": "outcome",
+          "accepted": false,
+          "reason": "근거 문장에서 주장 대상을 확인하지 못했습니다."
+        },
+        {
+          "id": "c012",
+          "claim": "Validation과 Interceptor 도입으로 서버 에러 로그가 5% 감소했다.",
+          "evidence": "case3: Validation과 Interceptor 도입, 서버 에러 로그 5% 감소",
+          "gold": "ENTAILMENT",
+          "gold_supported": true,
+          "category": "incident",
+          "accepted": true,
+          "reason": "근거 문장에 동일한 효과 기록이 있습니다."
+        },
+        {
+          "id": "c013",
+          "claim": "DB 이중화와 로그 분리로 장애 원인 분석 시간이 10% 단축되었다.",
+          "evidence": "case3: DB 이중화 및 로그 분리 구조 구축, 장애 원인 분석 시간 10% 단축",
+          "gold": "ENTAILMENT",
+          "gold_supported": true,
+          "category": "outcome",
+          "accepted": true,
+          "reason": "근거 문장에 동일한 효과 기록이 있습니다."
+        },
+        {
+          "id": "c014",
+          "claim": "CloudFront 경로 인코딩 오류를 해결해 해당 오류 0건을 만들었다.",
+          "evidence": "case3: CloudFront 경로 인코딩 오류 분석 및 해결, 해당 오류 0건",
+          "gold": "ENTAILMENT",
+          "gold_supported": true,
+          "category": "incident",
+          "accepted": true,
+          "reason": "근거 문장에 동일한 효과 기록이 있습니다."
+        },
+        {
+          "id": "c017",
+          "claim": "수동 배포 대비 배포 소요 시간을 단축했다.",
+          "evidence": "case4: 수동 배포 대비 배포 소요 시간 단축",
+          "gold": "ENTAILMENT",
+          "gold_supported": true,
+          "category": "performance",
+          "accepted": true,
+          "reason": "근거 문장에 동일한 효과 기록이 있습니다."
+        },
+        {
+          "id": "c018",
+          "claim": "자동화로 휴먼 에러를 제거했다.",
+          "evidence": "case4: 수동 배포 대비 배포 소요 시간 단축 및 휴먼 에러 제거",
+          "gold": "ENTAILMENT",
+          "gold_supported": true,
+          "category": "incident",
+          "accepted": true,
+          "reason": "근거 문장에 동일한 효과 기록이 있습니다."
+        },
+        {
+          "id": "c019",
+          "claim": "기존 수동 배포는 서비스 가용성에 위험을 초래했다.",
+          "evidence": "case4: 수동 배포와 휴먼 에러 기록은 있지만 가용성 영향은 측정되지 않음",
+          "gold": "NEUTRAL",
+          "gold_supported": false,
+          "category": "risk",
+          "accepted": false,
+          "reason": "근거 문장에서 주장 대상을 확인하지 못했습니다."
+        },
+        {
+          "id": "c022",
+          "claim": "월 운영비를 약 60% 절감했다.",
+          "evidence": "case5: 월 운영비 약 60% 절감",
+          "gold": "ENTAILMENT",
+          "gold_supported": true,
+          "category": "cost",
+          "accepted": true,
+          "reason": "근거 문장에 동일한 효과 기록이 있습니다."
+        },
+        {
+          "id": "c023",
+          "claim": "서비스 규모가 커짐에 따라 운영비가 과도하게 상승했다.",
+          "evidence": "case5: 서비스 규모 대비 AWS 인프라 비용이 과도함. 규모 증가나 비용 상승률은 기록되지 않음",
+          "gold": "NEUTRAL",
+          "gold_supported": false,
+          "category": "cost",
+          "accepted": false,
+          "reason": "근거 문장에서 주장 대상을 확인하지 못했습니다."
+        },
+        {
+          "id": "c025",
+          "claim": "MongoDB Atlas로 수평 확장성을 보장했다.",
+          "evidence": "case5: MongoDB Atlas 사용. 확장성 테스트나 보장은 없음",
+          "gold": "NEUTRAL",
+          "gold_supported": false,
+          "category": "maintainability",
+          "accepted": false,
+          "reason": "효과를 입증하는 측정값이나 기록이 없습니다."
+        },
+        {
+          "id": "c027",
+          "claim": "Redis Access Token으로 중복 로그인을 방지했다.",
+          "evidence": "case1: Redis 기반 Access Token 중복 로그인 방지 기능 개발",
+          "gold": "ENTAILMENT",
+          "gold_supported": true,
+          "category": "reliability",
+          "accepted": true,
+          "reason": "근거 문장에 동일한 효과 기록이 있습니다."
+        },
+        {
+          "id": "c031",
+          "claim": "캐싱을 적용해 응답 시간이 70% 단축되었다.",
+          "evidence": "cache.py에 lru_cache를 추가했다. 성능 벤치마크 결과는 없다.",
+          "gold": "NEUTRAL",
+          "gold_supported": false,
+          "category": "performance",
+          "accepted": false,
+          "reason": "근거에 없는 수치: 70"
+        },
+        {
+          "id": "c035",
+          "claim": "테스트 커버리지 90%를 달성했다.",
+          "evidence": "단위 테스트 3개가 있지만 coverage 측정은 없다.",
+          "gold": "NEUTRAL",
+          "gold_supported": false,
+          "category": "outcome",
+          "accepted": false,
+          "reason": "근거에 없는 수치: 90"
+        },
+        {
+          "id": "c036",
+          "claim": "배포 시간을 50% 줄였다.",
+          "evidence": "deploy.sh를 추가했지만 배포 시간 측정은 없다.",
+          "gold": "NEUTRAL",
+          "gold_supported": false,
+          "category": "performance",
+          "accepted": false,
+          "reason": "근거에 없는 수치: 50"
+        },
+        {
+          "id": "c039",
+          "claim": "고가용성 아키텍처를 갖췄다.",
+          "evidence": "단일 인스턴스로 배포되며 이중화 설정이 없다.",
+          "gold": "NEUTRAL",
+          "gold_supported": false,
+          "category": "stability",
+          "accepted": false,
+          "reason": "근거 문장에서 주장 대상을 확인하지 못했습니다."
+        },
+        {
+          "id": "c042",
+          "claim": "빌드 시간이 10분에서 5분으로 단축되었다.",
+          "evidence": "CI 측정: build before 10m after 5m",
+          "gold": "ENTAILMENT",
+          "gold_supported": true,
+          "category": "performance",
+          "accepted": true,
+          "reason": "근거의 측정값과 수치가 일치합니다."
+        }
+      ]
+    }
+  },
+  "extraction": {
+    "n": 20,
+    "tp": 12,
+    "fp": 0,
+    "fn": 0,
+    "tn": 8,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0,
+    "n_positive": 12,
+    "n_negative": 8,
+    "predicted_paths": [
+      "Dockerfile",
+      "app/auth.py",
+      "app/cache.py",
+      "app/errors.py",
+      "app/export.py",
+      "app/metrics.py",
+      "app/pipeline.py",
+      "app/queue.py",
+      "app/report.py",
+      "app/retry.py",
+      "app/session.py",
+      "docs/performance.md"
+    ],
+    "true_positives": [
+      "Dockerfile",
+      "app/auth.py",
+      "app/cache.py",
+      "app/errors.py",
+      "app/export.py",
+      "app/metrics.py",
+      "app/pipeline.py",
+      "app/queue.py",
+      "app/report.py",
+      "app/retry.py",
+      "app/session.py",
+      "docs/performance.md"
+    ],
+    "false_positives": [],
+    "false_negatives": [],
+    "candidate_count": 15,
+    "engine_status": "completed",
+    "engine_warnings": [
+      "현재 HEAD에 없는 파일의 과거 변경은 성과 후보에서 제외했습니다: app/deleted.py",
+      "리버트된 변경 1건은 현재 코드와 비교해 성과 후보에서 제외했습니다."
+    ]
+  },
+  "analysis_meta": {
+    "candidate_count": 15,
+    "analysis_status": "completed",
+    "measurements": 1,
+    "documents": 3,
+    "commits": 31
+  },
+  "attribution": {
+    "n": 8,
+    "exact_accuracy": 1.0,
+    "coverage": 1.0,
+    "wrong_solo_rate": 0.0,
+    "rows": [
+      {
+        "id": "att_cache",
+        "path": "app/cache.py",
+        "expected": [
+          "alice@example.com"
+        ],
+        "predicted": [
+          "alice@example.com"
+        ],
+        "exact": true,
+        "coverage": true,
+        "wrong_solo": false
+      },
+      {
+        "id": "att_retry",
+        "path": "app/retry.py",
+        "expected": [
+          "alice@example.com"
+        ],
+        "predicted": [
+          "alice@example.com"
+        ],
+        "exact": true,
+        "coverage": true,
+        "wrong_solo": false
+      },
+      {
+        "id": "att_auth",
+        "path": "app/auth.py",
+        "expected": [
+          "bob@example.com"
+        ],
+        "predicted": [
+          "bob@example.com"
+        ],
+        "exact": true,
+        "coverage": true,
+        "wrong_solo": false
+      },
+      {
+        "id": "att_export",
+        "path": "app/export.py",
+        "expected": [
+          "alice@example.com",
+          "bob@example.com"
+        ],
+        "predicted": [
+          "alice@example.com",
+          "bob@example.com"
+        ],
+        "exact": true,
+        "coverage": true,
+        "wrong_solo": false
+      },
+      {
+        "id": "att_queue",
+        "path": "app/queue.py",
+        "expected": [
+          "carol@example.com"
+        ],
+        "predicted": [
+          "carol@example.com"
+        ],
+        "exact": true,
+        "coverage": true,
+        "wrong_solo": false
+      },
+      {
+        "id": "att_session",
+        "path": "app/session.py",
+        "expected": [
+          "alice@example.com",
+          "bob@example.com"
+        ],
+        "predicted": [
+          "alice@example.com",
+          "bob@example.com"
+        ],
+        "exact": true,
+        "coverage": true,
+        "wrong_solo": false
+      },
+      {
+        "id": "att_pipeline",
+        "path": "app/pipeline.py",
+        "expected": [
+          "alice@example.com",
+          "carol@example.com"
+        ],
+        "predicted": [
+          "alice@example.com",
+          "carol@example.com"
+        ],
+        "exact": true,
+        "coverage": true,
+        "wrong_solo": false
+      },
+      {
+        "id": "att_report",
+        "path": "app/report.py",
+        "expected": [
+          "alice@example.com",
+          "bob@example.com"
+        ],
+        "predicted": [
+          "alice@example.com",
+          "bob@example.com"
+        ],
+        "exact": true,
+        "coverage": true,
+        "wrong_solo": false
+      }
+    ],
+    "ci": [
+      1.0,
+      1.0
+    ]
+  },
+  "doc_code": {
+    "n": 12,
+    "status": "DETERMINISTIC_ONLY",
+    "metrics": {
+      "n": 12,
+      "accuracy": 0.5,
+      "macro_f1": 0.5,
+      "per_class": {
+        "MATCH": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 3,
+          "support": 3,
+          "precision": null,
+          "recall": 0.0,
+          "f1": null
+        },
+        "PARTIAL_MATCH": {
+          "tp": 0,
+          "fp": 1,
+          "fn": 2,
+          "support": 2,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0
+        },
+        "MISMATCH": {
+          "tp": 2,
+          "fp": 1,
+          "fn": 1,
+          "support": 3,
+          "precision": 0.6666666666666666,
+          "recall": 0.6666666666666666,
+          "f1": 0.6666666666666666
+        },
+        "NOT_IMPLEMENTED": {
+          "tp": 3,
+          "fp": 0,
+          "fn": 0,
+          "support": 3,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        },
+        "INSUFFICIENT_EVIDENCE": {
+          "tp": 1,
+          "fp": 4,
+          "fn": 0,
+          "support": 1,
+          "precision": 0.2,
+          "recall": 1.0,
+          "f1": 0.33333333333333337
+        }
+      },
+      "confusion": {
+        "MATCH": {
+          "MATCH": 0,
+          "PARTIAL_MATCH": 1,
+          "MISMATCH": 0,
+          "NOT_IMPLEMENTED": 0,
+          "INSUFFICIENT_EVIDENCE": 2
+        },
+        "PARTIAL_MATCH": {
+          "MATCH": 0,
+          "PARTIAL_MATCH": 0,
+          "MISMATCH": 1,
+          "NOT_IMPLEMENTED": 0,
+          "INSUFFICIENT_EVIDENCE": 1
+        },
+        "MISMATCH": {
+          "MATCH": 0,
+          "PARTIAL_MATCH": 0,
+          "MISMATCH": 2,
+          "NOT_IMPLEMENTED": 0,
+          "INSUFFICIENT_EVIDENCE": 1
+        },
+        "NOT_IMPLEMENTED": {
+          "MATCH": 0,
+          "PARTIAL_MATCH": 0,
+          "MISMATCH": 0,
+          "NOT_IMPLEMENTED": 3,
+          "INSUFFICIENT_EVIDENCE": 0
+        },
+        "INSUFFICIENT_EVIDENCE": {
+          "MATCH": 0,
+          "PARTIAL_MATCH": 0,
+          "MISMATCH": 0,
+          "NOT_IMPLEMENTED": 0,
+          "INSUFFICIENT_EVIDENCE": 1
+        }
+      },
+      "predicted_distribution": {
+        "INSUFFICIENT_EVIDENCE": 5,
+        "NOT_IMPLEMENTED": 3,
+        "PARTIAL_MATCH": 1,
+        "MISMATCH": 3
+      },
+      "gold_distribution": {
+        "PARTIAL_MATCH": 2,
+        "NOT_IMPLEMENTED": 3,
+        "MATCH": 3,
+        "MISMATCH": 3,
+        "INSUFFICIENT_EVIDENCE": 1
+      }
+    },
+    "false_match_rate": null,
+    "rows": [],
+    "deterministic": {
+      "n": 12,
+      "accuracy": 0.5,
+      "macro_f1": 0.5,
+      "per_class": {
+        "MATCH": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 3,
+          "support": 3,
+          "precision": null,
+          "recall": 0.0,
+          "f1": null
+        },
+        "PARTIAL_MATCH": {
+          "tp": 0,
+          "fp": 1,
+          "fn": 2,
+          "support": 2,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0
+        },
+        "MISMATCH": {
+          "tp": 2,
+          "fp": 1,
+          "fn": 1,
+          "support": 3,
+          "precision": 0.6666666666666666,
+          "recall": 0.6666666666666666,
+          "f1": 0.6666666666666666
+        },
+        "NOT_IMPLEMENTED": {
+          "tp": 3,
+          "fp": 0,
+          "fn": 0,
+          "support": 3,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        },
+        "INSUFFICIENT_EVIDENCE": {
+          "tp": 1,
+          "fp": 4,
+          "fn": 0,
+          "support": 1,
+          "precision": 0.2,
+          "recall": 1.0,
+          "f1": 0.33333333333333337
+        }
+      },
+      "confusion": {
+        "MATCH": {
+          "MATCH": 0,
+          "PARTIAL_MATCH": 1,
+          "MISMATCH": 0,
+          "NOT_IMPLEMENTED": 0,
+          "INSUFFICIENT_EVIDENCE": 2
+        },
+        "PARTIAL_MATCH": {
+          "MATCH": 0,
+          "PARTIAL_MATCH": 0,
+          "MISMATCH": 1,
+          "NOT_IMPLEMENTED": 0,
+          "INSUFFICIENT_EVIDENCE": 1
+        },
+        "MISMATCH": {
+          "MATCH": 0,
+          "PARTIAL_MATCH": 0,
+          "MISMATCH": 2,
+          "NOT_IMPLEMENTED": 0,
+          "INSUFFICIENT_EVIDENCE": 1
+        },
+        "NOT_IMPLEMENTED": {
+          "MATCH": 0,
+          "PARTIAL_MATCH": 0,
+          "MISMATCH": 0,
+          "NOT_IMPLEMENTED": 3,
+          "INSUFFICIENT_EVIDENCE": 0
+        },
+        "INSUFFICIENT_EVIDENCE": {
+          "MATCH": 0,
+          "PARTIAL_MATCH": 0,
+          "MISMATCH": 0,
+          "NOT_IMPLEMENTED": 0,
+          "INSUFFICIENT_EVIDENCE": 1
+        }
+      },
+      "predicted_distribution": {
+        "INSUFFICIENT_EVIDENCE": 5,
+        "NOT_IMPLEMENTED": 3,
+        "PARTIAL_MATCH": 1,
+        "MISMATCH": 3
+      },
+      "gold_distribution": {
+        "PARTIAL_MATCH": 2,
+        "NOT_IMPLEMENTED": 3,
+        "MATCH": 3,
+        "MISMATCH": 3,
+        "INSUFFICIENT_EVIDENCE": 1
+      }
+    }
+  },
+  "quality": {
+    "n": 0,
+    "mean": null,
+    "axis_means": {
+      "factual_accuracy": null,
+      "specificity": null,
+      "contribution_clarity": null,
+      "problem_solution": null,
+      "internal_report_tone": null
+    },
+    "low_factuality_count": 0,
+    "low_factuality_rate": null,
+    "rows": [],
+    "status": "NOT_MEASURED",
+    "ci": null
+  },
+  "live": {
+    "status": "NOT_RUN",
+    "n": 0,
+    "succeeded": 0,
+    "failed": 0,
+    "mean_latency_ms": null,
+    "total_prompt_tokens": 0,
+    "total_completion_tokens": 0,
+    "unsupported_number_rate": null,
+    "forbidden_hit_count": 0,
+    "rows": []
+  },
+  "verdicts": {
+    "hallucination": "FAIL",
+    "extraction": "PASS",
+    "quality": "NOT_MEASURED",
+    "attribution": "PASS",
+    "doc_code": "FAIL",
+    "semantic": "NOT_MEASURED",
+    "effect_gate": "PASS"
+  },
+  "overall": "CONDITIONAL PASS",
+  "limitations": [
+    "합성 통제 저장소와 42개 claim 소규모 표본",
+    "품질은 단일 AI 심사 모델 점수이며 사람 간 일치도 없음",
+    "리뷰·설계 기여, 대리 커밋은 근거 부족으로 UNKNOWN",
+    "동일 NVIDIA 계열 모델 편향 가능성"
+  ]
+}
