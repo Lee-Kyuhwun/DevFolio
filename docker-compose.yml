@@ -1,36 +1,41 @@
 services:
-  devfolio:
+  impactnote:
     build: .
-    entrypoint: ["python", "-m", "devfolio.main"]
+    # 새 제품 진입점. 레거시 `devfolio` CLI/앱은 같은 이미지에 남아 있다.
+    entrypoint: ["python", "-m", "impactnote.main"]
     ports:
       - "8000:8000"
     volumes:
-      # 개발 중에는 로컬 소스를 바로 마운트해 코드 변경을 즉시 반영
       - .:/app
-      - devfolio-config:/root/.config/devfolio
-      - devfolio-data:/root/.local/share/devfolio
-      # Git Scan: 로컬 저장소를 컨테이너 안에서 접근 가능하게 마운트
-      # REPOS_DIR 환경변수로 경로 지정 (기본: 홈 디렉터리)
+      - impactnote-config:/root/.config/impactnote
+      - impactnote-data:/root/.local/share/impactnote
+      # DevFolio 시절 데이터는 읽기 전용으로 붙여 마이그레이션 원본으로만 쓴다.
+      - devfolio-config:/legacy/devfolio-config:ro
+      - devfolio-data:/legacy/devfolio-data:ro
+      # Git 후보 수집용 저장소 마운트 (기본: 홈 디렉터리)
       - ${REPOS_DIR:-~}:/home/user:ro
     environment:
       - PYTHONDONTWRITEBYTECODE=1
       - PYTHONUNBUFFERED=1
-      - DEVFOLIO_DOCKER_REPO_ROOT=/home/user
-      # API 키는 환경변수로 주입 (keyring 불필요)
-      # .env 파일을 만들거나 직접 설정하세요
+      - IMPACTNOTE_LEGACY_DATA_DIR=/legacy/devfolio-data
+      - IMPACTNOTE_LEGACY_CONFIG_DIR=/legacy/devfolio-config
+      # API 키는 환경변수로 주입한다. AI 분석은 설정에서 전송 동의를 켰을 때만 동작한다.
       - GROQ_API_KEY=${GROQ_API_KEY:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - DEVFOLIO_LOG_LEVEL=${DEVFOLIO_LOG_LEVEL:-INFO}
-      - DEVFOLIO_LANG=${DEVFOLIO_LANG:-ko}
-    command: ["serve", "--host", "0.0.0.0", "--no-open", "--reload"]
+      - IMPACTNOTE_LOG_LEVEL=${IMPACTNOTE_LOG_LEVEL:-INFO}
+      - IMPACTNOTE_LANG=${IMPACTNOTE_LANG:-ko}
+    command: ["serve", "--host", "0.0.0.0", "--reload"]
     dns:
       - 8.8.8.8
       - 8.8.4.4
     restart: unless-stopped
 
 volumes:
+  impactnote-config:
+  impactnote-data:
+  # 기존 볼륨 이름을 유지해 이전 데이터를 그대로 읽는다.
   devfolio-config:
   devfolio-data:

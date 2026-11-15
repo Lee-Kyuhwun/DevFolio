@@ -6,5 +6,5 @@
 #
 # 재시작·설정 변경은 운영 영향이 있으므로 사용자 승인 후 실행한다.
 services:
-  devfolio:
-    command: ["serve", "--host", "0.0.0.0", "--no-open"]
+  impactnote:
+    command: ["serve", "--host", "0.0.0.0"]

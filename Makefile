@@ -11,13 +11,13 @@ check:
 	scripts/check.sh
 
 test:
-	pytest --cov=devfolio --cov-report=term-missing
+	pytest --cov=impactnote --cov=devfolio --cov-report=term-missing
 
 lint:
-	ruff check devfolio/ tests/
+	ruff check impactnote/ devfolio/ tests/
 
 format:
-	ruff format devfolio/ tests/
+	ruff format impactnote/ devfolio/ tests/
 
 clean:
 	rm -rf build/ dist/ *.egg-info .pytest_cache .coverage coverage.xml

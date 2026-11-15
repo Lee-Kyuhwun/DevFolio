@@ -32,13 +32,14 @@ RUN pip install --no-cache-dir \
 
 # 소스 복사 후 패키지 설치 (entry_points 등록)
 COPY devfolio/ devfolio/
+COPY impactnote/ impactnote/
 RUN pip install --no-cache-dir --no-deps ".[all]"
 
-# DevFolio 데이터 볼륨 마운트 포인트
-VOLUME ["/root/.local/share/devfolio", "/root/.config/devfolio"]
+# 성과노트 데이터 볼륨 (DevFolio 데이터는 컴포즈에서 읽기 전용으로 마운트)
+VOLUME ["/root/.local/share/impactnote", "/root/.config/impactnote"]
 
 # 웹 UI 포트
 EXPOSE 8000
 
-ENTRYPOINT ["devfolio"]
+ENTRYPOINT ["impactnote"]
 CMD ["--help"]

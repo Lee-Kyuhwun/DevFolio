@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "devfolio"
-version = "0.1.0"
-description = "개발자 포트폴리오 & 경력기술서 자동화 시스템"
+name = "impactnote"
+version = "1.0.0"
+description = "성과노트(ImpactNote) — 근거 기반 업무 성과 기록 및 보고서 작성 도구"
 requires-python = ">=3.11"
 dependencies = [
     "typer[all]>=0.12.0,<1.0",
@@ -52,18 +52,21 @@ dev = [
 ]
 
 [project.scripts]
+impactnote = "impactnote.main:cli"
+# 레거시 호환: 기존 `devfolio` 명령과 데이터/API 는 그대로 동작한다.
 devfolio = "devfolio.main:cli"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["devfolio*"]
+include = ["impactnote*", "devfolio*"]
 
 [tool.setuptools.package-data]
+impactnote = ["web/static/*"]
 devfolio = ["templates/*.j2", "web/templates/*.html", "web/static/*", "prompts/ko/*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=devfolio --cov-report=term-missing"
+addopts = "--cov=impactnote --cov=devfolio --cov-report=term-missing"
 
 [tool.coverage.run]
 omit = ["tests/*"]
