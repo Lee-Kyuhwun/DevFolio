@@ -294,3 +294,24 @@ Provider TPM 예산을 켰을 때의 대기 시간(기본값 0으로 미측정).
 | 상태·오류 코드 | `failed`, `QUALITY_GATE_FAILED` |
 | 기존 계약 키 | `analysis_id·status·progress_percent·stages·calls·errors` 모두 유지 |
 | 브라우저 | 로컬 `b82b2504 · main · 변경사항 9개 포함`, 완료 7초·4/4, `마지막 갱신 3초 전` |
+
+---
+
+## 성과노트(ImpactNote) 적용 지점
+
+성과노트는 AI 호출을 새로 구현하지 않고 아래 경계에서 이 계층을 재사용한다.
+
+| 지점 | 파일 | 동작 |
+| --- | --- | --- |
+| 동의·Provider 게이트 | `impactnote/core/ai.py` | `external_ai_consent=false` → `EXTERNAL_AI_NOT_ALLOWED`(409), `allowed_providers` 제한 |
+| 호출 | `devfolio/core/ai_service.AIService._call()` | Provider·모델 순회, 재시도·차단·시간 예산, JSON 추출 |
+| 결과 세탁 | `impactnote/core/metrics.py` | 기록·근거에 없는 숫자를 `[확인 필요]` 로 치환, `unverified_metrics` 기록 |
+| 실패 격리 | `impactnote/core/ai.py` | `AIAnalysis(status="failed", error_code=...)` 저장, 원본 Activity 불변 |
+| 후보 확정 | `impactnote/core/service.py` | AI/Git 후보는 `confirmed=true` 전까지 `verified` 금지 |
+| Git 수집 | `impactnote/core/ai.py` | AI 없이 커밋 메시지 규칙으로 후보 생성 |
+
+**검증 방식**: 실제 Provider 호출은 비용·키 문제로 자동 테스트에서 모의(`AIService._call` patch)했고,
+오류 분류·재시도·차단 정책 자체는 기존 `tests/test_ai_reliability.py`·`test_ai_rate_limit_recovery.py` 가 담당한다.
+
+**환경변수**: 기존 `DEVFOLIO_AI_*`(백오프 상한·TPM 등)는 레거시 계층 설정으로 유지된다.
+성과노트 자체의 경로·동의 설정은 `IMPACTNOTE_*` 와 `Settings` 를 쓴다.

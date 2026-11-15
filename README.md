@@ -111,7 +111,7 @@ ruff format impactnote tests
 node --check impactnote/web/static/app.js
 ```
 
-처음 사용하는 경우 [GUIDE.md](GUIDE.md), 구조와 설계 결정은 [docs/impactnote.md](docs/impactnote.md) 와 [docs/04-architecture.md](docs/04-architecture.md) 를 참고하세요.
+처음 사용하는 경우 [GUIDE.md](GUIDE.md), 구조와 설계 결정은 [docs/impactnote.md](docs/impactnote.md) 와 [docs/04-architecture.md](docs/04-architecture.md) 를 참고하세요. 전체 문서 지도는 [docs/README.md](docs/README.md) 에 있습니다.
 
 ## 라이선스
 
