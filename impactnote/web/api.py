@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse
 from impactnote import APP_NAME, APP_NAME_EN, __version__
 from impactnote.core import report as report_engine
 from impactnote.core.ai import ConsentRequired, analyze_activity, suggest_from_git
+from impactnote.core.intel.discovery import validate_project_path
 from impactnote.core.migrate import legacy_available, run_migration
 from impactnote.core.models import (
     ACTIVITY_TYPES,
@@ -485,11 +486,10 @@ def analyze_project_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
     project_path = str(payload.get("project_path") or payload.get("path") or "").strip()
     if not project_path:
         raise HTTPException(status_code=400, detail="project_path 가 필요합니다.")
-    target = Path(project_path).expanduser()
-    if not target.exists() or not target.is_dir():
-        raise HTTPException(
-            status_code=400, detail="프로젝트 디렉터리를 찾을 수 없습니다."
-        )
+    try:
+        target = validate_project_path(project_path)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
         analysis = _service().analyze_project(
             str(target),

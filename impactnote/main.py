@@ -220,10 +220,12 @@ def intel_analyze(
 ) -> None:
     """문서·코드·Git 변경 전후를 분석해 근거 있는 성과 후보를 만든다."""
     from impactnote.core.intel import analyze_project
+    from impactnote.core.intel.discovery import validate_project_path
 
     try:
+        target = validate_project_path(path)
         analysis = analyze_project(
-            path,
+            str(target),
             author_email=author_email,
             use_ai=use_ai,
             provider=provider or None,

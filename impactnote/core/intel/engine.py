@@ -250,6 +250,42 @@ _STOPWORDS = {
 }
 
 _MEASURE_UNITS = r"ms|초|s|MB|GB|건|회|%|분|시간|개"
+_MEASUREMENT_MARKERS = (
+    "측정",
+    "측정 결과",
+    "테스트 결과",
+    "실행 결과",
+    "벤치마크",
+    "benchmark",
+    "부하 테스트",
+    "평균",
+    "p95",
+    "latency",
+    "throughput",
+)
+_GOAL_MARKERS = ("목표", "예정", "계획", "기대", "예상", "target", "목표치")
+_GENERIC_PATH_TOKENS = {
+    "api",
+    "app",
+    "core",
+    "config",
+    "index",
+    "lib",
+    "main",
+    "model",
+    "models",
+    "route",
+    "routes",
+    "service",
+    "services",
+    "src",
+    "static",
+    "test",
+    "tests",
+    "util",
+    "utils",
+    "web",
+}
 _MEASURE_PATTERN = re.compile(
     rf"(?P<before>\d+(?:\.\d+)?)\s*(?P<bunit>{_MEASURE_UNITS})\s*"
     rf"(?:→|->|에서|to|,)\s*(?P<after>\d+(?:\.\d+)?)\s*(?P<aunit>{_MEASURE_UNITS})",
@@ -312,11 +348,25 @@ def _imports(text: str) -> list[str]:
     return list(dict.fromkeys(names))[:40]
 
 
+def _pattern_present(text: str, pattern: str) -> bool:
+    """짧은 영문 패턴은 단어 경계로 매칭한다.
+
+    `ci` 를 단순 substring 으로 찾으면 `asyncio` 가 배포 카테고리로 잘못 분류되고,
+    `fast` 가 `breakfast` 에 걸리는 식의 오탐이 생긴다. 한국어·기호 패턴은 그대로 둔다.
+    """
+    if pattern.isascii() and pattern.isalnum() and len(pattern) <= 5:
+        return (
+            re.search(rf"(?<![a-z0-9]){re.escape(pattern)}(?![a-z0-9])", text)
+            is not None
+        )
+    return pattern in text
+
+
 def _categories(text: str) -> list[str]:
     lowered = (text or "").lower()
     found = []
     for category, patterns in _CATEGORY_PATTERNS.items():
-        if any(pattern in lowered for pattern in patterns):
+        if any(_pattern_present(lowered, pattern) for pattern in patterns):
             found.append(category)
     return found
 
@@ -389,7 +439,7 @@ def _diff_categories(patch: str) -> list[str]:
             if category in {"docs", "testing"}:
                 continue
             for pattern in patterns:
-                if pattern in lowered:
+                if _pattern_present(lowered, pattern):
                     weight = (
                         2
                         if pattern
@@ -618,9 +668,18 @@ def _measurements(
             percent = round((delta / before) * 100, 1) if before else None
             start = max(0, match.start() - 120)
             conditions = re.sub(r"\s+", " ", text[start : match.end() + 120]).strip()
+            lowered_conditions = conditions.lower()
+            looks_like_goal = any(
+                marker in lowered_conditions for marker in _GOAL_MARKERS
+            )
+            has_measurement_signal = any(
+                marker in lowered_conditions for marker in _MEASUREMENT_MARKERS
+            )
             verified = (
                 document.kind in {"performance", "test", "report"}
                 and not document.deleted
+                and has_measurement_signal
+                and not looks_like_goal
             )
             evidence = EvidenceRef(
                 kind="measurement",
@@ -652,9 +711,13 @@ def _measurements(
                     ),
                 )
             )
-            results[-1].note += (
-                "" if verified else " — 측정 문서로 확인되지 않아 참고용"
-            )
+            if not verified:
+                reason = (
+                    "목표·계획 문구가 포함되어"
+                    if looks_like_goal
+                    else "측정 조건이 확인되지 않아"
+                )
+                results[-1].note += f" — {reason} 참고용"
     return results[:20]
 
 
@@ -663,7 +726,9 @@ def _timeline(
     commits: list[GitCommit],
     files: list[CodeFile],
     category_map: dict[str, list[str]],
+    reverted_shas: set[str] | None = None,
 ) -> list[TimelineStep]:
+    reverted_shas = reverted_shas or set()
     hot_files = sorted(
         [
             item
@@ -675,9 +740,14 @@ def _timeline(
     )[:3]
     steps: list[TimelineStep] = []
     for code_file in hot_files:
-        relevant = [commit for commit in commits if code_file.path in commit.files][:5]
-        for commit in reversed(relevant):
-            if commit.is_revert or commit.is_merge:
+        relevant_all = [commit for commit in commits if code_file.path in commit.files]
+        # 최근 변경만 보면 최초 구현이 사라진다. 최초 커밋과 최근 커밋을 함께 남긴다.
+        selected = relevant_all[:6]
+        if relevant_all and relevant_all[-1] not in selected:
+            selected.append(relevant_all[-1])
+        relevant = list(reversed(selected))
+        for commit in relevant:
+            if commit.sha in reverted_shas or commit.is_revert or commit.is_merge:
                 continue
             patch = repo.patch(commit.sha, code_file.path)
             removed = [
@@ -724,19 +794,50 @@ def _timeline(
 def _contribution(commits: list[GitCommit], viewer_email: str) -> dict:
     counts: dict[str, dict] = {}
     for commit in commits:
-        key = commit.email or commit.author
-        entry = counts.setdefault(
-            key,
-            {"name": commit.author, "email": commit.email, "commits": 0},
-        )
-        entry["commits"] += 1
-    total = sum(item["commits"] for item in counts.values()) or 1
+        # 한 커밋의 기여를 작성자와 Co-authored-by 참여자에게 나눈다.
+        # 작성자만 세면 pair programming·공동 구현이 단독 성과로 잘못 귀속된다.
+        participants = [
+            {"name": commit.author, "email": commit.email},
+            *[item for item in (commit.co_authors or []) if item.get("email")],
+        ]
+        seen: set[str] = set()
+        unique = []
+        for participant in participants:
+            key = str(participant.get("email") or participant.get("name") or "").lower()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            unique.append(participant)
+        weight = 1 / max(1, len(unique))
+        for participant in unique:
+            key = str(participant.get("email") or participant.get("name")).lower()
+            entry = counts.setdefault(
+                key,
+                {
+                    "name": participant.get("name") or participant.get("email"),
+                    "email": participant.get("email") or "",
+                    "commits": 0,
+                    "credits": 0.0,
+                    "co_authored": bool(
+                        participant.get("email")
+                        and str(participant.get("email")).lower()
+                        != (commit.email or "").lower()
+                    ),
+                },
+            )
+            entry["commits"] += 1
+            entry["credits"] += weight
+    total = sum(item["credits"] for item in counts.values()) or 1
     authors = [
-        {**item, "share": round(item["commits"] / total * 100)}
+        {**item, "share": round(item["credits"] / total * 100)}
         for item in counts.values()
     ]
     viewer = next(
-        (item for item in authors if viewer_email and item["email"] == viewer_email),
+        (
+            item
+            for item in authors
+            if viewer_email and item["email"].lower().strip() == viewer_email
+        ),
         None,
     )
     if len(authors) == 1:
@@ -779,10 +880,12 @@ def _candidates(
     viewer_email: str,
     warnings: list[str],
     evidence_pool: list[EvidenceRef],
+    reverted_shas: set[str] | None = None,
 ) -> list[Candidate]:
+    reverted_shas = reverted_shas or set()
     groups: dict[tuple[str, str], dict] = {}
     for commit in commits:
-        if commit.is_revert or commit.is_merge:
+        if commit.sha in reverted_shas or commit.is_revert or commit.is_merge:
             continue
         categories = category_map.get(commit.sha) or []
         if not categories:
@@ -828,26 +931,52 @@ def _candidates(
         group_commits = sorted(group["commits"], key=lambda item: item.date)
         files = [item for item in code_files if item.path == path]
         code_file = files[0] if files else None
+        current_path = root / path
+        if not current_path.is_file() or current_path.is_symlink():
+            warnings.append(
+                f"현재 HEAD에 없는 파일의 과거 변경은 성과 후보에서 제외했습니다: {path}"
+            )
+            continue
         changed_lines = group["insertions"] + group["deletions"]
         if changed_lines < 3 and category not in {"security", "stability"}:
             continue
+        path_tokens = [
+            token for token in _tokens(path) if token not in _GENERIC_PATH_TOKENS
+        ]
+        symbols = [
+            symbol.lower()
+            for symbol in (code_file.symbols[:8] if code_file else [])
+            if len(symbol) >= 4
+        ]
         docs_matching = [
             document
             for document in documents
-            if document.path in path
-            or any(token in document.excerpt.lower() for token in _tokens(path)[:2])
+            if (
+                document.kind != "reference"
+                or any(symbol in document.excerpt.lower() for symbol in symbols)
+            )
+            and (
+                document.path in path
+                or any(symbol in document.excerpt.lower() for symbol in symbols)
+                or (
+                    len(path_tokens) >= 2
+                    and sum(
+                        1 for token in path_tokens if token in document.excerpt.lower()
+                    )
+                    >= 2
+                )
+            )
         ][:2]
+        path_text = (path + " " + " ".join(symbols)).lower()
         claim_link = next(
             (
                 item
                 for item in implemented_claims
                 if item["quality"] in {"VERIFIED", "SUPPORTED_INFERENCE"}
                 and any(
-                    token
-                    in (
-                        path + " " + " ".join(code_file.symbols if code_file else [])
-                    ).lower()
-                    for token in item["tokens"][:3]
+                    token in path_text
+                    for token in item["tokens"]
+                    if token not in _GENERIC_PATH_TOKENS
                 )
             ),
             None,
@@ -855,7 +984,7 @@ def _candidates(
         measurement = measurement_by_source.get(path)
         if measurement is None:
             for item in measurements:
-                if any(token in item.conditions.lower() for token in _tokens(path)[:2]):
+                if any(symbol in item.conditions.lower() for symbol in symbols):
                     measurement = item
                     break
         evidence: list[EvidenceRef] = []
@@ -908,7 +1037,11 @@ def _candidates(
                 item
                 for item in code_files
                 if "test" in item.path.lower()
-                and any(token in item.excerpt.lower() for token in _tokens(path)[:2])
+                and (
+                    Path(path).stem not in _GENERIC_PATH_TOKENS
+                    and Path(path).stem.lower() in item.excerpt.lower()
+                    or any(symbol in item.excerpt.lower() for symbol in symbols)
+                )
             ),
             None,
         )
@@ -938,8 +1071,9 @@ def _candidates(
             "observability": "실패 원인을 사후에 확인하기 어려웠습니다.",
         }.get(category, "기존 구조의 한계를 해소하는 변경이 있었습니다.")
         action = (
-            f"{path} 에서 {', '.join(dict.fromkeys(commit.subject[:60] for commit in group_commits[:2]))} "
-            f"변경을 수행했습니다. (+{group['insertions']}/-{group['deletions']} lines)"
+            f"{path} 에서 "
+            f"{', '.join(dict.fromkeys(commit.subject[:60] for commit in group_commits[:2]))} "
+            "변경을 수행했습니다. 파일별 변경 전후는 타임라인과 코드 근거를 참고하세요."
         )
         result = (
             f"{path} 의 {label} 관련 구현이 변경되었습니다."
@@ -1005,7 +1139,9 @@ def _candidates(
                 ],
             )
         )
-        if len(candidates) >= 12:
+        # 파일×카테고리 그룹 상한. 12개는 서로 다른 파일의 저가중치 후보
+        # (배포 설정·관측성)를 잘라 Recall 을 낮췄다(2026-11-15 평가).
+        if len(candidates) >= 14:
             break
 
     # 측정 근거가 있지만 그룹에 연결되지 않은 경우 별도 후보
@@ -1077,15 +1213,25 @@ def analyze_project(
     documents = discover_documents(root, warnings)
     commits = repo.commits()
     head_sha = repo.head_sha()
-    fingerprint = f"{head_sha}:{doc_fingerprint(documents)}:{len(commits)}"
-    viewer_email = author_email.strip() or repo.user_email()
+    reverted_shas = repo.reverted_shas()
+    viewer_email = (author_email.strip() or repo.user_email()).lower()
+    fingerprint = (
+        f"{head_sha}:{doc_fingerprint(documents)}:{len(commits)}:{viewer_email}"
+    )
+    git_error = bool(repo.errors)
+    if git_error:
+        warnings.extend(dict.fromkeys(repo.errors))
+        warnings.append(
+            "Git 이력을 완전히 읽지 못해 분석 결과가 일부만 완료되었습니다."
+        )
 
     if not force:
         for previous in store.all("project_analyses", ProjectAnalysis):
             if (
                 previous.project_path == str(root)
                 and previous.fingerprint == fingerprint
-                and previous.status in {"completed", "partial"}
+                and previous.status == "completed"
+                and (not use_ai or previous.ai.status == "completed")
             ):
                 previous.incremental = True
                 previous.stats = {
@@ -1129,7 +1275,7 @@ def analyze_project(
             )
         )
 
-    timeline = _timeline(repo, commits, code_files, category_map)
+    timeline = _timeline(repo, commits, code_files, category_map, reverted_shas)
     candidates = _candidates(
         root,
         commits,
@@ -1141,10 +1287,11 @@ def analyze_project(
         viewer_email,
         warnings,
         evidence_pool,
+        reverted_shas,
     )
-    if any(commit.is_revert for commit in commits):
+    if reverted_shas or any(commit.is_revert for commit in commits):
         warnings.append(
-            f"리버트 커밋 {sum(1 for commit in commits if commit.is_revert)}건은 성과 후보에서 제외했습니다."
+            f"리버트된 변경 {len(reverted_shas)}건은 현재 코드와 비교해 성과 후보에서 제외했습니다."
         )
 
     quality_counts = {
@@ -1179,7 +1326,7 @@ def analyze_project(
         project_path=str(root),
         project_name=root.name,
         head_sha=head_sha,
-        status="completed",
+        status="partial" if git_error else "completed",
         quality_summary=quality_counts,
         documents=documents,
         code_files=code_files,

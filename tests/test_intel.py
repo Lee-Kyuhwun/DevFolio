@@ -6,8 +6,10 @@
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -15,9 +17,14 @@ from fastapi.testclient import TestClient
 
 from impactnote.core import store as store_module
 from impactnote.core.intel import analyze_project
+from impactnote.core.intel import ai_stage
 from impactnote.core.intel.discovery import is_secret_name
+from impactnote.core.intel.models import DocRecord, ProjectAnalysis
+from impactnote.core.models import Settings
+from impactnote.core.report import build_content
 from impactnote.core.service import ImpactService
 from impactnote.web.app import create_app
+from devfolio.core.ai_service import AIService
 
 
 @pytest.fixture()
@@ -26,6 +33,7 @@ def intel_env(tmp_path, monkeypatch):
     monkeypatch.setenv("IMPACTNOTE_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setenv("IMPACTNOTE_LEGACY_DATA_DIR", str(tmp_path / "legacy-data"))
     monkeypatch.setenv("IMPACTNOTE_LEGACY_CONFIG_DIR", str(tmp_path / "legacy-config"))
+    monkeypatch.setenv("IMPACTNOTE_ANALYZE_ROOTS", str(tmp_path))
     store_module.reset_store_for_tests()
     yield tmp_path
     store_module.reset_store_for_tests()
@@ -412,6 +420,265 @@ def test_ui_and_api_expose_evidence_and_apply(intel_env, repo):
     assert "/api/projects/analyses/" in script
 
 
+# 13. 삭제된 파일의 과거 변경을 현재 성과로 만들지 않는다.
+def test_deleted_code_is_not_a_current_candidate(intel_env, tmp_path):
+    root = _init(tmp_path / "deleted-project")
+    _write(root / "README.md", "# app\n\napp.py 배치 기능\n")
+    _write(root / "app.py", "def run():\n    return [x for x in range(3)]\n")
+    _commit(root, "initial")
+    _write(root / "app.py", "def run():\n    return list(range(3))\n")
+    _commit(root, "update")
+    (root / "app.py").unlink()
+    _commit(root, "remove app")
+
+    analysis = _analyze(root)
+    assert not any("app.py" in candidate.title for candidate in analysis.candidates)
+    assert not any(item.path == "app.py" for item in analysis.code_files)
+
+
+# 14. Git 이력을 읽지 못하면 완료가 아니라 partial 로 표시한다.
+def test_git_failure_is_partial_with_warning(intel_env, tmp_path):
+    root = _init(tmp_path / "broken-git")
+    _write(root / "README.md", "# broken\n\n내용\n")
+    _commit(root, "initial")
+    (root / ".git" / "HEAD").write_text("not a git file\n", encoding="utf-8")
+
+    analysis = _analyze(root)
+    assert analysis.status == "partial"
+    assert len(analysis.commits) == 0
+    assert any("Git 이력" in warning for warning in analysis.warnings)
+
+
+# 15. 목표/계획 문구는 측정값으로 승격하지 않는다.
+def test_goal_sentence_is_not_a_verified_measurement(intel_env, tmp_path):
+    root = _init(tmp_path / "goal-project")
+    _write(
+        root / "docs/performance.md", "# 성능 목표\n\n목표: 응답 시간 1200ms → 200ms\n"
+    )
+    _write(root / "app.py", "def run():\n    return 1\n")
+    _commit(root, "docs")
+
+    analysis = _analyze(root)
+    goal = next(item for item in analysis.measurements if item.before == "1200ms")
+    assert goal.verified is False
+    assert "목표" in goal.note
+    assert not any(
+        candidate.measurement_id == goal.id for candidate in analysis.candidates
+    )
+
+
+# 16. 측정 신호가 있는 문서만 검증된 측정으로 인정한다.
+def test_measured_document_is_still_verified(intel_env, tmp_path):
+    root = _init(tmp_path / "measured-project")
+    _write(
+        root / "docs/performance.md",
+        "# 성능 측정\n\n부하 테스트 10회 평균: 1200ms → 400ms\n",
+    )
+    _write(root / "app.py", "def run():\n    return 1\n")
+    _commit(root, "measure")
+
+    analysis = _analyze(root)
+    measured = next(item for item in analysis.measurements if item.before == "1200ms")
+    assert measured.verified is True
+    assert any(
+        candidate.measurement_id == measured.id for candidate in analysis.candidates
+    )
+
+
+# 17. 작업 공간 밖을 가리키는 문서 symlink 는 읽지 않는다.
+def test_symlink_outside_project_is_not_read(intel_env, tmp_path):
+    outside = tmp_path / "outside-secret.md"
+    _write(outside, "DATABASE_PASSWORD=VERY_SECRET_VALUE_123\n")
+    root = _init(tmp_path / "symlink-project")
+    _write(root / "app.py", "x = 1\n")
+    (root / "docs").mkdir()
+    (root / "docs" / "leak.md").symlink_to(outside)
+    _commit(root, "initial")
+
+    analysis = _analyze(root)
+    assert not any(item.path == "docs/leak.md" for item in analysis.documents)
+    assert all(
+        "VERY_SECRET_VALUE_123" not in item.excerpt for item in analysis.documents
+    )
+
+
+# 18. API 는 허용된 작업 공간 밖의 프로젝트 경로를 거부한다.
+def test_api_rejects_project_outside_allowed_roots(intel_env, tmp_path):
+    outside = tmp_path.parent / f"{tmp_path.name}-outside"
+    outside.mkdir()
+    client = TestClient(create_app())
+    response = client.post(
+        "/api/projects/analyze", json={"project_path": str(outside), "use_ai": False}
+    )
+    assert response.status_code == 400
+    assert "작업 공간" in response.json()["detail"]
+
+
+# 19. AI 가 인용하지 않은 문서의 수치를 problem 에 남기지 않는다.
+def test_ai_sanitizes_problem_and_unattributed_numbers(intel_env, monkeypatch):
+    analysis = ProjectAnalysis(
+        project_path="/tmp/ai-project",
+        project_name="ai-project",
+        documents=[
+            DocRecord(
+                id="d1",
+                path="docs/a.md",
+                title="a",
+                kind="design",
+                excerpt="cache added",
+            ),
+            DocRecord(
+                id="d2",
+                path="docs/b.md",
+                title="b",
+                kind="report",
+                excerpt="latency 50% faster",
+            ),
+        ],
+    )
+    citations, refs = ai_stage._citation_bundle(analysis)
+    cited = next(key for key, value in refs.items() if value.path == "docs/a.md")
+    payload = {
+        "findings": [],
+        "candidates": [
+            {
+                "title": "AI candidate 50%",
+                "problem": "latency 50% improved",
+                "action": "cache",
+                "result": "50% faster",
+                "quality": "SUPPORTED_INFERENCE",
+                "citations": [cited],
+            }
+        ],
+        "notes": [],
+    }
+
+    class FakeStore:
+        def settings(self):
+            return Settings(external_ai_consent=True)
+
+        def put(self, *args, **kwargs):
+            return None
+
+    monkeypatch.setattr(AIService, "_call", lambda *args, **kwargs: json.dumps(payload))
+    monkeypatch.setattr(
+        ai_stage, "_citation_bundle", lambda _analysis: (citations, refs)
+    )
+    result = ai_stage.enrich_with_ai(analysis, store=FakeStore())
+
+    assert result.ai.status == "completed"
+    candidate = result.candidates[0]
+    assert "50%" not in candidate.problem
+    assert "[확인 필요]" in candidate.problem
+    assert "50%" not in candidate.title
+    assert "50%" not in candidate.result
+    assert candidate.quality == "HYPOTHESIS"
+
+
+# 20. 리버트된 변경은 현재 성과 후보로 남기지 않는다.
+def test_reverted_change_is_not_a_current_candidate(intel_env, tmp_path):
+    root = _init(tmp_path / "reverted-project")
+    _write(root / "app.py", "def get_user(uid):\n    return db_query(uid)\n")
+    _commit(root, "initial")
+    _write(
+        root / "app.py",
+        "CACHE = {}\ndef get_user(uid):\n"
+        "    if uid not in CACHE:\n        CACHE[uid] = db_query(uid)\n"
+        "    return CACHE[uid]\n",
+    )
+    reverted = _commit(root, "performance cache")
+    _git(root, "revert", "--no-edit", reverted)
+    _write(root / "docs/design.md", "# 설계\n\n캐시 구조를 사용한다.\n")
+    _commit(root, "docs")
+
+    analysis = _analyze(root)
+    assert not any("app.py" in candidate.title for candidate in analysis.candidates)
+    assert any("리버트된 변경" in warning for warning in analysis.warnings)
+    assert all(step.sha != reverted for step in analysis.timeline)
+
+
+# 21. Git rename 이후에도 현재 경로의 이력을 추적한다.
+def test_rename_is_normalized_to_current_path(intel_env, tmp_path):
+    root = _init(tmp_path / "rename-project")
+    _write(root / "src/a.py", "def run():\n    return 1\n")
+    _commit(root, "initial")
+    _git(root, "mv", "src/a.py", "src/b.py")
+    _commit(root, "rename")
+
+    analysis = _analyze(root)
+    assert any(item.path == "src/b.py" for item in analysis.code_files)
+    assert any("src/b.py" in commit.files for commit in analysis.commits)
+    assert all("{" not in path for commit in analysis.commits for path in commit.files)
+
+
+# 22. PDF 문서도 실제 텍스트를 추출한다.
+def test_pdf_document_text_is_extracted(intel_env, tmp_path):
+    root = _init(tmp_path / "pdf-project")
+    _write(root / "app.py", "x = 1\n")
+    stream = b"BT /F1 12 Tf 72 720 Td (PDF evidence) Tj ET"
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+        b"/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+        b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    output = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for index, obj in enumerate(objects, 1):
+        offsets.append(len(output))
+        output += f"{index} 0 obj\n".encode() + obj + b"\nendobj\n"
+    xref = len(output)
+    output += f"xref\n0 {len(objects) + 1}\n".encode() + b"0000000000 65535 f \n"
+    for offset in offsets[1:]:
+        output += f"{offset:010d} 00000 n \n".encode()
+    output += (
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\n"
+        f"startxref\n{xref}\n%%EOF\n"
+    ).encode()
+    (root / "docs").mkdir()
+    (root / "docs" / "report.pdf").write_bytes(output)
+    _commit(root, "docs")
+
+    analysis = _analyze(root)
+    pdf = next(item for item in analysis.documents if item.path == "docs/report.pdf")
+    assert "PDF evidence" in pdf.excerpt
+
+
+# 23. 미확정 분석 성과는 월간 보고서 본문에 들어가지 않는다.
+def test_unconfirmed_analysis_achievement_is_excluded_from_report_body(intel_env):
+    service = ImpactService()
+    activity = service.create_activity(
+        {
+            "title": "UNCONFIRMED_TITLE_X",
+            "description": "unconfirmed work",
+            "date": date.today().isoformat(),
+            "source": "analysis",
+        }
+    )
+    achievement = service.create_achievement(
+        {
+            "title": "UNCONFIRMED_TITLE_X",
+            "activity_ids": [activity.id],
+            "problem": "p",
+            "action": "a",
+            "result": "r",
+            "period_start": date.today().isoformat(),
+            "period_end": date.today().isoformat(),
+            "source": "analysis",
+            "confirmed": False,
+            "needs_review": True,
+        }
+    )
+    content, meta = build_content(service, template="monthly", period_kind="month")
+    body = content.split("## 근거 및 확인 상태")[0]
+    assert "UNCONFIRMED_TITLE_X" not in body
+    assert "UNCONFIRMED_TITLE_X" in content
+    assert achievement.id in meta["pending_achievement_ids"]
+    assert achievement.id not in meta["achievement_ids"]
+
+
 def test_secret_files_are_never_indexed(intel_env, repo):
     assert is_secret_name(".env")
     assert is_secret_name(".env.production")
@@ -427,3 +694,65 @@ def test_secret_files_are_never_indexed(intel_env, repo):
     assert all(
         "supersecretvalue123" not in document.excerpt for document in analysis.documents
     )
+
+
+# 22. AI 프로젝트 분석 후보의 근거 없는 정성 효과는 HYPOTHESIS 로 낮아진다.
+def test_ai_candidate_without_effect_evidence_is_demoted(monkeypatch):
+    from impactnote.core.models import Settings
+
+    analysis = ProjectAnalysis(
+        project_path="/tmp/ai-effect-project",
+        project_name="ai-effect-project",
+        documents=[
+            DocRecord(
+                id="d1",
+                path="docs/a.md",
+                title="a",
+                kind="design",
+                excerpt="cache added",
+            ),
+            DocRecord(
+                id="d2",
+                path="docs/b.md",
+                title="b",
+                kind="report",
+                excerpt="load test executed",
+            ),
+        ],
+    )
+    citations, refs = ai_stage._citation_bundle(analysis)
+    cited = [
+        key for key, value in refs.items() if value.path in {"docs/a.md", "docs/b.md"}
+    ]
+    payload = {
+        "findings": [],
+        "candidates": [
+            {
+                "title": "Cache candidate",
+                "problem": "latency",
+                "action": "cache added",
+                "result": "서비스 안정성을 크게 향상시켰다.",
+                "quality": "SUPPORTED_INFERENCE",
+                "citations": cited,
+            }
+        ],
+        "notes": [],
+    }
+
+    class FakeStore:
+        def settings(self):
+            return Settings(external_ai_consent=True)
+
+        def put(self, *args, **kwargs):
+            return None
+
+    monkeypatch.setattr(AIService, "_call", lambda *args, **kwargs: json.dumps(payload))
+    monkeypatch.setattr(
+        ai_stage, "_citation_bundle", lambda _analysis: (citations, refs)
+    )
+    result = ai_stage.enrich_with_ai(analysis, store=FakeStore())
+
+    assert result.ai.status == "completed"
+    candidate = result.candidates[0]
+    assert candidate.result == ""
+    assert candidate.quality == "HYPOTHESIS"

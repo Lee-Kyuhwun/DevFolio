@@ -178,6 +178,44 @@ _DOC_KIND_RULES: list[tuple[str, tuple[str, ...]]] = [
 ]
 
 
+ANALYZE_ROOTS_ENV = "IMPACTNOTE_ANALYZE_ROOTS"
+
+
+def allowed_analyze_roots() -> list[Path]:
+    """프로젝트 분석이 접근할 수 있는 작업 공간.
+
+    기본값은 사용자 홈과 현재 작업 디렉터리다. Docker 처럼 마운트 경로가
+    별도라면 `IMPACTNOTE_ANALYZE_ROOTS=/app:/home/user` 처럼 명시한다.
+    """
+    raw = os.environ.get(ANALYZE_ROOTS_ENV, "").strip()
+    if raw:
+        roots = [Path(item).expanduser() for item in raw.split(os.pathsep) if item]
+    else:
+        roots = [Path.home(), Path.cwd()]
+    resolved: list[Path] = []
+    for root in roots:
+        try:
+            resolved.append(root.resolve())
+        except OSError:
+            continue
+    return resolved
+
+
+def validate_project_path(path: str | Path) -> Path:
+    """분석 경로가 존재하는 디렉터리이며 허용된 작업 공간 안인지 확인한다."""
+    candidate = Path(path).expanduser()
+    if not candidate.exists() or not candidate.is_dir():
+        raise ValueError("프로젝트 디렉터리를 찾을 수 없습니다.")
+    resolved = candidate.resolve()
+    roots = allowed_analyze_roots()
+    if not any(resolved == root or resolved.is_relative_to(root) for root in roots):
+        raise ValueError(
+            "허용된 분석 작업 공간 밖의 경로입니다. "
+            f"{ANALYZE_ROOTS_ENV} 에 허용할 경로를 지정하세요."
+        )
+    return resolved
+
+
 def is_secret_name(name: str) -> bool:
     return any(pattern.search(name) for pattern in SECRET_NAME_PATTERNS)
 
@@ -305,12 +343,18 @@ def _summary(text: str) -> str:
 def _walk_documents(root: Path) -> Iterable[Path]:
     for current, dirs, files in os.walk(root):
         dirs[:] = [
-            name for name in dirs if name not in SKIP_DIRS and not name.startswith(".")
+            name
+            for name in dirs
+            if name not in SKIP_DIRS
+            and not name.startswith(".")
+            and not (Path(current) / name).is_symlink()
         ]
         for name in files:
             if is_secret_name(name) or name.startswith("~$"):
                 continue
             path = Path(current) / name
+            if path.is_symlink():
+                continue
             if path.suffix.lower() in DOC_EXTENSIONS:
                 yield path
 
@@ -408,12 +452,18 @@ def discover_documents(root: Path, warnings: list[str]) -> list[DocRecord]:
 def iter_code_files(root: Path) -> Iterable[Path]:
     for current, dirs, files in os.walk(root):
         dirs[:] = [
-            name for name in dirs if name not in SKIP_DIRS and not name.startswith(".")
+            name
+            for name in dirs
+            if name not in SKIP_DIRS
+            and not name.startswith(".")
+            and not (Path(current) / name).is_symlink()
         ]
         for name in files:
             if is_secret_name(name):
                 continue
             path = Path(current) / name
+            if path.is_symlink():
+                continue
             if path.suffix.lower() in CODE_EXTENSIONS or name in {
                 "Dockerfile",
                 "Makefile",
@@ -443,6 +493,7 @@ __all__ = [
     "CODE_EXTENSIONS",
     "DOC_EXTENSIONS",
     "SKIP_DIRS",
+    "allowed_analyze_roots",
     "classify_document",
     "discover_documents",
     "doc_fingerprint",
@@ -451,4 +502,5 @@ __all__ = [
     "iter_code_files",
     "read_code",
     "redact",
+    "validate_project_path",
 ]

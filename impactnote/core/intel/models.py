@@ -108,6 +108,8 @@ class GitCommit(BaseModel):
     files: list[str] = Field(default_factory=list)
     is_revert: bool = False
     is_merge: bool = False
+    # Co-authored-by 트레일러. 커밋 작성자만으로 기여를 단정하지 않기 위해 보존한다.
+    co_authors: list[dict] = Field(default_factory=list)
     categories: list[str] = Field(default_factory=list)
 
 
