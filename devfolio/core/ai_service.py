@@ -39,6 +39,7 @@ from devfolio.exceptions import (
     DevfolioAIError,
     DevfolioAIRateLimitError,
 )
+from devfolio.core.ai_observability import ErrorCode, error_code_for, user_message
 from devfolio.core.ai_quality import (
     QualityIssue,
     QualityReport,
@@ -338,6 +339,16 @@ def _write_ai_log(
         AI_LOG_FILE.write_text("\n".join(existing) + "\n", encoding="utf-8")
     except Exception:
         pass
+
+
+def _emit_event(hook: Optional[Callable[[dict], None]], event: dict) -> None:
+    """관측 이벤트를 전달한다. 관측 실패가 분석을 막아서는 안 된다."""
+    if hook is None:
+        return
+    try:
+        hook(event)
+    except Exception:  # noqa: BLE001 — 로깅/저장 실패는 무시
+        logger.debug("관측 이벤트 처리 실패", exc_info=True)
 
 
 def _log_prompt_preview(messages: list[dict]) -> None:
@@ -822,6 +833,8 @@ class AIService:
         max_tokens: Optional[int] = None,
         validator: Optional[Callable[[str], Any]] = None,
         telemetry: Optional[dict[str, Any]] = None,
+        stage: str = "",
+        event_hook: Optional[Callable[[dict], None]] = None,
     ) -> str:
         """system/user 2턴 호출 호환용 래퍼."""
         return self._call_messages(
@@ -834,6 +847,8 @@ class AIService:
             json_mode=json_mode,
             validator=validator,
             telemetry=telemetry,
+            stage=stage,
+            event_hook=event_hook,
         )
 
     @staticmethod
@@ -1002,6 +1017,8 @@ class AIService:
         json_mode: bool = False,
         validator: Optional[Callable[[str], Any]] = None,
         telemetry: Optional[dict[str, Any]] = None,
+        stage: str = "",
+        event_hook: Optional[Callable[[dict], None]] = None,
     ) -> str:
         """litellm 호출. provider chain 을 순서대로 시도하며 실패 시 자동 fallback.
 
@@ -1030,6 +1047,7 @@ class AIService:
         provider_chain = self._provider_fallback_chain(provider_name)
         last_error: Exception = RuntimeError("알 수 없는 오류")
         tried: list[str] = []
+        last_code = ErrorCode.UNKNOWN_ERROR
 
         for chain_index, provider in enumerate(provider_chain):
             # 사용자가 자동 Provider 전환을 꺼두면 첫 후보만 시도한다.
@@ -1059,6 +1077,19 @@ class AIService:
                 )
                 break
             tried.append(provider.name)
+            if len(tried) >= 2:
+                # Provider 전환 — 사용자 화면에 "왜 바꿼는지"를 그대로 보여준다.
+                _emit_event(
+                    event_hook,
+                    {
+                        "type": "fallback",
+                        "stage": stage,
+                        "from_provider": tried[-2],
+                        "to_provider": provider.name,
+                        "reason_code": last_code,
+                        "reason_text": user_message(last_code),
+                    },
+                )
             try:
                 return self._call_single_provider(
                     litellm,
@@ -1071,14 +1102,18 @@ class AIService:
                     budget=budget,
                     settings=settings,
                     telemetry=reported,
+                    stage=stage,
+                    event_hook=event_hook,
                 )
             except DevfolioAIAuthError as e:
                 last_error = e
+                last_code = error_code_for(classify_error(e), e)
                 logger.warning(
                     "Provider %s 인증 실패 → 다음 Provider 로: %s", provider.name, e
                 )
             except (DevfolioAIError, DevfolioAIRateLimitError) as e:
                 last_error = e
+                last_code = error_code_for(classify_error(e), e)
                 logger.warning(
                     "Provider %s 실패 → 다음 Provider 로: %s", provider.name, e
                 )
@@ -1115,6 +1150,8 @@ class AIService:
         budget: Optional[Budget] = None,
         settings: Optional[ReliabilitySettings] = None,
         telemetry: Optional[dict[str, Any]] = None,
+        stage: str = "",
+        event_hook: Optional[Callable[[dict], None]] = None,
     ) -> str:
         """단일 provider 로 호출한다 (모델 후보 순환 + 정책 기반 재시도).
 
@@ -1165,7 +1202,26 @@ class AIService:
         last_error: Exception = RuntimeError("알 수 없는 오류")
         reported.setdefault("errors", [])
 
+        def emit(event: dict) -> None:
+            _emit_event(event_hook, {"stage": stage, **event})
+
+        previous_model = ""
+        previous_code = ""
+
         for model_index, runtime_model in enumerate(candidates, start=1):
+            if previous_model and previous_model != runtime_model:
+                # 모델 교체 — 사용자에게 보여줄 전환 이력.
+                emit(
+                    {
+                        "type": "fallback",
+                        "from_provider": provider.name,
+                        "from_model": previous_model,
+                        "to_provider": provider.name,
+                        "to_model": runtime_model,
+                        "reason_code": previous_code,
+                        "reason_text": user_message(previous_code),
+                    }
+                )
             kwargs["model"] = self._provider_model_string(provider.name, runtime_model)
             model_key = ModelHealthStore.key(provider.name, runtime_model)
             # Groq 의 gpt-oss 는 추론 모델이다. 기본 추론 강도(medium)의 숨은 추론 토큰이
@@ -1204,6 +1260,14 @@ class AIService:
 
                 active_budget.attempts += 1
                 t_start = time.monotonic()
+                emit(
+                    {
+                        "type": "attempt",
+                        "attempt": attempt,
+                        "provider": provider.name,
+                        "model": runtime_model,
+                    }
+                )
                 try:
                     logger.info(
                         "AI 요청 시작: model=%s attempt=%d/%d prompt_chars=%d json_mode=%s",
@@ -1257,6 +1321,15 @@ class AIService:
                         ok=True,
                     )
                     window.reserve(estimated_tokens)
+                    emit(
+                        {
+                            "type": "attempt_ok",
+                            "attempt": attempt,
+                            "provider": provider.name,
+                            "model": runtime_model,
+                            "duration_ms": int((t_end - t_start) * 1000),
+                        }
+                    )
                     store.clear(model_key)
                     reported.update(
                         {
@@ -1328,6 +1401,21 @@ class AIService:
                         is_retryable(kind)
                         and attempt < max_attempts
                         and active_budget.can_wait(delay)
+                    )
+                    previous_model = runtime_model
+                    previous_code = error_code_for(kind, e)
+                    emit(
+                        {
+                            "type": "attempt_error",
+                            "attempt": attempt,
+                            "provider": provider.name,
+                            "model": runtime_model,
+                            "kind": kind.value,
+                            "error_code": previous_code,
+                            "retry_after_seconds": parse_retry_after(e),
+                            "will_retry": bool(can_retry),
+                            "technical": err_str,
+                        }
                     )
                     if can_retry:
                         logger.warning(
@@ -2475,6 +2563,7 @@ class AIService:
         lang: str = "ko",
         provider_name: Optional[str] = None,
         telemetry: Optional[dict[str, Any]] = None,
+        event_hook: Optional[Callable[[dict], None]] = None,
     ) -> dict:
         """소스 코드·README·의존성 정보를 분석해 포트폴리오 초안을 생성한다.
 
@@ -2561,6 +2650,7 @@ class AIService:
         # 출력 한도를 명시하지 않으면 provider 기본값(예: pollinations 1500토큰)에 걸려
         # JSON이 중간에 잘린다 (INC-21).
         # validator 를 넘기면 JSON 검증에 실패한 응답은 다음 모델 후보로 자동 전환된다.
+        _emit_event(event_hook, {"type": "stage_start", "stage": "analysis"})
         raw = self._call(
             _CODE_ANALYSIS_SYSTEM,
             prompt,
@@ -2571,8 +2661,21 @@ class AIService:
             max_tokens=2500,
             validator=self._extract_json,
             telemetry=telemetry,
+            stage="analysis",
+            event_hook=event_hook,
         )
         payload = self._extract_json(raw)
+        _emit_event(
+            event_hook,
+            {
+                "type": "stage_end",
+                "stage": "analysis",
+                "status": STAGE_COMPLETED,
+                "detail": "AI 초안 생성",
+                "provider": (telemetry or {}).get("provider", ""),
+                "model": (telemetry or {}).get("model", ""),
+            },
+        )
 
         # 필수 키 보장 (AI가 일부 생략할 경우 대비)
         for key in (
@@ -2592,6 +2695,7 @@ class AIService:
         # --- 2차 호출: 커밋 히스토리 기반 문제 해결 사례 추출 ---
         # 별도 호출로 분리해 메인 분석 실패와 독립적으로 처리
         commit_history = project_context.get("commit_history", "")
+        _emit_event(event_hook, {"type": "stage_start", "stage": "cases"})
         payload["problem_solving_cases"] = self._extract_problem_solving_cases(
             commit_history=commit_history,
             readme=project_context.get("readme", ""),
@@ -2599,6 +2703,7 @@ class AIService:
             lang=lang,
             provider_name=provider_name,
             telemetry=telemetry,
+            event_hook=event_hook,
         )
 
         # 언어 지시를 무시한 모델 출력에서 일본어·중국어 문자 물리적 제거
@@ -2611,6 +2716,7 @@ class AIService:
         scan_metrics: dict,
         lang: str = "ko",
         provider_name: Optional[str] = None,
+        event_hook: Optional[Callable[[dict], None]] = None,
     ) -> AnalysisOutcome:
         """단계별 상태와 품질 검증을 함께 돌려주는 AI 딥 분석.
 
@@ -2638,6 +2744,7 @@ class AIService:
                 lang=lang,
                 provider_name=provider_name,
                 telemetry=telemetry,
+                event_hook=event_hook,
             )
         except Exception as exc:  # noqa: BLE001 — 실패도 사용자에게 보고해야 한다
             kind = classify_error(exc)
@@ -2648,6 +2755,17 @@ class AIService:
                     detail=f"{kind.value}: {str(exc)[:160]}",
                     model=telemetry.get("model", ""),
                 )
+            )
+            _emit_event(
+                event_hook,
+                {
+                    "type": "stage_end",
+                    "stage": "analysis",
+                    "status": STAGE_FAILED,
+                    "detail": f"{kind.value}: {str(exc)[:160]}",
+                    "provider": telemetry.get("provider", ""),
+                    "model": telemetry.get("model", ""),
+                },
             )
             stages.append(
                 StageResult(
@@ -2712,8 +2830,29 @@ class AIService:
                 model=telemetry.get("model", ""),
             )
         )
+        _emit_event(
+            event_hook,
+            {
+                "type": "stage_end",
+                "stage": "cases",
+                "status": cases_status,
+                "detail": cases_detail,
+                "provider": telemetry.get("provider", ""),
+                "model": telemetry.get("model", ""),
+            },
+        )
 
+        _emit_event(event_hook, {"type": "stage_start", "stage": "quality"})
         report = validate_analysis(payload, evidence)
+        _emit_event(
+            event_hook,
+            {
+                "type": "stage_end",
+                "stage": "quality",
+                "status": STAGE_COMPLETED if report.passed else STAGE_FAILED,
+                "detail": report.summary(),
+            },
+        )
         stages.append(
             StageResult(
                 name="quality",
@@ -2756,6 +2895,7 @@ class AIService:
         lang: str = "ko",
         provider_name: Optional[str] = None,
         telemetry: Optional[dict[str, Any]] = None,
+        event_hook: Optional[Callable[[dict], None]] = None,
     ) -> list[dict]:
         """커밋 히스토리에서 기술적 판단 진화 사례를 추출한다.
 
@@ -2802,6 +2942,8 @@ class AIService:
                 json_mode=False,
                 max_tokens=2000,
                 telemetry=telemetry,
+                stage="cases",
+                event_hook=event_hook,
             )
             cleaned = raw.strip()
             # 코드 펜스 제거

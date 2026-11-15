@@ -16,13 +16,28 @@ import json
 import os
 import platform
 import subprocess
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ValidationError
 
+from devfolio.core.ai_observability import (
+    ErrorCode,
+    error_code_for,
+    get_run_registry,
+    model_display,
+    provider_display,
+)
+from devfolio.core.ai_reliability import (
+    ModelHealthStore,
+    ReliabilitySettings,
+    classify_error,
+    get_health_store,
+)
 from devfolio.core.ai_service import (
     AIService,
     normalize_provider_model_name,
@@ -796,12 +811,36 @@ def scan_git(body: GitScanRequest) -> dict[str, Any]:
         ai_error: Optional[str] = None
         ai_report: Optional[dict] = None
         ai_completed = False
+        run = None
         if body.analyze and scan_result.project_context:
             scan_metrics = {
                 "commits": len(scan_result.commits),
                 "period_months": 0,
                 "languages": {k: v for k, v in scan_result.languages.most_common(5)},
             }
+            # 동기 경로도 같은 실행 기록을 남긴다 — 동기/비동기 응답의 상태 모양이 같아야 한다.
+            requested_provider, requested_model = _requested_ai(cfg, body.provider)
+            run = get_run_registry().create(
+                repo_name=repo_path.name,
+                params={
+                    "repo_path": str(repo_path),
+                    "author_email": author_email,
+                    "lang": body.lang,
+                    "provider": body.provider or "",
+                    "analyze": True,
+                },
+                requested_provider=requested_provider,
+                requested_model=requested_model,
+            )
+            run.apply_event({"type": "stage_start", "stage": "scan"})
+            run.apply_event(
+                {
+                    "type": "stage_end",
+                    "stage": "scan",
+                    "status": "completed",
+                    "detail": f"커밋 {len(scan_result.commits)}건",
+                }
+            )
             try:
                 ai_provider_name = body.provider or cfg.default_ai_provider
                 ai_provider = (
@@ -824,8 +863,27 @@ def scan_git(body: GitScanRequest) -> dict[str, Any]:
                     scan_metrics=scan_metrics,
                     lang=body.lang,
                     provider_name=body.provider,
+                    event_hook=run.apply_event,
                 )
+                run.finish(
+                    outcome.status,
+                    quality_verdict=(
+                        outcome.quality.verdict if outcome.quality else ""
+                    ),
+                    payload=outcome.payload,
+                )
+                if outcome.quality and not outcome.quality.passed:
+                    run.fail(
+                        ErrorCode.QUALITY_GATE_FAILED,
+                        stage_id="quality",
+                        message=outcome.quality.summary(),
+                    )
+                if outcome.error:
+                    run.error_summary = outcome.error[:200]
+                get_run_registry().save(run)
                 ai_report = outcome.to_dict()
+                ai_report["analysis_id"] = run.analysis_id
+                ai_report["analysis"] = run.to_dict()
                 if outcome.completed:
                     ai_analysis = outcome.payload
                     ai_completed = True
@@ -864,6 +922,12 @@ def scan_git(body: GitScanRequest) -> dict[str, Any]:
                     )
             except Exception as exc:
                 ai_error = str(exc)
+                if run is not None:
+                    run.fail(
+                        error_code_for(classify_error(exc), exc),
+                        stage_id=run.current_stage,
+                    )
+                    get_run_registry().save(run)
                 logger.warning(
                     "AI 딥 분석 실패 (기본 스캔 결과로 계속): %s: %s",
                     type(exc).__name__,
@@ -878,6 +942,8 @@ def scan_git(body: GitScanRequest) -> dict[str, Any]:
             "analyzed": ai_completed,
             "ai_error": ai_error,
             "ai_report": ai_report,
+            "analysis_id": run.analysis_id if run is not None else None,
+            "analysis": run.to_dict() if run is not None else None,
             "payload": payload,
         }
     except DevfolioError as exc:
@@ -885,6 +951,470 @@ def scan_git(body: GitScanRequest) -> dict[str, Any]:
             "Git scan API 실패: input=%s reason=%s", body.repo_path, exc.message
         )
         _raise_from_devfolio(exc)
+
+
+# ---------------------------------------------------------------------------
+# AI Analysis Observability
+#
+# 설계 메모(폴링 vs SSE): DevFolio 웹 UI 는 이미 fetch 기반이고 분석은 수 초~수십 초면
+# 끝난다. SSE 는 프록시/Docker 뒤에서 버퍼링·재연결 처리 부담이 있어, 상태 스냅샷 + seq
+# 커서 폴링을 선택했다. UI 타이머로 가짜 진행률을 그리지 않고 서버 스냅샷만 반영한다.
+# ---------------------------------------------------------------------------
+
+_ANALYSIS_EXECUTOR = ThreadPoolExecutor(
+    max_workers=2, thread_name_prefix="devfolio-analysis"
+)
+
+
+class RetryAnalysisRequest(BaseModel):
+    # all: 전체 재분석(새 AI 호출), cases: 성공한 초안을 재사용해 사례 추출만 다시 실행
+    stage: str = "all"
+    provider: Optional[str] = None
+
+
+def _requested_ai(cfg, provider_name: Optional[str]) -> tuple[str, str]:
+    """사용자가 요청한(설정된) Provider/Model. 실제 호출 모델과 구분해 보여주기 위한 값."""
+    name = provider_name or cfg.default_ai_provider
+    provider = cfg.get_provider(name) if name else None
+    if not provider:
+        return name or "", ""
+    resolution = resolve_generation_model(provider.name, provider.model)
+    return provider.name, resolution.display_model
+
+
+def _prepare_scan_request(body: GitScanRequest):
+    """동기/비동기 스캔 공통 준비 — 경로 해석, 설정, 작성자, 요청 모델."""
+    repo_path, translated_from = _resolve_scan_repo_path(body.repo_path)
+    cfg = _load_config_with_normalized_models()
+    author_email = (body.author_email or cfg.user.email or "").strip()
+    if not author_email:
+        raise DevfolioError(
+            "author_email 이 필요합니다.",
+            hint="요청 body 또는 설정의 user.email을 확인하세요.",
+        )
+    requested_provider, requested_model = _requested_ai(cfg, body.provider)
+    return (
+        repo_path,
+        cfg,
+        author_email,
+        requested_provider,
+        requested_model,
+        translated_from,
+    )
+
+
+def _scan_metrics(scan_result) -> dict[str, Any]:
+    return {
+        "commits": len(scan_result.commits),
+        "period_months": 0,
+        "languages": {k: v for k, v in scan_result.languages.most_common(5)},
+    }
+
+
+def _execute_analysis(
+    run, *, repo_path: Path, author_email: str, lang: str, provider: Optional[str]
+) -> None:
+    """백그라운드 스레드에서 분석 1회를 수행하고 실행 기록을 종결한다."""
+    from devfolio.core.git_scanner import scan_repo
+    from devfolio.log import get_logger
+
+    logger = get_logger(__name__)
+    registry = get_run_registry()
+    try:
+        cfg = _load_config_with_normalized_models()
+        run.apply_event({"type": "stage_start", "stage": "scan"})
+        scan_result = scan_repo(repo_path, author_email=author_email, analyze=True)
+        run.apply_event(
+            {
+                "type": "stage_end",
+                "stage": "scan",
+                "status": "completed",
+                "detail": f"커밋 {len(scan_result.commits)}건",
+            }
+        )
+        if not scan_result.project_context:
+            run.fail(
+                ErrorCode.UNKNOWN_ERROR,
+                stage_id="scan",
+                message="프로젝트 컨텍스트를 만들지 못했습니다.",
+            )
+            return
+        outcome = AIService(cfg).analyze_project_with_report(
+            repo_name=repo_path.name,
+            project_context=scan_result.project_context,
+            scan_metrics=_scan_metrics(scan_result),
+            lang=lang,
+            provider_name=provider,
+            event_hook=run.apply_event,
+        )
+        if run.cancelled:
+            return
+        run.finish(
+            outcome.status,
+            quality_verdict=outcome.quality.verdict if outcome.quality else "",
+            payload=outcome.payload,
+        )
+        if outcome.quality and not outcome.quality.passed:
+            run.fail(
+                ErrorCode.QUALITY_GATE_FAILED,
+                stage_id="quality",
+                message=outcome.quality.summary(),
+            )
+        elif outcome.error:
+            run.error_summary = outcome.error[:200]
+    except DevfolioError as exc:
+        logger.warning("AI 분석 실행 실패: %s", exc)
+        run.fail(
+            error_code_for(classify_error(exc), exc),
+            stage_id=run.current_stage,
+        )
+    except Exception as exc:  # noqa: BLE001 — 백그라운드 스레드는 반드시 종결해야 한다
+        logger.exception("AI 분석 실행 중 알 수 없는 오류")
+        run.fail(ErrorCode.UNKNOWN_ERROR, stage_id=run.current_stage, message=str(exc))
+    finally:
+        registry.save(run)
+
+
+def _execute_cases_retry(
+    run, *, payload: dict[str, Any], params: dict[str, Any]
+) -> None:
+    """실패한 "사례 추출" 단계만 다시 실행한다(성공한 초안은 재사용, AI 호출 1회)."""
+    from devfolio.core.ai_quality import build_evidence_index, validate_analysis
+    from devfolio.core.git_scanner import scan_repo
+    from devfolio.log import get_logger
+
+    logger = get_logger(__name__)
+    registry = get_run_registry()
+    try:
+        cfg = _load_config_with_normalized_models()
+        repo_path = Path(str(params.get("repo_path", "")))
+        run.apply_event({"type": "stage_start", "stage": "scan"})
+        scan_result = scan_repo(
+            repo_path, author_email=str(params.get("author_email", "")), analyze=True
+        )
+        run.apply_event(
+            {
+                "type": "stage_end",
+                "stage": "scan",
+                "status": "completed",
+                "detail": "재시도용 저장소 컨텍스트",
+            }
+        )
+        merged = dict(payload)
+        run.apply_event({"type": "stage_start", "stage": "analysis"})
+        run.apply_event(
+            {
+                "type": "stage_end",
+                "stage": "analysis",
+                "status": "completed",
+                "detail": "기존 AI 초안 재사용(재호출 없음)",
+            }
+        )
+        telemetry: dict[str, Any] = {"errors": []}
+        run.apply_event({"type": "stage_start", "stage": "cases"})
+        cases = AIService(cfg)._extract_problem_solving_cases(
+            commit_history=scan_result.project_context.get("commit_history", "")
+            if scan_result.project_context
+            else "",
+            readme=(scan_result.project_context or {}).get("readme", ""),
+            repo_name=repo_path.name,
+            lang=str(params.get("lang", "ko")),
+            provider_name=(params.get("provider") or None),
+            telemetry=telemetry,
+            event_hook=run.apply_event,
+        )
+        merged["problem_solving_cases"] = cases
+        cases_error = telemetry.get("cases_error", "")
+        cases_status = (
+            "failed" if cases_error else ("completed" if cases else "skipped")
+        )
+        run.apply_event(
+            {
+                "type": "stage_end",
+                "stage": "cases",
+                "status": cases_status,
+                "detail": cases_error[:160] if cases_error else f"{len(cases)}건 추출",
+                "provider": telemetry.get("provider", ""),
+                "model": telemetry.get("model", ""),
+            }
+        )
+        run.apply_event({"type": "stage_start", "stage": "quality"})
+        report = validate_analysis(
+            merged,
+            build_evidence_index(
+                scan_result.project_context, _scan_metrics(scan_result)
+            ),
+        )
+        run.apply_event(
+            {
+                "type": "stage_end",
+                "stage": "quality",
+                "status": "completed" if report.passed else "failed",
+                "detail": report.summary(),
+            }
+        )
+        if run.cancelled:
+            return
+        status = (
+            "completed"
+            if report.passed and not cases_error
+            else ("partial" if report.passed else "failed")
+        )
+        run.finish(status, quality_verdict=report.verdict, payload=merged)
+        if not report.passed:
+            run.fail(
+                ErrorCode.QUALITY_GATE_FAILED,
+                stage_id="quality",
+                message=report.summary(),
+            )
+    except DevfolioError as exc:
+        logger.warning("사례 재시도 실패: %s", exc)
+        run.fail(error_code_for(classify_error(exc), exc), stage_id=run.current_stage)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("사례 재시도 중 알 수 없는 오류")
+        run.fail(ErrorCode.UNKNOWN_ERROR, stage_id=run.current_stage, message=str(exc))
+    finally:
+        registry.save(run)
+
+
+def _analysis_start_payload(run, *, reused: bool = False) -> dict[str, Any]:
+    return {
+        "status": run.status,
+        "analysis_id": run.analysis_id,
+        "reused": reused,
+        "analysis": run.to_dict(),
+    }
+
+
+@router.post("/scan/git/async", status_code=202)
+def scan_git_async(body: GitScanRequest) -> dict[str, Any]:
+    """AI 분석을 백그라운드로 시작하고 analysis_id 를 즉시 돌려준다.
+
+    같은 저장소에 이미 진행 중인 실행이 있으면 새로 시작하지 않고 그 실행을 돌려준다
+    (중복 실행·결과 덮어쓰기 방지).
+    """
+    try:
+        repo_path, _cfg, author_email, requested_provider, requested_model, _ = (
+            _prepare_scan_request(body)
+        )
+        registry = get_run_registry()
+        existing = registry.running_for_repo(str(repo_path))
+        if existing is not None:
+            return _analysis_start_payload(existing, reused=True)
+        run = registry.create(
+            repo_name=repo_path.name,
+            params={
+                "repo_path": str(repo_path),
+                "author_email": author_email,
+                "lang": body.lang,
+                "provider": body.provider or "",
+                "analyze": True,
+            },
+            requested_provider=requested_provider,
+            requested_model=requested_model,
+        )
+        registry.save(run)
+        _ANALYSIS_EXECUTOR.submit(
+            _execute_analysis,
+            run,
+            repo_path=repo_path,
+            author_email=author_email,
+            lang=body.lang,
+            provider=body.provider,
+        )
+        return _analysis_start_payload(run)
+    except DevfolioError as exc:
+        _raise_from_devfolio(exc)
+
+
+@router.get("/analysis/{analysis_id}")
+def get_analysis(
+    request: Request,
+    analysis_id: str,
+    since: int = 0,
+    include_dev: bool = False,
+) -> dict[str, Any]:
+    """분석 상태 스냅샷 + `since` 이후 이벤트. UI 는 이 응답만 그린다."""
+    run = get_run_registry().get(analysis_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="분석 실행을 찾을 수 없습니다.")
+    dev_allowed = include_dev and _dev_detail_allowed(request)
+    return {
+        "status": "ok",
+        "cursor": run.seq,
+        "analysis": run.to_dict(include_dev=dev_allowed),
+        "events": run.events_since(since),
+    }
+
+
+@router.post("/analysis/{analysis_id}/cancel")
+def cancel_analysis(analysis_id: str) -> dict[str, Any]:
+    run = get_run_registry().get(analysis_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="분석 실행을 찾을 수 없습니다.")
+    if run.is_terminal:
+        return {"status": "ok", "changed": False, "analysis": run.to_dict()}
+    # 진행 중인 HTTP 호출을 강제로 중단하지는 않는다. 결과 반영을 막고 상태를 즉시 취소로 바꾼다.
+    run.cancel()
+    get_run_registry().save(run)
+    return {"status": "ok", "changed": True, "analysis": run.to_dict()}
+
+
+@router.post("/analysis/{analysis_id}/retry", status_code=202)
+def retry_analysis(analysis_id: str, body: RetryAnalysisRequest) -> dict[str, Any]:
+    """실패한 분석을 다시 시도한다.
+
+    - stage=all: 전체 재분석(새 실행)
+    - stage=cases: 성공한 초안을 재사용해 사례 추출만 다시 실행(AI 호출 1회)
+    """
+    registry = get_run_registry()
+    source = registry.get(analysis_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="분석 실행을 찾을 수 없습니다.")
+    if not source.is_terminal:
+        raise HTTPException(
+            status_code=409, detail="진행 중인 분석은 다시 시작할 수 없습니다."
+        )
+    params = dict(source.params or {})
+    repo_path = Path(str(params.get("repo_path", "")))
+    if not repo_path.exists():
+        raise HTTPException(
+            status_code=400,
+            detail="원본 저장소 경로를 찾을 수 없어 다시 실행할 수 없습니다.",
+        )
+    existing = registry.running_for_repo(str(repo_path))
+    if existing is not None:
+        return _analysis_start_payload(existing, reused=True)
+
+    cfg = _load_config_with_normalized_models()
+    provider_override = body.provider or params.get("provider") or None
+    requested_provider, requested_model = _requested_ai(cfg, provider_override)
+    new_run = registry.create(
+        repo_name=source.repo_name,
+        params={
+            **params,
+            "provider": provider_override or "",
+            "retried_from": analysis_id,
+        },
+        requested_provider=requested_provider,
+        requested_model=requested_model,
+    )
+    registry.save(new_run)
+
+    if body.stage == "cases":
+        if not source.payload:
+            raise HTTPException(
+                status_code=400,
+                detail="재사용할 AI 초안이 없어 사례만 다시 실행할 수 없습니다. 전체 재분석을 사용하세요.",
+            )
+        _ANALYSIS_EXECUTOR.submit(
+            _execute_cases_retry,
+            new_run,
+            payload=source.payload,
+            params=dict(new_run.params),
+        )
+    else:
+        _ANALYSIS_EXECUTOR.submit(
+            _execute_analysis,
+            new_run,
+            repo_path=repo_path,
+            author_email=str(params.get("author_email", "")),
+            lang=str(params.get("lang", "ko")),
+            provider=provider_override,
+        )
+    return _analysis_start_payload(new_run)
+
+
+_MODEL_STATUS_REASONS = {
+    "rate_limit": "요청 한도 초과",
+    "model_gone": "지원 종료 또는 접근 불가",
+    "auth": "인증 필요",
+    "server": "일시적 장애",
+    "timeout": "응답 지연(일시적 장애)",
+    "truncated": "출력 길이 제한",
+    "json_invalid": "응답 형식 오류",
+    "bad_request": "요청 거부(사용 불가)",
+    "context": "입력 길이 초과",
+    "content_policy": "정책상 사용 불가",
+}
+
+
+@router.get("/ai/models/status")
+def ai_models_status() -> dict[str, Any]:
+    """모델 상태를 최근 호출 기록에서 읽는다.
+
+    상태 확인을 위해 Provider API 를 추가 호출하지 않는다(무료 한도 보호).
+    기록이 없는 모델은 "사용 가능"이 아니라 "알 수 없음"으로 표시한다.
+    """
+    cfg = _load_config_with_normalized_models()
+    service = AIService(cfg)
+    settings = ReliabilitySettings.from_env()
+    store = get_health_store(settings)
+    records = store.snapshot()
+    providers: list[dict[str, Any]] = []
+    for provider in service._provider_fallback_chain(None):
+        cooldown = store.provider_cooldown_remaining(provider.name)
+        models: list[dict[str, Any]] = []
+        for model in service._runtime_model_candidates(provider):
+            record = records.get(ModelHealthStore.key(provider.name, model)) or {}
+            remaining = store.remaining(ModelHealthStore.key(provider.name, model))
+            if record.get("permanent"):
+                status, reason = (
+                    "unavailable",
+                    _MODEL_STATUS_REASONS.get(
+                        str(record.get("kind", "")), "사용할 수 없음"
+                    ),
+                )
+            elif remaining > 0:
+                status = "cooldown"
+                reason = _MODEL_STATUS_REASONS.get(
+                    str(record.get("kind", "")), "일시적으로 사용할 수 없음"
+                )
+            elif cooldown > 0:
+                status, reason = "cooldown", "Provider 요청 한도 초과"
+            else:
+                status, reason = "unknown", "최근 기록 없음(사용 가능 여부 미확인)"
+            models.append(
+                {
+                    "model_id": model,
+                    "model_display": model_display(model),
+                    "status": status,
+                    "reason": reason,
+                    "retry_after_seconds": round(remaining, 1)
+                    if remaining not in (0, float("inf"))
+                    else None,
+                }
+            )
+        providers.append(
+            {
+                "provider": provider.name,
+                "provider_display": provider_display(provider.name),
+                "configured": cfg.get_provider(provider.name) is not None,
+                "status": "cooldown" if cooldown > 0 else "unknown",
+                "cooldown_seconds": round(cooldown, 1) if cooldown > 0 else 0,
+                "models": models,
+            }
+        )
+    return {
+        "status": "ok",
+        "providers": providers,
+        "checked_at": time.time(),
+        "note": "최근 호출 기록 기반이며 추가 API 호출 없이 조회합니다.",
+    }
+
+
+def _dev_detail_allowed(request: Optional[Request]) -> bool:
+    """기술 상세는 DEBUG 모드 + 루프백 클라이언트에서만 내려준다."""
+    if os.environ.get("DEVFOLIO_DEBUG", "").strip().lower() not in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        return False
+    client = getattr(request, "client", None)
+    host = (getattr(client, "host", "") or "").lower() if client else ""
+    return host in {"127.0.0.1", "::1", "localhost", "testclient"}
 
 
 # ---------------------------------------------------------------------------

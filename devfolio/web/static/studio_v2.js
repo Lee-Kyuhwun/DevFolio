@@ -88,6 +88,14 @@
       analyze: true,
       aiError: null,
       aiReport: null,
+      // AI 분석 관측 상태 — 서버 스냅샷만 담는다(가짜 진행률 없음).
+      analysis: null,
+      analysisId: null,
+      analysisCursor: 0,
+      analysisPolling: false,
+      devDetail: false,
+      modelStatus: null,
+      modelStatusLoading: false,
     },
     ui: {
       loading: true,
@@ -123,7 +131,48 @@
     bindEvents();
     render();
     loadInitialData();
+    resumeAnalysis();
   });
+
+  const ANALYSIS_STORAGE_KEY = "devfolio.analysisId";
+
+  function rememberAnalysisId(analysisId) {
+    try {
+      if (analysisId) {
+        window.sessionStorage.setItem(ANALYSIS_STORAGE_KEY, analysisId);
+      } else {
+        window.sessionStorage.removeItem(ANALYSIS_STORAGE_KEY);
+      }
+    } catch (error) {
+      // 사생활 보호 모드 등 저장소가 막힌 환경에서는 상태 복원만 건너뛴다.
+    }
+  }
+
+  /** 새로고침해도 서버의 실행 상태를 다시 붙인다(로컬 타이머로 이어 그리지 않음). */
+  async function resumeAnalysis() {
+    let analysisId = null;
+    try {
+      analysisId = window.sessionStorage.getItem(ANALYSIS_STORAGE_KEY);
+    } catch (error) {
+      return;
+    }
+    if (!analysisId) return;
+    try {
+      const data = await requestJson(`/api/analysis/${encodeURIComponent(analysisId)}`);
+      state.importer.analysisId = analysisId;
+      state.importer.analysisCursor = data.cursor;
+      state.importer.analysis = data.analysis;
+      focusAnalysisView(data.analysis);
+      if (ANALYSIS_TERMINAL.includes(data.analysis.status)) {
+        finishAnalysis(data.analysis);
+      } else {
+        render();
+        await pollAnalysis();
+      }
+    } catch (error) {
+      rememberAnalysisId(null);
+    }
+  }
 
   function emptyPeriod() {
     return { start: "", end: "" };
@@ -984,6 +1033,22 @@
           state.importer.aiError = null;
           await importFromScan();
           break;
+        case "analysis-retry-all":
+          await retryAnalysis("all");
+          break;
+        case "analysis-retry-cases":
+          await retryAnalysis("cases");
+          break;
+        case "analysis-cancel":
+          await cancelAnalysis();
+          break;
+        case "analysis-toggle-dev":
+          state.importer.devDetail = !state.importer.devDetail;
+          await refreshAnalysisSnapshot();
+          break;
+        case "load-model-status":
+          await loadModelStatus();
+          break;
         case "retry-initial-load":
           await loadInitialData();
           break;
@@ -1238,6 +1303,10 @@
     if (!state.importer.repoPath.trim()) {
       showToast("저장소 경로를 입력하세요.", "warn");
       render();
+      return;
+    }
+    if (state.importer.analyze) {
+      await startAnalyzeFlow();
       return;
     }
     state.ui.aiLoading = true;
@@ -2165,6 +2234,7 @@
             <div class="toolbar">
               <button class="btn btn-primary" data-action="import-scan" type="button">Git 스캔 불러오기</button>
             </div>
+            ${renderAnalysisProgressPanel()}
           </div>
         </div>
       </div>
@@ -2186,6 +2256,461 @@
     failed: "실패",
     skipped: "건너뜀",
   };
+
+  // -------------------------------------------------------------------------
+  // AI 분석 관측 UI — 서버 상태 스냅샷을 그대로 그린다.
+  //   · 진행률은 완료된 단계 수로 계산한다(예상 시간·임의 퍼센트 없음).
+  //   · 모델은 Provider와 Model ID를 분리해 표시한다.
+  //   · 상태는 색상뿐 아니라 아이콘 + 텍스트로 전달한다.
+  // -------------------------------------------------------------------------
+
+  const ANALYSIS_STATUS_META = {
+    pending: { label: "대기 중", icon: "○", tone: "idle" },
+    running: { label: "분석 중", icon: "▶", tone: "run" },
+    retrying: { label: "재시도 중", icon: "↻", tone: "run" },
+    fallback: { label: "모델 전환 중", icon: "⇄", tone: "warn" },
+    validating: { label: "결과 검증 중", icon: "◇", tone: "run" },
+    completed: { label: "완료", icon: "✓", tone: "ok" },
+    partial: { label: "일부 완료", icon: "◐", tone: "warn" },
+    failed: { label: "실패", icon: "✕", tone: "err" },
+    cancelled: { label: "취소됨", icon: "⊘", tone: "idle" },
+  };
+
+  const ANALYSIS_STAGE_ICON = {
+    pending: "○",
+    running: "▶",
+    completed: "✓",
+    failed: "✕",
+    skipped: "–",
+    partial: "◐",
+  };
+
+  const ANALYSIS_TERMINAL = ["completed", "partial", "failed", "cancelled"];
+
+  function analysisIsRunning(analysis) {
+    return Boolean(analysis) && !ANALYSIS_TERMINAL.includes(analysis.status);
+  }
+
+  function formatDuration(ms) {
+    const total = Math.max(0, Math.round((Number(ms) || 0) / 1000));
+    if (total < 60) return `${total}초`;
+    return `${Math.floor(total / 60)}분 ${total % 60}초`;
+  }
+
+  function modelPair(providerDisplay, modelDisplay) {
+    const parts = [providerDisplay, modelDisplay].filter(Boolean);
+    return parts.length ? parts.join(" / ") : "";
+  }
+
+  function sleep(ms) {
+    return new Promise((resolve) => window.setTimeout(resolve, ms));
+  }
+
+  function refreshAnalysisPanel() {
+    const html = renderAnalysisProgressPanel();
+    let replaced = false;
+    document.querySelectorAll("[data-analysis-panel]").forEach((node) => {
+      if (!(node instanceof HTMLElement)) return;
+      node.outerHTML = html;
+      replaced = true;
+    });
+    if (!replaced) {
+      render();
+    }
+  }
+
+  function analysisToReport(analysis) {
+    if (!analysis) return null;
+    return {
+      status: analysis.status,
+      completed: analysis.status === "completed",
+      model_used: modelPair(analysis.effective_provider_display, analysis.effective_model_display),
+      fallback_used: Boolean(analysis.fallback_occurred),
+      error: analysis.error_summary || "",
+      analysis_id: analysis.analysis_id,
+      stages: (analysis.stages || []).map((stage) => ({
+        name: stage.stage_id,
+        status: stage.status,
+        detail: stage.detail,
+        model: stage.model_id,
+      })),
+      quality: null,
+    };
+  }
+
+  async function startAnalyzeFlow() {
+    state.importer.aiError = null;
+    state.importer.aiReport = null;
+    state.importer.analysis = null;
+    state.importer.analysisId = null;
+    state.importer.analysisCursor = 0;
+    state.importer.analysisPolling = false;
+    state.ui.aiLoading = false;
+    render();
+    try {
+      const started = await requestJson("/api/scan/git/async", {
+        method: "POST",
+        body: JSON.stringify({
+          repo_path: state.importer.repoPath.trim(),
+          author_email: state.importer.authorEmail.trim(),
+          refresh: true,
+          analyze: true,
+          lang: (state.config && state.config.general && state.config.general.default_language) || "ko",
+        }),
+      });
+      state.importer.analysisId = started.analysis_id;
+      state.importer.analysis = started.analysis;
+      rememberAnalysisId(started.analysis_id);
+      render();
+      if (started.reused) {
+        showToast("이미 진행 중인 분석을 이어서 표시합니다.", "info");
+      }
+      await pollAnalysis();
+    } catch (error) {
+      state.importer.aiError = error.message || "AI 분석을 시작하지 못했습니다.";
+      showToast(state.importer.aiError, "error");
+      render();
+    }
+  }
+
+  async function pollAnalysis() {
+    state.importer.analysisPolling = true;
+    const id = state.importer.analysisId;
+    try {
+      while (state.importer.analysisPolling && state.importer.analysisId === id) {
+        const since = state.importer.analysisCursor || 0;
+        const dev = state.importer.devDetail ? "&include_dev=true" : "";
+        const data = await requestJson(
+          `/api/analysis/${encodeURIComponent(id)}?since=${since}${dev}`
+        );
+        const previousStatus = state.importer.analysis ? state.importer.analysis.status : "";
+        state.importer.analysisCursor = data.cursor;
+        state.importer.analysis = data.analysis;
+        refreshAnalysisPanel();
+        if (previousStatus !== data.analysis.status) {
+          announce(`AI 분석 상태: ${data.analysis.status_label || data.analysis.status}`);
+        }
+        if (ANALYSIS_TERMINAL.includes(data.analysis.status)) {
+          finishAnalysis(data.analysis);
+          return;
+        }
+        await sleep(800);
+      }
+    } catch (error) {
+      state.importer.aiError = error.message || "분석 상태를 확인하지 못했습니다.";
+      showToast(state.importer.aiError, "warn");
+    } finally {
+      state.importer.analysisPolling = false;
+    }
+  }
+
+  async function refreshAnalysisSnapshot() {
+    const id = state.importer.analysisId;
+    if (!id) {
+      refreshAnalysisPanel();
+      return;
+    }
+    try {
+      const dev = state.importer.devDetail ? "&include_dev=true" : "";
+      const data = await requestJson(
+        `/api/analysis/${encodeURIComponent(id)}?since=${state.importer.analysisCursor || 0}${dev}`
+      );
+      state.importer.analysisCursor = data.cursor;
+      state.importer.analysis = data.analysis;
+    } catch (error) {
+      showToast(error.message || "상세 정보를 불러오지 못했습니다.", "warn");
+    }
+    refreshAnalysisPanel();
+  }
+
+  /** 분석 패널이 보이는 화면(경험 편집기)으로 이동한다. 목록 화면에 패널만 떠 있으면 못 찾는다. */
+  function focusAnalysisView(analysis) {
+    if (!analysis) return;
+    if (state.ui.screen !== "experiences" || state.ui.expMode === "list") {
+      state.ui.expMode = state.editingExperienceId ? "edit" : "new";
+      setRoute("experiences");
+    }
+  }
+
+  function finishAnalysis(analysis) {
+    if (analysis && analysis.payload) {
+      state.experienceForm = scanPayloadToExperience(analysis.payload);
+      state.ui.formSection = "basics";
+    }
+    focusAnalysisView(analysis);
+    state.importer.aiReport = analysisToReport(analysis);
+    state.importer.aiError =
+      analysis && analysis.status === "failed" ? analysis.error_summary || "AI 분석 실패" : null;
+    const label = modelPair(analysis.effective_provider_display, analysis.effective_model_display);
+    const note = label ? ` (${label})` : "";
+    if (analysis.status === "completed") {
+      showToast(
+        analysis.fallback_occurred
+          ? `모델을 자동 전환해 AI 분석을 완료했습니다${note}.`
+          : `AI 분석 완료${note}.`,
+        "ok"
+      );
+    } else if (analysis.status === "partial") {
+      showToast(`AI 분석이 일부만 완료되었습니다${note} — 실패한 단계는 상세에서 확인하세요.`, "warn");
+    } else if (analysis.status === "cancelled") {
+      showToast("AI 분석을 취소했습니다.", "warn");
+    } else {
+      showToast(analysis.error_summary || "AI 분석을 완료하지 못했습니다.", "warn");
+    }
+    render();
+  }
+
+  async function retryAnalysis(stage) {
+    const id = state.importer.analysisId;
+    if (!id) return;
+    try {
+      const started = await requestJson(`/api/analysis/${encodeURIComponent(id)}/retry`, {
+        method: "POST",
+        body: JSON.stringify({ stage: stage || "all" }),
+      });
+      state.importer.analysisId = started.analysis_id;
+      state.importer.analysis = started.analysis;
+      state.importer.analysisCursor = 0;
+      state.importer.aiError = null;
+      rememberAnalysisId(started.analysis_id);
+      refreshAnalysisPanel();
+      await pollAnalysis();
+    } catch (error) {
+      showToast(error.message || "재시도할 수 없습니다.", "error");
+    }
+  }
+
+  async function cancelAnalysis() {
+    const id = state.importer.analysisId;
+    if (!id) return;
+    try {
+      const result = await requestJson(`/api/analysis/${encodeURIComponent(id)}/cancel`, {
+        method: "POST",
+      });
+      state.importer.analysis = result.analysis;
+      state.importer.analysisPolling = false;
+      refreshAnalysisPanel();
+      showToast("AI 분석을 취소했습니다.", "warn");
+    } catch (error) {
+      showToast(error.message || "취소하지 못했습니다.", "error");
+    }
+  }
+
+  async function loadModelStatus() {
+    if (state.importer.modelStatusLoading) return;
+    state.importer.modelStatusLoading = true;
+    refreshAnalysisPanel();
+    try {
+      state.importer.modelStatus = await requestJson("/api/ai/models/status");
+    } catch (error) {
+      showToast(error.message || "모델 상태를 불러오지 못했습니다.", "warn");
+    } finally {
+      state.importer.modelStatusLoading = false;
+      refreshAnalysisPanel();
+    }
+  }
+
+  function renderFallbackTrail(analysis) {
+    const calls = Array.isArray(analysis.calls) ? analysis.calls : [];
+    if (calls.length < 2) return "";
+    const rows = [];
+    for (let i = 1; i < calls.length; i += 1) {
+      const prev = calls[i - 1];
+      const next = calls[i];
+      if (prev.provider === next.provider && prev.model_id === next.model_id) continue;
+      const reason =
+        prev.error_code && analysis.errors
+          ? (analysis.errors.find(
+              (err) => err.error_code === prev.error_code && err.model_id === prev.model_id
+            ) || {}).user_message || ""
+          : "";
+      rows.push(`<li class="analysis-fallback-row">
+          <span class="analysis-model-from">${escapeHtml(modelPair(prev.provider_display, prev.model_display))}</span>
+          <span aria-hidden="true">→</span>
+          <span class="analysis-model-to">${escapeHtml(modelPair(next.provider_display, next.model_display))}</span>
+          ${reason ? `<span class="analysis-fallback-reason">${escapeHtml(reason)}</span>` : ""}
+        </li>`);
+    }
+    if (!rows.length) return "";
+    return `<div class="analysis-block">
+        <div class="analysis-block-title">모델 전환 기록 (${analysis.fallback_count || rows.length}회)</div>
+        <ul class="analysis-fallbacks">${rows.join("")}</ul>
+      </div>`;
+  }
+
+  function renderAnalysisErrors(analysis) {
+    const errors = Array.isArray(analysis.errors) ? analysis.errors : [];
+    if (!errors.length) return "";
+    const last = errors[errors.length - 1];
+    const dev = analysis.dev && Array.isArray(analysis.dev.errors) ? analysis.dev.errors.slice(-3) : [];
+    const devHtml = dev.length
+      ? `<ul class="analysis-dev-list">${dev
+          .map((item) => `<li><code>${escapeHtml(item.error_code)}</code> ${escapeHtml(item.model_id || "")} — ${escapeHtml(item.technical_message || "")}</li>`)
+          .join("")}</ul>`
+      : `<p class="analysis-muted">기술 상세는 서버 DEBUG 모드에서만 표시됩니다.</p>`;
+    return `<div class="analysis-block analysis-error">
+        <div class="analysis-block-title">실패 원인</div>
+        <p class="analysis-error-message">${escapeHtml(last.user_message || analysis.error_summary || "")}</p>
+        <details class="analysis-details">
+          <summary>상세 보기</summary>
+          <dl class="analysis-kv">
+            <dt>오류 코드</dt><dd><code>${escapeHtml(last.error_code || "")}</code></dd>
+            <dt>단계</dt><dd>${escapeHtml(last.stage_label || "")}</dd>
+            <dt>Provider</dt><dd>${escapeHtml(last.provider_display || last.provider || "—")}</dd>
+            <dt>모델</dt><dd><code>${escapeHtml(last.model_id || "—")}</code></dd>
+            <dt>재시도 가능</dt><dd>${last.retryable ? "예" : "아니오"}${last.retry_after_seconds ? ` (${Math.round(last.retry_after_seconds)}초 후)` : ""}</dd>
+            <dt>Request ID</dt><dd><code>${escapeHtml(last.request_id || "—")}</code></dd>
+            <dt>권장 조치</dt><dd>${escapeHtml(last.action || "—")}</dd>
+          </dl>
+          <div class="analysis-block-title">개발자 상세</div>
+          ${devHtml}
+        </details>
+      </div>`;
+  }
+
+  function renderCallHistory(analysis) {
+    const calls = Array.isArray(analysis.calls) ? analysis.calls : [];
+    if (!calls.length) return "";
+    const rows = calls
+      .map((call) => `<tr>
+          <td>${escapeHtml(call.stage_label || call.stage)}</td>
+          <td>${escapeHtml(modelPair(call.provider_display, call.model_display))}</td>
+          <td>${escapeHtml(call.status === "ok" ? "성공" : call.status === "error" ? "실패" : call.status)}</td>
+          <td>${call.duration_ms ? `${formatDuration(call.duration_ms)}` : "—"}</td>
+          <td>${escapeHtml(call.error_code || "—")}</td>
+        </tr>`)
+      .join("");
+    return `<details class="analysis-details">
+        <summary>호출 이력 (${calls.length}회)</summary>
+        <table class="analysis-calls">
+          <thead><tr><th>단계</th><th>모델</th><th>결과</th><th>소요</th><th>오류</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </details>`;
+  }
+
+  function renderModelStatus() {
+    const status = state.importer.modelStatus;
+    if (state.importer.modelStatusLoading) {
+      return `<p class="analysis-muted">모델 상태를 확인하는 중입니다...</p>`;
+    }
+    if (!status || !Array.isArray(status.providers)) {
+      return `<button class="btn btn-secondary" data-action="load-model-status" type="button">모델 상태 확인</button>
+        <p class="analysis-muted">상태는 최근 호출 기록으로만 판단하며, 추가 API 호출은 하지 않습니다.</p>`;
+    }
+    const rows = status.providers
+      .map((provider) => {
+        const models = (provider.models || [])
+          .map((model) => `<li>
+              <code>${escapeHtml(model.model_id)}</code>
+              <span class="analysis-muted">${escapeHtml(model.model_display || "")}</span>
+              <span class="analysis-model-status analysis-model-status-${escapeHtml(model.status)}">${escapeHtml(model.reason || model.status)}</span>
+            </li>`)
+          .join("");
+        return `<div class="analysis-provider">
+            <strong>${escapeHtml(provider.provider_display || provider.provider)}</strong>
+            ${provider.configured ? "" : '<span class="analysis-muted">(미설정)</span>'}
+            <ul>${models}</ul>
+          </div>`;
+      })
+      .join("");
+    return `<div class="analysis-providers">${rows}</div>
+      <p class="analysis-muted">${escapeHtml(status.note || "")}</p>`;
+  }
+
+  function renderAnalysisProgressPanel() {
+    const analysis = state.importer.analysis;
+    if (!analysis) return "";
+    const meta = ANALYSIS_STATUS_META[analysis.status] || {
+      label: analysis.status_label || analysis.status,
+      icon: "•",
+      tone: "idle",
+    };
+    const running = analysisIsRunning(analysis);
+    const total = analysis.total_stages || 4;
+    const completed = analysis.completed_stages || 0;
+    const percent = Number.isFinite(analysis.progress_percent)
+      ? analysis.progress_percent
+      : Math.round((completed * 100) / total);
+    const stages = Array.isArray(analysis.stages) ? analysis.stages : [];
+    const stageHtml = stages
+      .map((stage) => {
+        const icon = ANALYSIS_STAGE_ICON[stage.status] || "•";
+        const stageStatus = AI_STAGE_STATUS[stage.status] || stage.status;
+        const model = stage.model_id
+          ? `<span class="analysis-stage-model">${escapeHtml(modelPair(stage.provider_display, stage.model_display))}</span>`
+          : "";
+        const detail = stage.detail
+          ? `<span class="analysis-stage-detail">${escapeHtml(stage.detail)}</span>`
+          : "";
+        return `<li class="analysis-stage analysis-stage-${escapeHtml(stage.status)}">
+            <span class="analysis-stage-icon" aria-hidden="true">${icon}</span>
+            <span class="analysis-stage-name">${escapeHtml(stage.label || AI_STAGE_LABELS[stage.stage_id] || stage.stage_id)}</span>
+            <span class="analysis-stage-status">${escapeHtml(stageStatus)}</span>
+            ${model}${detail}
+          </li>`;
+      })
+      .join("");
+
+    const requested = modelPair(analysis.requested_provider_display, analysis.requested_model_display) || "설정된 모델 없음";
+    const current = analysis.effective_model_display
+      ? modelPair(analysis.effective_provider_display, analysis.effective_model_display)
+      : analysis.selected_model_display
+        ? `${modelPair(analysis.selected_provider_display, analysis.selected_model_display)} (호출 중)`
+        : "아직 호출된 모델 없음";
+    const finishedModel = analysis.effective_model_display
+      ? modelPair(analysis.effective_provider_display, analysis.effective_model_display)
+      : "유효 결과를 만든 모델 없음";
+    const rawIds = analysis.effective_model
+      ? `<code>${escapeHtml(analysis.effective_model)}</code>`
+      : "";
+
+    const canRetryCases =
+      analysis.status !== "failed" ||
+      (analysis.stages || []).some((stage) => stage.stage_id === "cases" && stage.status === "failed");
+    const actions = [];
+    if (running) {
+      actions.push('<button class="btn btn-secondary" data-action="analysis-cancel" type="button">분석 취소</button>');
+    } else {
+      if (canRetryCases && analysis.payload) {
+        actions.push('<button class="btn btn-secondary" data-action="analysis-retry-cases" type="button">사례 단계만 재시도</button>');
+      }
+      actions.push('<button class="btn btn-primary" data-action="analysis-retry-all" type="button">전체 다시 분석</button>');
+      actions.push(
+        `<button class="btn btn-ghost" data-action="analysis-toggle-dev" type="button" aria-pressed="${state.importer.devDetail ? "true" : "false"}">${state.importer.devDetail ? "개발자 상세 숨기기" : "개발자 상세 보기"}</button>`
+      );
+    }
+
+    return `<section class="analysis-panel" data-analysis-panel aria-labelledby="analysis-title" aria-busy="${running}">
+        <div class="analysis-head">
+          <h4 id="analysis-title">AI 분석 상태</h4>
+          <span class="analysis-status analysis-status-${meta.tone}">
+            <span aria-hidden="true">${meta.icon}</span> ${escapeHtml(meta.label)}
+          </span>
+          <span class="analysis-elapsed">${formatDuration(analysis.elapsed_ms)}</span>
+          <span class="analysis-muted">${completed} / ${total} 단계</span>
+        </div>
+        <div class="analysis-progressbar analysis-progressbar-${meta.tone}" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}" aria-valuetext="${completed} / ${total} 단계 완료">
+          <span style="width:${percent}%"></span>
+        </div>
+        ${analysis.current_stage_label && running ? `<p class="analysis-current">현재 단계: <strong>${escapeHtml(analysis.current_stage_label)}</strong></p>` : ""}
+        <dl class="analysis-kv analysis-models">
+          <dt>요청 모델</dt><dd>${escapeHtml(requested)}</dd>
+          <dt>${running ? "현재 모델" : "결과 모델"}</dt><dd>${escapeHtml(running ? current : finishedModel)} ${rawIds}</dd>
+          ${analysis.fallback_occurred ? `<dt>전환</dt><dd>${analysis.fallback_count}회 자동 전환됨</dd>` : ""}
+          <dt>분석 ID</dt><dd><code>${escapeHtml(analysis.analysis_id)}</code></dd>
+        </dl>
+        <ol class="analysis-stagelist">${stageHtml}</ol>
+        ${renderFallbackTrail(analysis)}
+        ${analysis.error_summary ? renderAnalysisErrors(analysis) : ""}
+        <div class="analysis-actions">${actions.join("")}</div>
+        ${renderCallHistory(analysis)}
+        <details class="analysis-details">
+          <summary>모델 상태</summary>
+          ${renderModelStatus()}
+        </details>
+      </section>`;
+  }
 
   // AI 분석 리포트 — 어떤 모델을 썼고, 대체가 있었는지, 어느 단계까지 끝났는지 보여준다.
   function renderAnalysisReport(report) {
@@ -2233,7 +2758,8 @@
   }
 
   function renderExperienceBasicsSection(form) {
-    const aiReportHtml = renderAnalysisReport(state.importer.aiReport);
+    // 새 관측 패널이 있으면 옛 압축 리포트는 그리지 않는다(단계 목록 중복 방지).
+    const aiReportHtml = state.importer.analysis ? "" : renderAnalysisReport(state.importer.aiReport);
     const aiErrorBanner = state.importer.aiError
       ? `<div class="ai-error-banner">
           <span class="ai-error-icon">⚠</span>
@@ -2244,6 +2770,7 @@
     return `
       <div class="section-block">
         ${aiErrorBanner}
+        ${renderAnalysisProgressPanel()}
         ${aiReportHtml}
         <div class="eyebrow">Basics</div>
         <h3>경험의 기본 정보</h3>

@@ -1473,3 +1473,257 @@ label .field-hint {
   color: var(--text);
   background: rgba(255, 255, 255, 0.05);
 }
+
+/* ---------------------------------------------------------------------------
+   AI 분석 관측 패널 — 진행 상황·모델·전환·오류 상세
+   상태는 색상 + 아이콘 + 텍스트로 함께 전달한다(색상만으로 구분하지 않음).
+--------------------------------------------------------------------------- */
+
+.analysis-panel {
+  border: 1px solid var(--border, #30363d);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-top: 12px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.02));
+  display: grid;
+  gap: 10px;
+}
+
+.analysis-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.analysis-head h4 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.analysis-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border, #30363d);
+}
+
+.analysis-status-ok { color: #56d364; border-color: #2ea043; }
+.analysis-status-warn { color: #e3b341; border-color: #d29922; }
+.analysis-status-err { color: #f85149; border-color: #f85149; }
+.analysis-status-run { color: #58a6ff; border-color: #58a6ff; }
+.analysis-status-idle { color: var(--text-3, #8b949e); }
+
+.analysis-elapsed,
+.analysis-muted {
+  font-size: 12px;
+  color: var(--text-3, #8b949e);
+}
+
+.analysis-progressbar {
+  position: relative;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.analysis-progressbar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #2f81f7, #56d364);
+  transition: width 0.25s ease;
+}
+
+.analysis-current {
+  margin: 0;
+  font-size: 13px;
+}
+
+.analysis-models {
+  margin: 0;
+  font-size: 13px;
+}
+
+.analysis-kv {
+  display: grid;
+  grid-template-columns: minmax(88px, auto) 1fr;
+  gap: 4px 12px;
+  margin: 8px 0 0;
+}
+
+.analysis-kv dt {
+  color: var(--text-3, #8b949e);
+  font-size: 12px;
+}
+
+.analysis-kv dd {
+  margin: 0;
+  font-size: 13px;
+  word-break: break-word;
+}
+
+.analysis-stagelist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.analysis-stage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.analysis-stage-icon {
+  width: 14px;
+  text-align: center;
+  font-weight: 700;
+}
+
+.analysis-stage-name { min-width: 104px; }
+
+.analysis-stage-status { font-weight: 600; }
+
+.analysis-stage-completed .analysis-stage-icon,
+.analysis-stage-completed .analysis-stage-status { color: #56d364; }
+
+.analysis-stage-running .analysis-stage-icon,
+.analysis-stage-running .analysis-stage-status { color: #58a6ff; }
+
+.analysis-stage-failed .analysis-stage-icon,
+.analysis-stage-failed .analysis-stage-status { color: #f85149; }
+
+.analysis-stage-pending .analysis-stage-status,
+.analysis-stage-skipped .analysis-stage-status { color: var(--text-3, #8b949e); }
+
+.analysis-stage-model,
+.analysis-stage-detail {
+  font-size: 12px;
+  color: var(--text-3, #8b949e);
+}
+
+.analysis-block {
+  border-top: 1px dashed var(--border, #30363d);
+  padding-top: 8px;
+}
+
+.analysis-block-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-2, #c9d1d9);
+  margin-bottom: 6px;
+}
+
+.analysis-fallbacks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.analysis-fallback-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.analysis-model-from { color: var(--text-3, #8b949e); }
+.analysis-model-to { font-weight: 600; }
+
+.analysis-fallback-reason {
+  font-size: 12px;
+  color: #e3b341;
+}
+
+.analysis-error-message {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: #f0b6b3;
+}
+
+.analysis-details {
+  margin-top: 6px;
+  font-size: 13px;
+}
+
+.analysis-details > summary {
+  cursor: pointer;
+  color: var(--text-2, #c9d1d9);
+}
+
+.analysis-dev-list {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--text-3, #8b949e);
+}
+
+.analysis-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.analysis-calls {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.analysis-calls th,
+.analysis-calls td {
+  text-align: left;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border, #30363d);
+}
+
+.analysis-providers {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.analysis-provider ul {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 3px;
+  font-size: 12px;
+}
+
+.analysis-model-status {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border, #30363d);
+  color: var(--text-3, #8b949e);
+}
+
+.analysis-model-status-cooldown { color: #e3b341; border-color: #d29922; }
+.analysis-model-status-unavailable { color: #f85149; border-color: #f85149; }
+
+@media (max-width: 640px) {
+  .analysis-head { gap: 6px; }
+  .analysis-stage-name { min-width: 84px; }
+  .analysis-kv { grid-template-columns: 1fr; }
+  .analysis-kv dt { margin-top: 4px; }
+}
+
+/* 실패/부분 완료일 때 진행 바 색을 상태와 맞춘다(가득 찬 초록 바 + 실패 배지 방지). */
+.analysis-progressbar-err > span { background: #f85149; }
+.analysis-progressbar-warn > span { background: #d29922; }

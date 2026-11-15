@@ -188,3 +188,65 @@ Provider TPM 예산을 켰을 때의 대기 시간(기본값 0으로 미측정).
   Redis를 도입하지 않았다. 워커를 여러 개 띄우면 cooldown 공유가 필요하다.
 - 개발 모드(`--reload`)에서 파일을 저장하면 진행 중인 분석 요청은 끊긴다. 모델 차단 기록은 파일이라 유지된다.
   검증 중에는 `docker-compose.verify.yml`로 reload 없이 띄운다(아래 운영 절차).
+
+## 10. 관측(Observability) — 분석 상태 API와 화면
+
+서버 로그에만 있던 호출/전환/실패 정보를 클라이언트가 읽는 **단일 상태 객체**로 옮겼다.
+
+### 상태의 단일 출처
+
+- `devfolio/core/ai_observability.py`의 `AnalysisRun`이 유일한 출처다. API 응답과 UI는 이 스냅샷만 그린다.
+- `AIService`는 `event_hook`으로 `stage_start / attempt / attempt_ok / attempt_error / fallback / stage_end`를 보낸다.
+  관측 훅이 실패해도 분석은 계속된다.
+- 저장: 데이터 디렉터리 `ai_analysis_runs.json`(최근 20건, 0o600). 새로고침·서버 재시작 후 상태를 복원한다.
+  진행 중이던 실행은 재시작 시 `cancelled`로 복구한다(끝나지 않은 작업을 완료로 보이지 않음).
+- 기술 상세(`technical_message`)는 파일에 저장하지 않고, DEBUG 모드 + 루프백 클라이언트에서만 API로 내려준다.
+  저장 전 `redact()`가 API 키·Bearer 헤더·로컬 경로를 제거한다.
+
+### 상태 값과 판정
+
+| 구분 | 값 |
+|---|---|
+| 실행 상태 | `pending / running / retrying / fallback / validating / completed / partial / failed / cancelled` |
+| 단계 상태 | `pending / running / completed / partial / failed / skipped` |
+
+- `completed`는 **모든 필수 단계 완료 + 품질 하한선 통과**일 때만이다. Git 스캔 성공만으로 완료가 되지 않는다.
+- 사례 추출 실패(파싱)는 `partial`, 품질 검증 실패는 `failed`이며, 두 경우 모두 초안 payload는 보존한다.
+- 진행률은 `완료(completed·skipped·partial) 단계 수 / 전체 단계 수`다. 실패 단계를 완료로 세지 않는다.
+  남은 시간·예상 퍼센트는 표시하지 않는다.
+
+### API
+
+| 엔드포인트 | 역할 |
+|---|---|
+| `POST /api/scan/git` | 동기 스캔(+분석). 응답에 `analysis_id`, `analysis` 스냅샷 추가(기존 `ai_report` 유지) |
+| `POST /api/scan/git/async` | 분석을 백그라운드로 시작하고 `analysis_id` 즉시 반환. 같은 저장소가 진행 중이면 재사용(`reused: true`) |
+| `GET /api/analysis/{id}?since=N&include_dev=` | 상태 스냅샷 + `seq` 커서 이후 이벤트 |
+| `POST /api/analysis/{id}/cancel` | 취소. 진행 중 호출을 강제 종료하지 않고 결과 반영을 막고 즉시 `cancelled`로 표시 |
+| `POST /api/analysis/{id}/retry` | `stage=all`(전체 재분석) 또는 `stage=cases`(성공한 초안 재사용, AI 1회) |
+| `GET /api/ai/models/status` | 최근 호출 기록 기반 모델 상태. **추가 API 호출 없음**. 기록 없는 모델은 `unknown`(사용 가능으로 단정하지 않음) |
+
+### 폴링을 선택한 이유 (SSE 비교)
+
+- 분석은 수 초~수십 초이고 UI는 이미 fetch 기반이다. SSE는 Docker/프록시 뒤에서 버퍼링·재연결·프록시 타임아웃 처리가 필요하다.
+- 폴링은 `seq` 커서로 새 이벤트만 받고, 새로고침·재시작 복원이 단순하다. 800ms 주기 1회 요청은 로컬 도구에서 부담이 없다.
+- UI 타이머로 진행률을 그리지 않는다. 서버 스냅샷의 `completed_stages`만 표시한다.
+
+### 화면
+
+- 분석 패널: 상태 배지(아이콘+텍스트), 진행 바(`role="progressbar"` + `aria-valuetext`), 단계별 아이콘·모델,
+  요청 모델 / 결과 모델 / 전환 횟수, 실패 원인과 `상세 보기`(오류 코드·Provider·모델·재시도 가능·Retry-After·Request ID·권장 조치),
+  호출 이력, 모델 상태(접기), 재시도/취소.
+- 상태는 색상만으로 구분하지 않는다(✓/✕/▶ + 텍스트). 상태 변경은 `aria-live` 리전으로 알린다.
+- 새로고침 시 `sessionStorage`의 `analysis_id`로 서버 상태를 다시 붙인다.
+
+### 검증 (2026-11-15, Docker / Groq 무료 등급)
+
+| 항목 | 결과 |
+|---|---|
+| 비동기 시작 → 완료 | 202 → 5.7초, `completed`, 진행률 100, 4/4 단계 |
+| 모델 표시 | 요청 `Groq / Llama 3.3 70B Versatile` ≠ 결과 `Groq / GPT-OSS 120B`(같은 값으로 뭉개지 않음) |
+| 호출 이력 | 2회(분석·사례), 둘 다 `openai/gpt-oss-120b`, 성공 |
+| 품질 실패 실행 | `failed`, 3/4(75%), `QUALITY_GATE_FAILED`, Request ID 표시, 기술 상세는 DEBUG 전용 안내 |
+| 새로고침 복원 | 페이지 재로딩 후 서버 상태 패널 재표시(4/4 → 3/4 반영) |
+| 콘솔 오류 | 없음 |

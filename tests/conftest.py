@@ -56,6 +56,18 @@ def _isolate_model_health(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_analysis_runs(tmp_path, monkeypatch):
+    """AI 분석 실행 기록이 사용자 데이터 폴더에 쓰이지 않게 테스트마다 임시 파일로 바꾼다."""
+    from devfolio.core import ai_observability
+
+    registry = ai_observability.AnalysisRunRegistry(
+        path=tmp_path / "ai_analysis_runs.json"
+    )
+    monkeypatch.setattr(ai_observability, "_DEFAULT_REGISTRY", registry)
+    yield registry
+
+
+@pytest.fixture(autouse=True)
 def _isolate_ai_log(tmp_path, monkeypatch):
     """AI 호출 로그(ai_logs.jsonl)가 사용자 데이터 폴더에 쓰이지 않게 테스트마다 임시 파일로 바꾼다.
 
