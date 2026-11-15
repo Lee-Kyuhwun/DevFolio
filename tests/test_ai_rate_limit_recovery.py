@@ -334,3 +334,37 @@ def test_inc23_language_share_is_not_file_count():
     assert "Markdown(25%, 25개 파일)" in captured["prompt"]
     # 개수를 %로 찍던 예전 표기 (329% 같은 값) 가 남아 있지 않다.
     assert "75%)" not in captured["prompt"]
+
+
+def test_nvidia_gpt_oss_gets_reasoning_token_headroom():
+    """NVIDIA gpt-oss는 reasoning 토큰이 max_tokens를 먼저 써 content가 빈다.
+
+    LiteLLM nvidia_nim 경로는 reasoning_effort를 지원하지 않으므로 출력 한도를
+    올려 빈 응답을 막는다. 이 테스트가 없으면 하한 보정이 조용히 사라져도
+    기존 suite는 통과한다.
+    """
+    config = make_config("nvidia_nim")
+    config.ai_providers = [
+        AIProviderConfig(name="nvidia_nim", model="openai/gpt-oss-20b", key_stored=True)
+    ]
+    service = AIService(config)
+    provider = service._get_provider("nvidia_nim")
+    fake = MagicMock()
+    fake.completion.return_value = _resp(json.dumps(_GOOD_PAYLOAD))
+
+    with (
+        _offline(fake),
+        patch.object(
+            service, "_runtime_model_candidates", side_effect=lambda p: [p.model]
+        ),
+    ):
+        service._call_single_provider(
+            fake,
+            provider,
+            [{"role": "user", "content": "JSON 으로 답하세요"}],
+            None,
+            100,
+            True,
+        )
+
+    assert fake.completion.call_args.kwargs["max_tokens"] >= 2048
