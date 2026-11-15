@@ -43,7 +43,7 @@ make hooks                 # git pre-commit 훅 설치 (클론 후 1회)
 make check                 # 커밋 전 검증: ruff + format + pytest -x (훅과 동일)
 
 # 테스트
-pytest                                        # 전체 (2026-11-15 기준 465개)
+pytest                                        # 전체 (2026-11-16 기준 481개)
 pytest tests/test_impactnote.py -q --no-cov   # 성과노트 회귀만
 scripts/check.sh                              # CI 와 동일한 검증
 
@@ -79,8 +79,11 @@ impactnote/
 devfolio/                  # 레거시 호환: YAML 저장소, CLI/API, export_engine, ai_service
 evals/impact/              # NVIDIA Ground Truth 평가 하네스
 tests/test_impactnote.py   # 성과노트 회귀 테스트
-tests/                     # 레거시 + AI 평가 회귀 (2026-11-15 기준 465개)
+tests/                     # 레거시 + AI 평가 회귀 (2026-11-16 기준 481개)
 docs/impactnote.md         # 설계·가드레일·API·마이그레이션
+docs/architecture/         # 다이어그램 10개·Claim 검증 상세
+docs/engineering/          # 개발 히스토리·문제 해결 사례
+docs/portfolio/            # 포트폴리오·증거 인덱스
 ```
 
 ## 핵심 규칙

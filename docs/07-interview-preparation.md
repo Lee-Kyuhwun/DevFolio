@@ -1,6 +1,6 @@
 # 면접 준비 — 성과노트(ImpactNote)
 
-기준일: 2026-11-15
+기준일: 2026-11-15 (최신 AI 검증 Q&A는 [`portfolio/README.md`](portfolio/README.md) §7)
 
 표기:
 - **[사실]** 코드·테스트·실행으로 검증 가능

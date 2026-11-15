@@ -2,6 +2,9 @@
 
 > 제출용 케이스 스터디. 내부 이슈 번호·개인 정보는 제외하고, 코드와 테스트로 확인 가능한 설계와 결과만 담았다.
 > 이전 제품(DevFolio)의 기록은 `docs/01-project-analysis.md` 등에 아카이브로 남아 있다.
+>
+> 2026-11-16 AI 검증 사례·다이어그램·증거 인덱스는
+> [`portfolio/README.md`](portfolio/README.md) 와 [`portfolio/evidence-index.md`](portfolio/evidence-index.md) 에 있다.
 
 ---
 

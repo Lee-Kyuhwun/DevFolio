@@ -40,8 +40,11 @@ Git 커밋 / AI 분석 ───┘                                   │
 2. 해당 주장의 숫자가 원본 텍스트(기록·근거·지표)에 존재하는지 대조한다.
 3. 없으면 `[확인 필요]` 로 치환하고 `unverified_metrics` 에 남긴다.
 4. 보고서 본문에는 `Metric.verified == True` 인 지표만 쓴다. 나머지는 "확인 필요 항목" 부록으로 보낸다.
+5. `statements.monthly` 처럼 dict 안에 중첩된 문장도 재귀적으로 검사한다. 2026-11-15 평가에서
+   중첩 필드가 가드레일을 우회한 결함을 수정했다.
 
-즉, AI 가 그럴듯한 숫자를 만들어도 문서에 그대로 들어갈 수 없습니다.
+즉, AI 가 그럴듯한 숫자를 만들어도 문서에 그대로 들어갈 수 없습니다. 다만 이 가드레일은
+숫자만 대상으로 하며, "안정성 향상" 같은 정성 효과 주장은 별도 검증이 필요합니다.
 
 ## 4. AI 안전장치
 
@@ -59,6 +62,7 @@ Git 커밋 / AI 분석 ───┘                                   │
 `impactnote/core/store.py`
 
 - `platformdirs` 기반 데이터/설정 경로, `IMPACTNOTE_*` 환경변수로 재정의.
+- 프로젝트 분석 경로는 `IMPACTNOTE_ANALYZE_ROOTS`(기본: 홈·현재 디렉터리) 안으로 제한한다. Docker 는 `/app:/home/user` 를 사용한다.
 - 컬렉션별 JSON, 임시 파일 + `os.replace` 원자적 쓰기, 파일 권한 `0600`.
 - 모델 변경은 Pydantic 기본값으로 흡수되므로 기존 JSON 과 호환된다.
 - 레거시 DevFolio 경로는 읽기 전용으로만 접근한다(마이그레이션 원본).
@@ -99,8 +103,9 @@ Git 커밋 / AI 분석 ───┘                                   │
 
 - `tests/test_impactnote.py`: 기록 CRUD, 성과·근거 상태, 지표 검증, Git 후보, AI 동의/실패/수치 세탁, 기간 집계,
   템플릿·버전, 다운로드, 마이그레이션 멱등·원본 보존, 파일 권한, 브랜드 문자열.
-- `tests/test_intel.py`: 임시 Git 저장소로 12개 필수 시나리오(코드만으로 후보, 문서만 존재, 문서-코드 일치, 전후 비교, 다중 커밋, 리버트, 측정 개선율, 허수 차단, 타인 기여, AI 부분 실패, 증분 재사용, UI 근거)를 검증한다.
-- 기존 `tests/` 401개는 레거시 호환 계층(`devfolio`) 검증으로 유지한다(전체 446개).
+- `tests/test_intel.py`: 임시 Git 저장소로 26개 회귀 시나리오(코드만으로 후보, 문서만 존재, 문서-코드 일치, 전후 비교, 다중 커밋, 리버트, 측정 개선율, 허수 차단, 타인 기여, AI 부분 실패, 증분 재사용, UI 근거, 삭제 파일·손상 Git·목표 문구·symlink·경로 allowlist)를 검증한다.
+- 기존 레거시 호환 계층(`devfolio`) 테스트와 AI 평가 회귀를 포함해 전체 481개를 검증한다(2026-11-16).
+- AI Ground Truth 평가는 [`ai-evaluation.md`](ai-evaluation.md), 실제 결과는 [`evaluation-results.md`](evaluation-results.md) 에 기록한다.
 - `scripts/check.sh`, CI(`.github/workflows/ci.yml`), `tox.ini` 가 `impactnote/` 를 lint·커버리지 대상에 포함한다.
 - Docker: `docker compose up -d --build` 후 `http://localhost:8000` (서비스명 `impactnote`, 컨테이너 `devfolio-impactnote-1`).
 - 검증 완료: 컨테이너 내 E2E(기록→성과→근거→지표→DOCX/MD 보고서), 마이그레이션 멱등·백업·원본 불변, 브라우저 흐름.
