@@ -15,6 +15,8 @@ dependencies = [
     "rich>=13.7.0,<15.0",
     "pydantic>=2.0.0,<3.0",
     "platformdirs>=4.0.0,<5.0",
+    # Windows에는 IANA tz database가 없어 zoneinfo("Asia/Seoul")가 실패한다.
+    "tzdata>=2024.1; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]

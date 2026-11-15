@@ -5,6 +5,9 @@
   - pytest.importorskip는 의존성이 없으면 테스트를 자동 skip한다(환경별 선택 실행).
 """
 
+import os
+
+
 from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
@@ -63,6 +66,9 @@ def client(web_store):
     return TestClient(create_app())
 
 
+@pytest.mark.skipif(
+    os.name == "nt", reason="Docker host path mapping is POSIX-specific"
+)
 def test_scan_repo_path_candidates_translate_host_home_paths():
     from devfolio.web.routes.api import _scan_repo_path_candidates
 

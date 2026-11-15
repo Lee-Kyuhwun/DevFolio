@@ -142,6 +142,9 @@ docker compose up -d
   분리한다.
 - PDF 는 시스템 폰트·Pango/Cairo 에 의존한다. Docker 이미지에는 CJK 폰트가 포함된다.
 - Windows 에서 Docker Desktop 의 파일 공유가 막혀 있으면 `REPOS_DIR` 마운트가 실패할 수 있다.
+- Windows NTFS 는 POSIX `0600` 권한을 보장하지 않는다. 저장 파일 권한 보장은 macOS/Linux
+  한정이며, Windows 에서는 사용자 프로필 ACL 에 의존한다. `tzdata` 는 Windows 에서만
+  조건부 의존성으로 설치된다(zoneinfo용 IANA 시간대 데이터).
 - Git 줄바꿈 설정은 저장소에 강제하지 않는다. Windows에서 스크립트 실행 오류가 나면
   `git config core.autocrlf input` 후 다시 clone 한다(선택).
 - ARM64/AMD64 이미지는 빌드 플랫폼에 맞춰 생성된다. 다른 아키텍처 배포 시

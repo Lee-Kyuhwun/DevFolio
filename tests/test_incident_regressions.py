@@ -6,6 +6,7 @@
 
 import importlib
 import json
+import os
 import pkgutil
 import sys
 import zipfile
@@ -103,6 +104,7 @@ def test_inc13_empty_lookup_never_selects_a_project(audit_store):
     assert storage.find_project_by_name("") is None
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX 0600 is not enforced on Windows")
 def test_inc14_backup_round_trip_separates_config_and_data(audit_store):
     storage.save_config(Config(user=UserConfig(name="backup-user")))
     storage.save_project(Project(id="demo", name="Demo"))
@@ -118,6 +120,7 @@ def test_inc14_backup_round_trip_separates_config_and_data(audit_store):
     assert storage.CONFIG_FILE.stat().st_mode & 0o777 == 0o600
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX 0600 is not enforced on Windows")
 @pytest.mark.parametrize("root", ["devfolio", ".devfolio"])
 def test_inc14_restore_old_backups_into_current_paths(audit_store, root):
     archive = audit_store / "old.zip"

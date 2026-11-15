@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import time
@@ -281,6 +282,7 @@ def test_all_providers_failing_leaves_no_effective_model():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX 0600 is not enforced on Windows")
 def test_registry_persists_and_restores_completed_run(tmp_path):
     path = tmp_path / "runs.json"
     registry = AnalysisRunRegistry(path=path)

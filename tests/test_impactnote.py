@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -621,6 +622,7 @@ def test_settings_consent_persists(client):  # noqa: F811
     assert settings["allowed_providers"] == ["ollama"]
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX 0600 is not enforced on Windows")
 def test_store_permissions_are_private(client):  # noqa: F811
     client.post("/api/activities", json=_activity_payload())
     path = Path(store_module.data_dir()) / "activities.json"
