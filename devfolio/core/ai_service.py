@@ -376,7 +376,9 @@ def _log_prompt_preview(messages: list[dict]) -> None:
 STAGE_PENDING = "pending"
 STAGE_RUNNING = "running"
 # JSON Object Mode(response_format)를 실제로 지원하는 Provider — 공식 문서 근거.
-_JSON_MODE_PROVIDERS = frozenset({"groq", "openai", "openrouter"})
+# nvidia_nim: NVIDIA NIM /chat/completions 가 response_format=json_object 를 받는다
+# (2026-11-15 openai/gpt-oss-20b 실호출 HTTP 200 확인).
+_JSON_MODE_PROVIDERS = frozenset({"groq", "openai", "openrouter", "nvidia_nim"})
 
 STAGE_COMPLETED = "completed"
 STAGE_PARTIAL = "partial"
@@ -490,6 +492,9 @@ _GENERATION_SAFE_MODEL_REGISTRY: dict[str, tuple[str, ...]] = {
         "microsoft/phi-4:free",
         "qwen/qwen3-235b-a22b:free",
     ),
+    # NVIDIA NIM 호스팅 API. 계정별 접근 권한이 다르므로 모델 목록을 넓게 두지 않는다.
+    # 2026-11-15 이 계정에서 /v1/models + 실제 호출로 확인한 모델만 넣는다.
+    "nvidia_nim": ("openai/gpt-oss-20b",),
     # API 키 불필요 — pollinations.ai 기본 내장 (출처: text.pollinations.ai/models)
     "pollinations": (
         "openai-fast",  # GPT-OSS 20B, Anonymous 접근 가능
@@ -514,7 +519,12 @@ def _clean_provider_model_name(model_name: str) -> str:
 
 
 def normalize_provider_model_name(provider_name: str, model_name: str) -> str:
-    return _clean_provider_model_name(model_name)
+    cleaned = _clean_provider_model_name(model_name)
+    # 기존 설정에는 LiteLLM 표기(nvidia_nim/openai/gpt-oss-20b)가 저장돼 있을 수 있다.
+    # 내부 모델명은 한 번만 prefix 를 붙이도록 정규화한다(중복 prefix 방지).
+    if provider_name == "nvidia_nim":
+        return cleaned.removeprefix("nvidia_nim/")
+    return cleaned
 
 
 def is_legacy_provider_model(provider_name: str, model_name: str) -> bool:
@@ -786,6 +796,12 @@ class AIService:
             "ollama": f"ollama/{model_name}",
             "groq": f"groq/{model_name}",
             "openrouter": f"openrouter/{model_name}",
+            # nvidia_nim: LiteLLM 라우팅 prefix. 이미 붙은 값은 중복하지 않는다.
+            "nvidia_nim": (
+                model_name
+                if model_name.startswith("nvidia_nim/")
+                else f"nvidia_nim/{model_name}"
+            ),
             # pollinations: OpenAI-compatible endpoint → openai/ 프리픽스, base_url로 라우팅
             "pollinations": f"openai/{model_name}",
         }
@@ -820,6 +836,7 @@ class AIService:
             "anthropic": "ANTHROPIC_API_KEY",
             "openai": "OPENAI_API_KEY",
             "gemini": "GEMINI_API_KEY",
+            "nvidia_nim": "NVIDIA_NIM_API_KEY",
         }
         env_var = env_map.get(provider.name, f"{provider.name.upper()}_API_KEY")
         os.environ[env_var] = api_key
@@ -1231,6 +1248,11 @@ class AIService:
             kwargs.pop("reasoning_effort", None)
             if provider.name == "groq" and "gpt-oss" in str(runtime_model):
                 kwargs["reasoning_effort"] = "low"
+            # NVIDIA gpt-oss 는 reasoning 토큰이 max_tokens 를 먼저 소모해 content 가
+            # 비는 경우가 있다(2026-11-15 실측: 512에서 빈 응답, 1024+에서 성공).
+            # LiteLLM nvidia_nim 은 reasoning_effort 를 지원하지 않으므로 한도를 올린다.
+            if provider.name == "nvidia_nim" and "gpt-oss" in str(runtime_model):
+                kwargs["max_tokens"] = max(int(kwargs.get("max_tokens") or 0), 2048)
             max_attempts = active_settings.model_retries + 1
 
             for attempt in range(1, max_attempts + 1):
@@ -1281,6 +1303,7 @@ class AIService:
 
                     response = litellm.completion(**kwargs)
                     t_end = time.monotonic()
+                    elapsed_ms = int((t_end - t_start) * 1000)
                     content = response.choices[0].message.content or ""
 
                     if not content.strip():
@@ -1308,7 +1331,7 @@ class AIService:
                     logger.info(
                         "AI 응답 수신: model=%s duration=%dms response_chars=%d",
                         kwargs["model"],
-                        int((t_end - t_start) * 1000),
+                        elapsed_ms,
                         len(content),
                     )
                     logger.debug("  [response] %.400s", content.replace("\n", " "))
@@ -1317,7 +1340,7 @@ class AIService:
                         model=kwargs["model"],
                         messages=messages,
                         response=content,
-                        duration_ms=int((t_end - t_start) * 1000),
+                        duration_ms=elapsed_ms,
                         ok=True,
                     )
                     window.reserve(estimated_tokens)
@@ -1337,11 +1360,23 @@ class AIService:
                             "model": kwargs["model"],
                             "fallback": bool(model_index > 1 or attempt > 1),
                             "attempts": active_budget.attempts,
-                            "elapsed_ms": int(
-                                (time.monotonic() - active_budget.started_at) * 1000
-                            ),
+                            "elapsed_ms": elapsed_ms,
                         }
                     )
+                    usage = getattr(response, "usage", None)
+                    if usage is not None:
+                        usage_dict = (
+                            usage.model_dump()
+                            if hasattr(usage, "model_dump")
+                            else dict(usage)
+                            if isinstance(usage, dict)
+                            else {}
+                        )
+                        reported["usage"] = {
+                            key: value
+                            for key, value in usage_dict.items()
+                            if isinstance(value, (int, float, str))
+                        }
                     return content
 
                 except Exception as e:  # noqa: BLE001 — 모든 실패를 분류해 정책으로 처리

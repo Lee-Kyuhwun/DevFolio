@@ -26,6 +26,7 @@ _ENV_VAR_MAP: dict[str, str] = {
     "groq": "GROQ_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
     "cohere": "COHERE_API_KEY",
+    "nvidia_nim": "NVIDIA_NIM_API_KEY",
 }
 
 

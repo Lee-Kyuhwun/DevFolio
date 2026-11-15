@@ -52,6 +52,8 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
         "gemini-2.5-pro",
     ],
     "ollama": ["llama3.2", "llama3.1", "mistral", "deepseek-coder"],
+    # 호스팅 NIM 은 계정별 접근 모델이 다르다. 2026-11-15 실호출로 확인한 모델만 둔다.
+    "nvidia_nim": ["openai/gpt-oss-20b"],
 }
 
 
@@ -70,7 +72,8 @@ def ai_set(
         console.print("  [bold]4[/bold]  Anthropic (Claude)")
         console.print("  [bold]5[/bold]  OpenAI (GPT)")
         console.print("  [bold]6[/bold]  Ollama (로컬 실행)")
-        choice = Prompt.ask("번호 선택", choices=["1", "2", "3", "4", "5", "6"])
+        console.print("  [bold]7[/bold]  NVIDIA NIM (호스팅 API)")
+        choice = Prompt.ask("번호 선택", choices=["1", "2", "3", "4", "5", "6", "7"])
         provider_map = {
             "1": "groq",
             "2": "openrouter",
@@ -78,6 +81,7 @@ def ai_set(
             "4": "anthropic",
             "5": "openai",
             "6": "ollama",
+            "7": "nvidia_nim",
         }
         provider = provider_map[choice]
 
