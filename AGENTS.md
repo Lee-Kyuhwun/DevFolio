@@ -77,8 +77,9 @@ impactnote/
     └── static/            # index.html, app.js, app.css, favicon.svg
 
 devfolio/                  # 레거시 호환: YAML 저장소, CLI/API, export_engine, ai_service
-tests/test_impactnote.py   # 신규 회귀 테스트 (30개)
-tests/                     # 기존 레거시 테스트 (401개)
+evals/impact/              # NVIDIA Ground Truth 평가 하네스
+tests/test_impactnote.py   # 성과노트 회귀 테스트
+tests/                     # 레거시 + AI 평가 회귀 (2026-11-15 기준 465개)
 docs/impactnote.md         # 설계·가드레일·API·마이그레이션
 ```
 
