@@ -534,12 +534,49 @@ def get_project_analysis(analysis_id: str) -> dict[str, Any]:
     return {"status": "ok", "analysis": _model_payload(analysis)}
 
 
-@router.post(
-    "/projects/analyses/{analysis_id}/candidates/{candidate_id}/apply", status_code=201
-)
-def apply_project_candidate(analysis_id: str, candidate_id: str) -> dict[str, Any]:
+@router.patch("/projects/analyses/{analysis_id}/candidates/{candidate_id}")
+def update_project_candidate(
+    analysis_id: str, candidate_id: str, payload: dict[str, Any]
+) -> dict[str, Any]:
     try:
-        achievement = _service().apply_project_candidate(analysis_id, candidate_id)
+        analysis = _service().update_project_candidate(
+            analysis_id, candidate_id, payload
+        )
+    except Exception as exc:
+        raise _fail(exc) from exc
+    return {"status": "ok", "analysis": _model_payload(analysis)}
+
+
+@router.post("/projects/analyses/{analysis_id}/candidates/{candidate_id}/merge")
+def merge_project_candidate(
+    analysis_id: str, candidate_id: str, payload: dict[str, Any]
+) -> dict[str, Any]:
+    target_id = str(payload.get("target_id") or "").strip()
+    if not target_id:
+        raise HTTPException(status_code=400, detail="target_id 가 필요합니다.")
+    try:
+        analysis = _service().merge_project_candidates(
+            analysis_id, candidate_id, target_id
+        )
+    except Exception as exc:
+        raise _fail(exc) from exc
+    return {"status": "ok", "analysis": _model_payload(analysis)}
+
+
+@router.post(
+    "/projects/analyses/{analysis_id}/candidates/{candidate_id}/apply",
+    status_code=201,
+)
+def apply_project_candidate(
+    analysis_id: str, candidate_id: str, payload: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    body = payload or {}
+    try:
+        achievement = _service().apply_project_candidate(
+            analysis_id,
+            candidate_id,
+            activity_id=str(body.get("activity_id") or ""),
+        )
     except Exception as exc:
         raise _fail(exc) from exc
     return {"status": "ok", "achievement": _model_payload(achievement)}

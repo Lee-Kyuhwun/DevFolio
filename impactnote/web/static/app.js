@@ -27,6 +27,7 @@
     projectAnalyses: [],
     projectAnalysis: null,
     projectBusy: false,
+    editingIntelCandidate: null,
     selectedActivities: new Set(),
     editingActivity: null,
     editingAchievement: null,
@@ -665,16 +666,27 @@
     const contribution = candidate.contribution || {};
     const dismissed = candidate.status === "dismissed";
     const applied = candidate.status === "applied";
+    const needsValidation = candidate.status === "needs_validation";
+    const editing = state.editingIntelCandidate === candidate.id;
     return `<article class="item" ${dismissed ? 'style="opacity:.55"' : ""}>
         <div class="item-head">
           <strong>${esc(candidate.title)}</strong>
           ${qualityBadge(candidate.quality)}
           <span class="badge">신뢰도 ${candidate.confidence}</span>
+          ${needsValidation ? '<span class="badge warn">추가 검증 필요</span>' : ""}
           ${applied ? '<span class="badge verified">성과로 저장됨</span>' : dismissed ? '<span class="badge">제외됨</span>' : ""}
         </div>
-        <p><b>문제</b> ${esc(candidate.problem)}</p>
+        ${editing ? `<form data-form="intel-candidate-save" class="form-grid" style="margin-top:8px">
+            <input type="hidden" name="analysis_id" value="${esc(state.projectAnalysis.id)}" />
+            <input type="hidden" name="candidate_id" value="${esc(candidate.id)}" />
+            <label class="field span-2">제목 <input name="title" required value="${esc(candidate.title)}" /></label>
+            <label class="field span-2">문제 <textarea name="problem">${esc(candidate.problem)}</textarea></label>
+            <label class="field span-2">수행 <textarea name="action">${esc(candidate.action)}</textarea></label>
+            <label class="field span-2">결과 <textarea name="result">${esc(candidate.result)}</textarea></label>
+            <div class="form-actions span-2"><button class="btn btn-primary" type="submit">수정 저장</button><button class="btn btn-ghost" type="button" data-action="cancel-intel-candidate">취소</button></div>
+          </form>` : `<p><b>문제</b> ${esc(candidate.problem)}</p>
         <p><b>수행</b> ${esc(candidate.action)}</p>
-        <p><b>결과</b> ${esc(candidate.result)}</p>
+        <p><b>결과</b> ${esc(candidate.result)}</p>`}
         <div class="item-meta">
           <span>기여: ${esc(contribution.role || "미확인")}</span>
           ${(candidate.impact_categories || []).map((cat) => `<span>${esc(impactLabel(cat))}</span>`).join("")}
@@ -691,9 +703,13 @@
           </div>
         </details>
         <div class="item-actions">
-          ${!applied && !dismissed ? `<button class="btn btn-primary btn-sm" data-action="intel-apply" data-id="${esc(candidate.id)}" data-analysis="${esc(state.projectAnalysis.id)}" type="button">성과로 저장 (검토 필요)</button>
+          ${!applied && !dismissed ? `<select class="intel-activity-select" aria-label="기존 업무 기록에 연결"><option value="">새 업무 기록으로 저장</option>${state.activities.map((item) => `<option value="${esc(item.id)}">${esc(item.date)} · ${esc(item.title)}</option>`).join("")}</select>
+          <button class="btn btn-primary btn-sm" data-action="intel-apply" data-id="${esc(candidate.id)}" data-analysis="${esc(state.projectAnalysis.id)}" type="button">성과로 저장 (검토 필요)</button>
+          <button class="btn btn-sm" data-action="edit-intel-candidate" data-id="${esc(candidate.id)}" type="button">수정</button>
+          <button class="btn btn-sm" data-action="toggle-intel-validation" data-id="${esc(candidate.id)}" data-analysis="${esc(state.projectAnalysis.id)}" data-status="${needsValidation ? "candidate" : "needs_validation"}" type="button">${needsValidation ? "검증 필요 해제" : "추가 검증 필요"}</button>
+          <button class="btn btn-sm" data-action="merge-intel-candidate" data-id="${esc(candidate.id)}" data-analysis="${esc(state.projectAnalysis.id)}" type="button">다른 후보와 병합</button>
           <button class="btn btn-sm btn-danger" data-action="intel-dismiss" data-id="${esc(candidate.id)}" data-analysis="${esc(state.projectAnalysis.id)}" type="button">제외</button>` : ""}
-          ${applied && candidate.applied_achievement_id ? `<span class="hint">성과 ID: ${esc(candidate.applied_achievement_id)} — 성과 관리에서 확인하세요.</span>` : ""}
+          ${applied && candidate.applied_achievement_id ? `<span class="hint">성과 ID: ${esc(candidate.applied_achievement_id)} — 성과 관리에서 확인·확정하세요.</span>` : ""}
         </div>
       </article>`;
   }
@@ -902,6 +918,22 @@
     const data = new FormData(form);
     const payload = Object.fromEntries(data.entries());
     delete payload.impact;
+    if (name === "intel-candidate-save") {
+      const analysis = (await api(`/api/projects/analyses/${payload.analysis_id}/candidates/${payload.candidate_id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          title: payload.title,
+          problem: payload.problem,
+          action: payload.action,
+          result: payload.result,
+        }),
+      })).analysis;
+      state.projectAnalysis = analysis;
+      state.editingIntelCandidate = null;
+      toast("후보 내용을 수정했습니다.", "ok");
+      await refresh();
+      return;
+    }
     if (name === "intel-analyze") {
       state.projectBusy = true;
       render();
@@ -1055,6 +1087,7 @@
     if (nav) {
       state.screen = nav.getAttribute("data-screen");
       state.analysis = null;
+      state.editingIntelCandidate = null;
       render();
       return;
     }
@@ -1070,10 +1103,46 @@
         render();
       } else if (action === "intel-apply") {
         const analysisId = button.getAttribute("data-analysis");
-        const result = await api(`/api/projects/analyses/${analysisId}/candidates/${id}/apply`, { method: "POST" });
+        const select = button.closest("article")?.querySelector(".intel-activity-select");
+        const result = await api(`/api/projects/analyses/${analysisId}/candidates/${id}/apply`, {
+          method: "POST",
+          body: JSON.stringify({ activity_id: select ? select.value : "" }),
+        });
         toast("성과로 저장했습니다. 성과 관리에서 근거를 확인하고 확정하세요.", "ok");
         state.projectAnalysis = (await api(`/api/projects/analyses/${analysisId}`)).analysis;
         state.editingAchievement = result.achievement;
+        await refresh();
+      } else if (action === "edit-intel-candidate") {
+        state.editingIntelCandidate = id;
+        render();
+      } else if (action === "cancel-intel-candidate") {
+        state.editingIntelCandidate = null;
+        render();
+      } else if (action === "toggle-intel-validation") {
+        const analysisId = button.getAttribute("data-analysis");
+        const status = button.getAttribute("data-status");
+        state.projectAnalysis = (await api(`/api/projects/analyses/${analysisId}/candidates/${id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ status }),
+        })).analysis;
+        toast(status === "needs_validation" ? "추가 검증 필요로 표시했습니다." : "검증 필요 표시를 해제했습니다.", "ok");
+        await refresh();
+      } else if (action === "merge-intel-candidate") {
+        const analysisId = button.getAttribute("data-analysis");
+        const others = state.projectAnalysis.candidates.filter((item) => item.id !== id && item.status !== "applied" && item.status !== "dismissed");
+        if (!others.length) {
+          toast("병합할 다른 후보가 없습니다.");
+          return;
+        }
+        const listing = others.map((item, index) => `${index + 1}. ${item.title}`).join("\n");
+        const answer = window.prompt(`병합 대상 번호를 입력하세요.\n${listing}`);
+        const index = Number(answer) - 1;
+        if (!answer || !Number.isInteger(index) || !others[index]) return;
+        state.projectAnalysis = (await api(`/api/projects/analyses/${analysisId}/candidates/${id}/merge`, {
+          method: "POST",
+          body: JSON.stringify({ target_id: others[index].id }),
+        })).analysis;
+        toast("후보를 병합했습니다. 근거와 메모는 대상 후보에 보존됩니다.", "ok");
         await refresh();
       } else if (action === "intel-dismiss") {
         const analysisId = button.getAttribute("data-analysis");

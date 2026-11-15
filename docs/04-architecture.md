@@ -204,7 +204,7 @@ impactnote/core/ai.py
 
 - `create_app()`: FastAPI 앱, `/` SPA, `/favicon.svg`, `/static`, `/api` 라우터
 - SPA 는 상태를 메모리에 두고 API 만 호출한다(서버 템플릿 없음).
-- 주요 API: `/api/health`, `/meta`, `/dashboard`, `/activities`, `/achievements`, `/evidence`, `/metrics`, `/ai/analyze`, `/ai/analyses/{id}/apply`, `/git/import`, `/projects/analyze`, `/projects/analyses`, `/projects/analyses/{id}`, `/projects/analyses/{id}/candidates/{cid}/apply`, `/projects/analyses/{id}/candidates/{cid}/dismiss`, `/reports`, `/settings`, `/migrate`
+- 주요 API: `/api/health`, `/meta`, `/dashboard`, `/activities`, `/achievements`, `/evidence`, `/metrics`, `/ai/analyze`, `/ai/analyses/{id}/apply`, `/git/import`, `/projects/analyze`, `/projects/analyses`, `/projects/analyses/{id}`, `/projects/analyses/{id}/candidates/{cid}` (PATCH), `.../merge`, `.../apply`, `.../dismiss`, `/reports`, `/settings`, `/migrate`
 - 파일 다운로드는 `ExportEngine` 산출물을 스트리밍한다.
 
 ---

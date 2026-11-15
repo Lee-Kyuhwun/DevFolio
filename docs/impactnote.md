@@ -87,7 +87,9 @@ Git 커밋 / AI 분석 ───┘                                   │
 | POST | `/api/git/import` | 커밋 → 기록·후보 |
 | POST | `/api/projects/analyze` | 프로젝트 경로 심층 분석(문서·코드·Git) |
 | GET | `/api/projects/analyses`, `/api/projects/analyses/{id}` | 분석 이력·상세(근거 포함) |
-| POST | `/api/projects/analyses/{id}/candidates/{cid}/apply` | 후보 → 업무 기록·성과·근거 |
+| PATCH | `/api/projects/analyses/{id}/candidates/{cid}` | 후보 문구 수정·검증 필요 표시 |
+| POST | `/api/projects/analyses/{id}/candidates/{cid}/merge` | 다른 후보와 병합 |
+| POST | `/api/projects/analyses/{id}/candidates/{cid}/apply` | 후보 → 새/기존 업무 기록·성과·근거 |
 | POST | `/api/projects/analyses/{id}/candidates/{cid}/dismiss` | 후보 제외 |
 | GET/POST/PATCH | `/api/reports`, `/api/reports/{id}/download` | 보고서 생성·이력·다운로드 |
 | GET/PUT | `/api/settings` | 설정·AI 동의 |
@@ -98,7 +100,7 @@ Git 커밋 / AI 분석 ───┘                                   │
 - `tests/test_impactnote.py`: 기록 CRUD, 성과·근거 상태, 지표 검증, Git 후보, AI 동의/실패/수치 세탁, 기간 집계,
   템플릿·버전, 다운로드, 마이그레이션 멱등·원본 보존, 파일 권한, 브랜드 문자열.
 - `tests/test_intel.py`: 임시 Git 저장소로 12개 필수 시나리오(코드만으로 후보, 문서만 존재, 문서-코드 일치, 전후 비교, 다중 커밋, 리버트, 측정 개선율, 허수 차단, 타인 기여, AI 부분 실패, 증분 재사용, UI 근거)를 검증한다.
-- 기존 `tests/` 401개는 레거시 호환 계층(`devfolio`) 검증으로 유지한다(전체 445개).
+- 기존 `tests/` 401개는 레거시 호환 계층(`devfolio`) 검증으로 유지한다(전체 446개).
 - `scripts/check.sh`, CI(`.github/workflows/ci.yml`), `tox.ini` 가 `impactnote/` 를 lint·커버리지 대상에 포함한다.
 - Docker: `docker compose up -d --build` 후 `http://localhost:8000` (서비스명 `impactnote`, 컨테이너 `devfolio-impactnote-1`).
 - 검증 완료: 컨테이너 내 E2E(기록→성과→근거→지표→DOCX/MD 보고서), 마이그레이션 멱등·백업·원본 불변, 브라우저 흐름.

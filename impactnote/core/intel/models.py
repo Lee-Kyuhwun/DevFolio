@@ -169,7 +169,9 @@ class Candidate(BaseModel):
     evidence_ids: list[str] = Field(default_factory=list)
     measurement_id: str = ""
     contribution: dict = Field(default_factory=dict)
-    status: Literal["candidate", "applied", "dismissed"] = "candidate"
+    status: Literal["candidate", "needs_validation", "applied", "dismissed"] = (
+        "candidate"
+    )
     notes: list[str] = Field(default_factory=list)
     applied_achievement_id: str = ""
 

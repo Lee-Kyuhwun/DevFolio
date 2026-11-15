@@ -429,8 +429,77 @@ class ImpactService:
             store=self.store,
         )
 
+    def update_project_candidate(
+        self, analysis_id: str, candidate_id: str, payload: dict
+    ):
+        """후보 문구·검증 상태를 사용자가 수정한다(품질 등급은 임의 승격 불가)."""
+        from impactnote.core.intel.models import ProjectAnalysis
+
+        analysis = self.store.get("project_analyses", analysis_id, ProjectAnalysis)
+        if analysis is None:
+            raise NotFound("프로젝트 분석 결과를 찾을 수 없습니다.")
+        candidate = next(
+            (item for item in analysis.candidates if item.id == candidate_id), None
+        )
+        if candidate is None:
+            raise NotFound("성과 후보를 찾을 수 없습니다.")
+        for field in ("title", "problem", "action", "result"):
+            if field in payload:
+                value = str(payload.get(field) or "").strip()
+                if field == "title" and not value:
+                    raise ValueError("후보 제목은 비울 수 없습니다.")
+                setattr(candidate, field, value[:3000])
+        if isinstance(payload.get("impact_categories"), list):
+            candidate.impact_categories = [
+                str(item) for item in payload["impact_categories"] if str(item).strip()
+            ][:3]
+        if payload.get("status") in {"candidate", "needs_validation"}:
+            candidate.status = payload["status"]
+        self.store.put("project_analyses", analysis)
+        return analysis
+
+    def merge_project_candidates(
+        self, analysis_id: str, source_id: str, target_id: str
+    ):
+        """같은 기능의 후보를 하나로 합친다(근거·측정·메모 보존, 원본은 제외 표시)."""
+        from impactnote.core.intel.models import ProjectAnalysis
+
+        analysis = self.store.get("project_analyses", analysis_id, ProjectAnalysis)
+        if analysis is None:
+            raise NotFound("프로젝트 분석 결과를 찾을 수 없습니다.")
+        source = next(
+            (item for item in analysis.candidates if item.id == source_id), None
+        )
+        target = next(
+            (item for item in analysis.candidates if item.id == target_id), None
+        )
+        if source is None or target is None:
+            raise NotFound("병합할 후보를 찾을 수 없습니다.")
+        if source.id == target.id:
+            raise ValueError("같은 후보끼리는 병합할 수 없습니다.")
+        if source.status == "applied" or target.status == "applied":
+            raise ValueError("이미 성과로 저장된 후보는 병합할 수 없습니다.")
+        target.evidence_ids = list(
+            dict.fromkeys([*target.evidence_ids, *source.evidence_ids])
+        )
+        if not target.measurement_id and source.measurement_id:
+            target.measurement_id = source.measurement_id
+        target.notes = list(
+            dict.fromkeys(
+                [
+                    *target.notes,
+                    f"'{source.title[:80]}' 후보를 병합했습니다.",
+                    *source.notes,
+                ]
+            )
+        )
+        source.status = "dismissed"
+        source.notes.append(f"'{target.title[:80]}' 후보로 병합되어 제외되었습니다.")
+        self.store.put("project_analyses", analysis)
+        return analysis
+
     def apply_project_candidate(
-        self, analysis_id: str, candidate_id: str
+        self, analysis_id: str, candidate_id: str, *, activity_id: str = ""
     ) -> Achievement:
         """프로젝트 분석 후보를 업무 기록·성과·근거로 저장한다(확인 전 상태 유지)."""
         import re
@@ -479,22 +548,34 @@ class ImpactService:
             evidence_ids.append(evidence.id)
 
         today = utc_now()[:10]
-        activity = self.create_activity(
-            {
-                "title": candidate.title[:200],
-                "description": candidate.action[:4000],
-                "date": today,
-                "project": analysis.project_name[:120],
-                "activity_type": "general",
-                "problem": candidate.problem[:2000],
-                "action": candidate.action[:2000],
-                "result": candidate.result[:2000],
-                "source": "analysis",
-                "source_ref": f"intel:{analysis.id}:{candidate.id}"[:500],
-                "evidence_ids": evidence_ids,
-                "tags": ["프로젝트분석", candidate.quality],
-            }
-        )
+        if activity_id:
+            existing = self.activity(activity_id)
+            self.update_activity(
+                existing.id,
+                {
+                    "evidence_ids": list(
+                        dict.fromkeys([*existing.evidence_ids, *evidence_ids])
+                    )
+                },
+            )
+            activity = self.activity(existing.id)
+        else:
+            activity = self.create_activity(
+                {
+                    "title": candidate.title[:200],
+                    "description": candidate.action[:4000],
+                    "date": today,
+                    "project": analysis.project_name[:120],
+                    "activity_type": "general",
+                    "problem": candidate.problem[:2000],
+                    "action": candidate.action[:2000],
+                    "result": candidate.result[:2000],
+                    "source": "analysis",
+                    "source_ref": f"intel:{analysis.id}:{candidate.id}"[:500],
+                    "evidence_ids": evidence_ids,
+                    "tags": ["프로젝트분석", candidate.quality],
+                }
+            )
         achievement = self.create_achievement(
             {
                 "title": candidate.title[:200],

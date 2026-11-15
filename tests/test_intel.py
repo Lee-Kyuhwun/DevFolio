@@ -238,6 +238,36 @@ def test_measurement_change_percent_is_calculated(intel_env, repo):
 
 
 # 8. 측정 결과가 없을 때 허위 수치 생성 차단
+def test_candidate_edit_validation_merge_and_existing_activity_link(intel_env, repo):
+    analysis = _analyze(repo, author_email="me@example.com")
+    source, target = analysis.candidates[0], analysis.candidates[1]
+    service = ImpactService()
+
+    updated = service.update_project_candidate(
+        analysis.id,
+        source.id,
+        {"title": "수정한 후보", "status": "needs_validation"},
+    )
+    assert updated.candidates[0].title == "수정한 후보"
+    assert updated.candidates[0].status == "needs_validation"
+
+    merged = service.merge_project_candidates(analysis.id, source.id, target.id)
+    merged_target = next(item for item in merged.candidates if item.id == target.id)
+    merged_source = next(item for item in merged.candidates if item.id == source.id)
+    assert merged_source.status == "dismissed"
+    assert set(source.evidence_ids).issubset(set(merged_target.evidence_ids))
+    assert any("병합" in note for note in merged_target.notes)
+
+    activity = service.create_activity(
+        {"title": "기존 업무 기록", "date": "2026-11-15"}
+    )
+    achievement = service.apply_project_candidate(
+        analysis.id, target.id, activity_id=activity.id
+    )
+    assert achievement.activity_ids == [activity.id]
+    assert service.activity(activity.id).evidence_ids
+
+
 def test_apply_measurement_candidate_creates_metric(intel_env, repo):
     analysis = _analyze(repo, author_email="me@example.com")
     candidate = next(item for item in analysis.candidates if item.measurement_id)
