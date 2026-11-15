@@ -133,9 +133,9 @@ docker compose up -d
 
 | 환경 | 확인된 내용 | 남은 위험 |
 | --- | --- | --- |
-| macOS ARM64 | 2026-11-15 Clean Clone 설치·465 테스트·CLI·Docker health 통과 | GUI 브라우저 수동 클릭은 미검증 |
-| Linux AMD64 | Dockerfile `python:3.12-slim` 기반. CI Ubuntu 예정 | 실제 배포 이미지 E2E 는 CI 에서 확인 필요 |
-| Windows AMD64 | CI matrix 예정, 경로 구분자·PowerShell 안내 제공 | 로컬 Windows GUI 실행은 미검증 |
+| macOS ARM64 | 2026-11-15 Clean Clone 설치·465 테스트·CLI·Docker health 통과. 2026-11-16 CI success | GUI 브라우저 수동 클릭은 미검증 |
+| Linux AMD64 | Dockerfile `python:3.12-slim` 기반. CI Ubuntu success | 실제 배포 이미지 E2E 는 CI 에서 확인 |
+| Windows AMD64 | CI Windows Python 3.12 success (2026-11-16) | 로컬 Windows GUI 실행은 미검증, POSIX 권한 보장 없음 |
 | Python 3.9 | 설치 실패(`requires-python >=3.11`) | 3.11+ 사용 |
 
 - 경로는 `pathlib.Path` 를 사용하고, Docker 내부 경로(`/app`, `/home/user`)와 호스트 경로를

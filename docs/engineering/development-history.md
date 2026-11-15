@@ -149,10 +149,15 @@
 | 새 문제 | Docker 기본 CMD가 `--help`라 컨테이너가 바로 종료 → compose/CI에서 `serve --host 0.0.0.0` 명시 |
 | 트레이드오프 | 127.0.0.1 바인딩으로 원격 접근 불가. 로컬 우선 제품에는 의도된 제한 |
 | 최종 구조 | pre-commit → CI 4 job → 수동 AI 평가 |
-| 실제 결과 | 480 passed, clean copy 480, Docker build + health 200 |
-| 한계 | Windows 실제 GUI 클릭, PDF 폰트 렌더링은 미검증 |
+| 실제 결과 | 481 passed, clean copy 481, Docker 200, CI 9/9 success (run `43733588389`) |
+| 한계 | Windows 실제 GUI 클릭, PDF 폰트 렌더링은 미검증. Windows는 POSIX 0600 비보장 |
 
-근거: **VERIFIED** (`3ec1010`, `dfde13c`, `docs/testing.md`).
+Windows CI 첫 실행에서 11건이 실패했다: `tzdata` 부재(5), POSIX 파일 모드 가정(5),
+POSIX 전용 호스트 경로 매핑(1). `61d9a70`에서 조건부 `tzdata`, Windows skip, 문서화로
+수정한 뒤 9개 job이 모두 통과했다. 이 실패는 "3 OS CI를 정의했다"와 "3 OS에서 통과했다"가
+다른 주장임을 보여준다.
+
+근거: **VERIFIED** (`3ec1010`, `61d9a70`, run `43733588389`, `docs/testing.md`).
 
 ### H. Documentation & Portfolio
 
@@ -200,7 +205,8 @@
 | `e2dd608` | F | Ground Truth·Judge·Gate 지표·live A/B | 9 passed, offline exit 0 |
 | `3ec1010` | G | Docker·CI matrix·Clean Clone 문서 | 480 passed (당시) |
 | `dd4d64f` | D | NVIDIA gpt-oss 토큰 하한 회귀 | 1 passed |
-| 문서 커밋 | H | 다이어그램·개발사·포트폴리오·증거 인덱스 | 링크·비밀값 검사 |
+| `61d9a70` | G | Windows tzdata·POSIX 권한 가정 수정 | CI 9/9 success |
+| 문서 커밋 | H | 다이어그램·개발사·포트폴리오·증거 인덱스 | 링크·비밀값·Mermaid 검사 |
 
 ## 5. 확인되지 않은 것
 

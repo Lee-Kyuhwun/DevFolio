@@ -171,6 +171,11 @@ live 평가를 건너뛰고 실패하지 않는다. 키가 있는 경우에만 �
 GitHub → Actions → AI Evaluation (manual) → Run workflow
 ```
 
+2026-11-16 CI run `43733588389`: **9개 job 전부 success**. `test` 3.11/3.12/3.13/3.14,
+`portability` Ubuntu/macOS/Windows, `docker`, `lint` 를 포함한다. Windows 에서는 IANA
+시간대(`tzdata`)와 POSIX `0600` 비보장으로 실패한 11건을 수정했다(Commit `61d9a70`):
+`tzdata` 조건부 의존성 추가, POSIX 권한·Docker 경로 테스트는 Windows 에서 skip.
+
 CI 는 GUI 클릭·실제 Windows 앱 창·PDF 렌더링 품질을 검증하지 않는다. 그 범위는 별도 수동
 검증이 필요하다.
 

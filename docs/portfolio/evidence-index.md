@@ -45,8 +45,8 @@ D1·D4는 실제 모델 출력, D2·D3은 통제 입력이다. D1의 47.6%를 D2
 | C-14 | 통제 저장소 귀속 exact 100% (8단위) | `engine.py` | `e728935` | `tests/test_intel.py`, `test_fixture_extracts_achievements_and_coauthor_attribution` | D3 | PARTIALLY_VERIFIED |
 | C-15 | 문서-코드 후보 P/R/F1 1.00 (12 positive/8 negative) | `intel/engine.py` | `e728935` | `test_dataset_has_enough_units_and_valid_labels` | D3 | PARTIALLY_VERIFIED |
 | C-16 | 전체 테스트 481개 통과 | `tests/` | `dd4d64f` | `pytest -q` | 481 passed | VERIFIED (로컬) |
-| C-17 | Docker 이미지 빌드·health 200 | `Dockerfile`, compose | `3ec1010` | CI docker job | 200 | VERIFIED (로컬) |
-| C-18 | 3개 OS CI matrix를 정의했다 | `.github/workflows/ci.yml` | `3ec1010` | YAML | — | PARTIALLY_VERIFIED |
+| C-17 | Docker 이미지 빌드·health 200 | `Dockerfile`, compose | `3ec1010` | CI docker job | 200 | VERIFIED (CI + 로컬) |
+| C-18 | 3개 OS CI matrix가 통과한다 | `.github/workflows/ci.yml` | `61d9a70` | run `43733588389` | 9/9 jobs success | VERIFIED |
 | C-19 | Clean copy에서 481개 통과 | — | `dd4d64f` | clean copy run | 481 passed | VERIFIED |
 | C-20 | Historical 환각률 47.6% (20/42) | `evals/impact/run.py` | 이전 | judge | D1 | PARTIALLY_VERIFIED |
 | C-21 | Historical 사실성 2.65/5 | judge | 이전 | — | D1 | PARTIALLY_VERIFIED |

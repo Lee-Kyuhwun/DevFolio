@@ -336,6 +336,9 @@ flowchart TB
 Docker는 `127.0.0.1`에만 바인딩하고, 컨테이너에서는 `serve --host 0.0.0.0`으로
 내부 포트를 연다. 인증이 없는 API를 LAN에 노출하지 않기 위한 설정이다.
 
+2026-11-16 run `43733588389`에서 9개 job(test 3.11–3.14, 3 OS portability, docker, lint)이
+모두 success였다. Windows는 `tzdata`·POSIX 권한 가정 수정(`61d9a70`) 이후 통과했다.
+
 ## Diagram 10. Commit / Merge History (이번 작업)
 
 ```mermaid

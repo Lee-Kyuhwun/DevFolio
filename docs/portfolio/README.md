@@ -86,7 +86,7 @@ Claim 검증 상세: [`../architecture/claim-validation.md`](../architecture/cla
 - **효과 claim 10/10 보존**: 근거 있는 효과 문장은 유지.
 - **live A/B 4→0**: 실제 NVIDIA 3건에서 Baseline 저장 4건, Variant 0건. 2회 실행 모두.
 - **회귀 테스트 481개**: 기존 465 + 신규 16.
-- **Docker/CI**: 이미지 빌드, `/api/health` 200, 3 OS matrix.
+- **Docker/CI**: 이미지 빌드, `/api/health` 200, 3 OS matrix, CI 9/9 job success.
 
 ### 부분 검증
 

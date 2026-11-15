@@ -386,3 +386,68 @@ if provider.name == "nvidia_nim" and "gpt-oss" in str(runtime_model):
 - `evals/impact/metrics.py`
 - `docs/evaluation/hallucination-experiments.md`
 - Commit `e2dd608`
+
+---
+
+## Case 9. "3 OS CI"가 실제로는 Windows에서 실패한 문제
+
+### Situation
+
+CI에 Ubuntu/macOS/Windows portability job을 추가하고 "3개 OS 검증"이라고 문서화했다.
+로컬 macOS와 Ubuntu job은 통과했지만, 첫 Windows job은 11건 실패했다.
+
+### Problem
+
+실패는 세 종류였다.
+
+1. `ZoneInfo("Asia/Seoul")` → Windows에는 IANA tz database가 없어 5건 실패.
+2. `(st_mode & 0o777) == 0o600` → NTFS는 POSIX 파일 모드를 보장하지 않아 5건 실패.
+3. `/Users/...` → Docker `/home/user/...` 매핑 테스트가 POSIX 경로를 전제로 해 1건 실패.
+
+즉, workflow 파일이 존재한다는 사실과 세 OS에서 통과한다는 사실은 다른 주장이었다.
+
+### Alternatives
+
+1. Windows job을 제거한다. → 이식성 주장을 포기한다.
+2. Windows에서 실패하는 테스트를 모두 삭제한다. → POSIX 보안 회귀를 잃는다.
+3. 플랫폼별로 원인을 고치고, 보장할 수 없는 부분만 명시적으로 skip한다. → 선택.
+
+### Decision
+
+- `tzdata`를 Windows 조건부 의존성으로 추가해 시간대 문제를 실제로 고친다.
+- POSIX `0600`은 Windows에서 보장할 수 없으므로 해당 테스트만 skip하고 문서에 한계를 쓴다.
+- Docker 호스트 경로 매핑 테스트는 POSIX 전용임을 명시해 skip한다.
+- skip은 `os.name == "nt"` 조건으로 좁혀 macOS/Linux에서는 계속 실행한다.
+
+### Implementation
+
+```toml
+"tzdata>=2024.1; sys_platform == 'win32'",
+```
+
+```python
+@pytest.mark.skipif(os.name == "nt", reason="POSIX 0600 is not enforced on Windows")
+def test_store_permissions_are_private(client):
+    ...
+```
+
+### Result
+
+- 수정 전 Windows: 11 failed, 470 passed.
+- 수정 후 CI run `43733588389`: **9/9 job success** (test 3.11–3.14, Ubuntu/macOS/Windows, docker, lint).
+- macOS 로컬: 481 passed.
+
+### Trade-off
+
+Windows에서는 파일 권한 테스트가 실행되지 않는다. 대신 "Windows는 POSIX 0600을 보장하지
+않는다"는 제품 한계를 문서화했다. 테스트를 통과시키기 위해 검증을 삭제한 것이 아니라,
+플랫폼이 제공하지 않는 보장을 테스트 대상에서 분리한 것이다.
+
+### Evidence
+
+- `.github/workflows/ci.yml`
+- `pyproject.toml`
+- `tests/test_impactnote.py`, `tests/test_ai_observability.py`, `tests/test_incident_regressions.py`, `tests/test_web_api.py`
+- Commit `61d9a70`
+- CI run `43733588389`
+- `docs/testing.md`, `docs/installation.md`
