@@ -689,3 +689,138 @@ def test_inc12_daily_free_tier_limit_is_not_reported_as_zero_quota():
             )
 
     assert "0입니다" not in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# INC-21: Groq 후보 전멸 + 출력 토큰 한도 절단으로 AI 딥 분석이 항상 실패
+# ---------------------------------------------------------------------------
+
+
+def _response_with_finish_reason(
+    text: str, finish_reason: str | None
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(content=text),
+                finish_reason=finish_reason,
+            )
+        ]
+    )
+
+
+def test_inc21_truncated_response_moves_to_next_candidate_without_retry():
+    """finish_reason=length로 잘린 응답이 'JSON 파싱 실패'로 둔갑해 원인을 가렸다."""
+    service = AIService(make_config("gemini"))
+    provider = service._get_provider("gemini")
+    fake_litellm = MagicMock()
+    fake_litellm.completion.side_effect = [
+        _response_with_finish_reason(
+            '{"project_type": "CLI 도구", "tasks": [{"name": "GitH', "length"
+        ),
+        _response('{"project_type": "CLI 도구"}'),
+    ]
+
+    with (
+        _offline_litellm(fake_litellm) as sleep,
+        patch.object(
+            service,
+            "_runtime_model_candidates",
+            return_value=["truncating-model", "current-model"],
+        ),
+    ):
+        result = service._call_single_provider(
+            fake_litellm,
+            provider,
+            [{"role": "user", "content": "x"}],
+            None,
+            None,
+            False,
+        )
+
+    assert result == '{"project_type": "CLI 도구"}'
+    assert fake_litellm.completion.call_count == 2
+    assert "current-model" in fake_litellm.completion.call_args_list[1].kwargs["model"]
+    sleep.assert_not_called()
+
+
+def test_inc21_decommissioned_model_is_not_retried():
+    """400 model_decommissioned는 재시도해도 같은 결과인데 2회씩 낭비했다."""
+    service = AIService(make_config("groq"))
+    provider = service._get_provider("groq")
+    fake_litellm = MagicMock()
+    fake_litellm.completion.side_effect = [
+        _error(
+            "BadRequestError",
+            'GroqException - {"error":{"message":"The model `gemma2-9b-it` has been '
+            'decommissioned and is no longer supported.","code":"model_decommissioned"}}',
+        ),
+        _response("정상 응답"),
+    ]
+
+    with (
+        _offline_litellm(fake_litellm) as sleep,
+        patch.object(
+            service,
+            "_runtime_model_candidates",
+            return_value=["retired-model", "current-model"],
+        ),
+    ):
+        result = service._call_single_provider(
+            fake_litellm,
+            provider,
+            [{"role": "user", "content": "x"}],
+            None,
+            None,
+            False,
+        )
+
+    assert result == "정상 응답"
+    assert fake_litellm.completion.call_count == 2
+    assert "current-model" in fake_litellm.completion.call_args_list[1].kwargs["model"]
+    sleep.assert_not_called()
+
+
+def test_inc21_code_analysis_requests_explicit_output_budget():
+    """분석 경로만 max_tokens를 안 넘겨 provider 기본값(1500토큰)에 걸렸다."""
+    service = AIService(make_config("groq"))
+    captured: dict = {}
+
+    def fake_call(
+        system_prompt, user_prompt, provider_name=None, json_mode=False, max_tokens=None
+    ):
+        captured["max_tokens"] = max_tokens
+        return json.dumps({"project_type": "CLI 도구"})
+
+    with (
+        patch.object(service, "_call", side_effect=fake_call),
+        patch.object(service, "_extract_problem_solving_cases", return_value=[]),
+    ):
+        service.analyze_project_from_code("repo", {}, {})
+
+    assert captured["max_tokens"] == 2500
+
+
+def test_inc21_request_timeout_is_always_sent():
+    """응답이 없는 호출에 타임아웃이 없어 분석이 영구 대기했다."""
+    from devfolio.core.ai_service import _REQUEST_TIMEOUT
+
+    service = AIService(make_config("gemini"))
+    provider = service._get_provider("gemini")
+    fake_litellm = MagicMock()
+    fake_litellm.completion.return_value = _response("ok")
+
+    with (
+        _offline_litellm(fake_litellm),
+        patch.object(service, "_runtime_model_candidates", return_value=["m"]),
+    ):
+        service._call_single_provider(
+            fake_litellm,
+            provider,
+            [{"role": "user", "content": "x"}],
+            None,
+            None,
+            False,
+        )
+
+    assert fake_litellm.completion.call_args.kwargs["timeout"] == _REQUEST_TIMEOUT

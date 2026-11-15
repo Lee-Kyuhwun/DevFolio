@@ -261,6 +261,8 @@ _MAX_RETRIES = 2
 # 짧은 간격 재시도는 quota만 낭비
 _RETRY_DELAY = 2.0  # 초 (일반 오류용)
 _RATE_LIMIT_RETRY_DELAY = 65.0  # 초 (rate limit 전용 — RPM 윈도우 넘김)
+# 모델이 응답 없이 매달리면 UI가 무한 대기한다(INC-21). litellm에 요청 타임아웃을 넘긴다.
+_REQUEST_TIMEOUT = 120.0  # 초
 _AI_LOG_MAX_ENTRIES = 500
 _AI_LOG_PREVIEW_CHARS = 400
 
@@ -358,11 +360,13 @@ _GENERATION_SAFE_MODEL_REGISTRY: dict[str, tuple[str, ...]] = {
         "gemini-1.5-pro",  # 유료
     ),
     # 무료 한도: 14,400 req/일 (출처: console.groq.com/docs/rate-limits)
+    # Groq은 모델을 수시로 폐기하므로 이 목록은 주기적으로 /v1/models 로 재확인이 필요하다 (INC-21).
+    # 2026-11 실측: gemma2-9b-it·deepseek-r1-distill-llama-70b는 400 model_decommissioned,
+    # llama-3.3-70b-versatile·llama-3.1-8b-instant는 404로 사라져 후보가 전멸했다.
     "groq": (
-        "llama-3.3-70b-versatile",  # 무료, 고성능
-        "llama-3.1-8b-instant",  # 무료, 초고속
-        "gemma2-9b-it",  # 무료
-        "deepseek-r1-distill-llama-70b",  # 무료, 추론
+        "openai/gpt-oss-120b",  # 무료, 고성능 (실측 확인)
+        "openai/gpt-oss-20b",  # 무료, 경량 (실측 확인)
+        "qwen/qwen3.8-27b",  # 무료 (실측 확인)
     ),
     # :free 태그 모델은 무료 (출처: openrouter.ai/models?q=free)
     "openrouter": (
@@ -712,6 +716,7 @@ class AIService:
         user_prompt: str,
         provider_name: Optional[str] = None,
         json_mode: bool = False,
+        max_tokens: Optional[int] = None,
     ) -> str:
         """system/user 2턴 호출 호환용 래퍼."""
         return self._call_messages(
@@ -720,6 +725,7 @@ class AIService:
                 {"role": "user", "content": user_prompt},
             ],
             provider_name=provider_name,
+            max_tokens=max_tokens,
             json_mode=json_mode,
         )
 
@@ -955,6 +961,8 @@ class AIService:
             kwargs["response_format"] = {"type": "json_object"}
         if provider.base_url:
             kwargs["api_base"] = provider.base_url
+        # 응답이 없을 때 영구 대기하지 않도록 타임아웃을 항상 명시한다 (INC-21).
+        kwargs["timeout"] = _REQUEST_TIMEOUT
 
         last_error: Exception = RuntimeError("알 수 없는 오류")
         t_start = time.monotonic()
@@ -1007,6 +1015,14 @@ class AIService:
                             f"모델 {kwargs['model']}이 결과 대신 오류 문구를 반환했습니다(크레딧 부족) — "
                             "무료 등급에서 처리할 수 없는 크기의 요청일 수 있습니다."
                         )
+                    # 출력 토큰 한도에서 잘린 응답은 JSON이 중간에 끊긴다. 파싱 단계까지
+                    # 내려보내지 않고 즉시 후보 교체로 넘긴다 (INC-21).
+                    if getattr(response.choices[0], "finish_reason", None) == "length":
+                        raise ValueError(
+                            f"모델 {kwargs['model']} 응답이 출력 토큰 한도에서 잘렸습니다 "
+                            f"(finish_reason=length, response_chars={len(content)}) — "
+                            "구조화 JSON이 완성되지 않습니다."
+                        )
                     logger.info(
                         "AI 응답 수신: model=%s duration=%dms response_chars=%d\n  [response] %.800s%s",
                         kwargs["model"],
@@ -1039,8 +1055,15 @@ class AIService:
                         or ('"code": 404' in err_str and "NOT_FOUND" in err_str)
                         or (
                             err_class == "ValueError"
-                            and ("빈 응답" in err_str or "오류 문구" in err_str)
+                            and (
+                                "빈 응답" in err_str
+                                or "오류 문구" in err_str
+                                or "잘렸" in err_str
+                            )
                         )
+                        # 400 영구 오류(폐기 모델)는 재시도해도 같은 결과다 — 후보만 교체한다 (INC-21).
+                        or "model_decommissioned" in err_str
+                        or "does not exist or you do not have access" in err_str
                     ):
                         last_error = e
                         if model_index < len(model_candidates):
@@ -2285,7 +2308,15 @@ class AIService:
             f"반드시 위 스키마 형태의 JSON 객체만 반환하세요."
         )
 
-        raw = self._call(_CODE_ANALYSIS_SYSTEM, prompt, provider_name, json_mode=False)
+        # 출력 한도를 명시하지 않으면 provider 기본값(예: pollinations 1500토큰)에 걸려
+        # JSON이 중간에 잘린다 (INC-21).
+        raw = self._call(
+            _CODE_ANALYSIS_SYSTEM,
+            prompt,
+            provider_name,
+            json_mode=False,
+            max_tokens=2500,
+        )
         payload = self._extract_json(raw)
 
         # 필수 키 보장 (AI가 일부 생략할 경우 대비)
@@ -2365,7 +2396,11 @@ class AIService:
 
         try:
             raw = self._call(
-                _CODE_ANALYSIS_SYSTEM, prompt, provider_name, json_mode=False
+                _CODE_ANALYSIS_SYSTEM,
+                prompt,
+                provider_name,
+                json_mode=False,
+                max_tokens=2000,
             )
             cleaned = raw.strip()
             # 코드 펜스 제거
