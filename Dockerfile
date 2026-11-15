@@ -26,6 +26,7 @@ RUN pip install --no-cache-dir \
     "litellm>=1.60.0" \
     "weasyprint>=62.0" \
     "markdown>=3.6" \
+    "pypdf>=4.0" \
     "python-docx>=1.1.0" \
     "fastapi>=0.110.0,<1.0" \
     "uvicorn[standard]>=0.29.0,<1.0"

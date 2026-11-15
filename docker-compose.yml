@@ -4,7 +4,9 @@ services:
     # 새 제품 진입점. 레거시 `devfolio` CLI/앱은 같은 이미지에 남아 있다.
     entrypoint: ["python", "-m", "impactnote.main"]
     ports:
-      - "8000:8000"
+      # 로컬 우선 도구다. 인증이 없는 API 를 LAN 에 노출하지 않는다.
+      # 다른 포트로 띄울 때는 IMPACTNOTE_PORT=18000 처럼 지정한다.
+      - "127.0.0.1:${IMPACTNOTE_PORT:-8000}:8000"
     volumes:
       - .:/app
       - impactnote-config:/root/.config/impactnote
@@ -12,15 +14,18 @@ services:
       # DevFolio 시절 데이터는 읽기 전용으로 붙여 마이그레이션 원본으로만 쓴다.
       - devfolio-config:/legacy/devfolio-config:ro
       - devfolio-data:/legacy/devfolio-data:ro
-      # Git 후보 수집용 저장소 마운트 (기본: 홈 디렉터리)
-      - ${REPOS_DIR:-~}:/home/user:ro
+      # Git 후보 수집용 저장소 마운트 (기본: 이 저장소). 다른 경로는 REPOS_DIR 로 지정한다.
+      - ${REPOS_DIR:-.}:/home/user:ro
     environment:
       - PYTHONDONTWRITEBYTECODE=1
       - PYTHONUNBUFFERED=1
       - IMPACTNOTE_LEGACY_DATA_DIR=/legacy/devfolio-data
       - IMPACTNOTE_LEGACY_CONFIG_DIR=/legacy/devfolio-config
+      # 분석 API 가 접근할 수 있는 작업 공간. 마운트된 저장소만 허용한다.
+      - IMPACTNOTE_ANALYZE_ROOTS=/app:/home/user
       # API 키는 환경변수로 주입한다. AI 분석은 설정에서 전송 동의를 켰을 때만 동작한다.
       - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - NVIDIA_NIM_API_KEY=${NVIDIA_NIM_API_KEY:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
