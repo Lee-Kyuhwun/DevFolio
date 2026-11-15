@@ -90,6 +90,7 @@
     },
     ui: {
       loading: true,
+      loadError: "",
       screen: "dashboard",
       expMode: "list",
       expView: "card",
@@ -466,22 +467,68 @@
     return new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
   }
 
-  function requestJson(path, options) {
-    return fetch(path, {
-      headers: {
-        "Content-Type": "application/json",
-        ...(options && options.headers ? options.headers : {}),
-      },
-      ...options,
-    }).then(async (response) => {
+  /**
+   * JSON 요청 공통 래퍼.
+   * - timeoutMs: 지정한 시간을 넘기면 실패로 처리한다(0 = 무제한).
+   *   AI 생성처럼 오래 걸릴 수 있는 호출에는 시간 제한을 두지 않는다.
+   * - retries: 부작용이 없는 GET 만 재시도한다. 저장·삭제는 중복 생성을 막기 위해 재시도하지 않는다.
+   */
+  async function requestJson(path, options) {
+    const opts = options || {};
+    const timeoutMs = Number(opts.timeoutMs) > 0 ? Number(opts.timeoutMs) : 0;
+    const retries = Number(opts.retries) > 0 ? Number(opts.retries) : 0;
+    const fetchOptions = { ...opts };
+    delete fetchOptions.timeoutMs;
+    delete fetchOptions.retries;
+    fetchOptions.headers = {
+      "Content-Type": "application/json",
+      ...(opts.headers || {}),
+    };
+
+    try {
+      return await sendJson(path, fetchOptions, timeoutMs);
+    } catch (error) {
+      const method = String(fetchOptions.method || "GET").toUpperCase();
+      if (retries > 0 && method === "GET" && error && error.retryable) {
+        return sendJson(path, fetchOptions, timeoutMs);
+      }
+      throw error;
+    }
+  }
+
+  async function sendJson(path, fetchOptions, timeoutMs) {
+    const controller =
+      timeoutMs > 0 && typeof AbortController === "function" ? new AbortController() : null;
+    const timer = controller ? window.setTimeout(() => controller.abort(), timeoutMs) : null;
+    try {
+      let response;
+      try {
+        response = await fetch(
+          path,
+          controller ? { ...fetchOptions, signal: controller.signal } : fetchOptions
+        );
+      } catch (error) {
+        const timedOut = Boolean(error) && error.name === "AbortError";
+        const wrapped = new Error(
+          timedOut
+            ? "서버 응답이 없습니다. 요청 시간이 초과되었습니다."
+            : "서버에 연결할 수 없습니다. devfolio serve가 실행 중인지 확인하세요."
+        );
+        wrapped.retryable = !timedOut;
+        throw wrapped;
+      }
       const text = await response.text();
       const payload = text ? safeJsonParse(text) : null;
       if (!response.ok) {
         const detail = payload && (payload.detail || payload.message || payload.error);
-        throw new Error(detail || response.statusText || "요청 실패");
+        const error = new Error(detail || response.statusText || "요청 실패");
+        error.retryable = response.status >= 500;
+        throw error;
       }
       return payload;
-    });
+    } finally {
+      if (timer) window.clearTimeout(timer);
+    }
   }
 
   function safeJsonParse(text) {
@@ -494,11 +541,12 @@
 
   async function loadInitialData() {
     state.ui.loading = true;
+    state.ui.loadError = "";
     render();
     try {
       const [configPayload, experiencesPayload] = await Promise.all([
-        requestJson("/api/config"),
-        requestJson("/api/experiences"),
+        requestJson("/api/config", { timeoutMs: 15000, retries: 1 }),
+        requestJson("/api/experiences", { timeoutMs: 15000, retries: 1 }),
       ]);
       state.config = normalizeConfig(configPayload);
       state.experiences = (experiencesPayload.experiences || []).map(normalizeExperience);
@@ -522,7 +570,9 @@
       }
     } catch (error) {
       state.ui.loading = false;
-      showToast(error.message || "초기 데이터를 불러오지 못했습니다.", "error");
+      // 일시적인 토스트만 띄우면 빈 워크스페이스와 구분되지 않는다.
+      // 재시도할 수 있는 오류 화면을 유지한다.
+      state.ui.loadError = error.message || "초기 데이터를 불러오지 못했습니다.";
       render();
     }
   }
@@ -556,6 +606,25 @@
     document.addEventListener("click", handleClick);
     document.addEventListener("input", handleInput);
     document.addEventListener("submit", handleSubmit);
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      // 키보드만 쓰는 사용자가 모달에서 빠져나갈 수 있어야 한다.
+      if (closeFileBrowser()) {
+        event.preventDefault();
+      }
+    });
+  }
+
+  function closeFileBrowser() {
+    if (!state.ui.fileBrowser.open) {
+      return false;
+    }
+    state.ui.fileBrowser.open = false;
+    render();
+    return true;
   }
 
   function handleInput(event) {
@@ -566,8 +635,12 @@
 
     if (target.id === "experience-search" && target instanceof HTMLInputElement) {
       state.ui.expSearch = target.value;
-      state.ui.searchFocus = true;
-      render();
+      // 전체를 다시 그리면 입력 중이던 한글 조합이 끊기고 커서가 끝으로 튄다.
+      // 결과 목록만 갱신해 입력 요소를 그대로 유지한다.
+      if (!updateExperienceResults()) {
+        state.ui.searchFocus = true;
+        render();
+      }
       return;
     }
 
@@ -647,6 +720,10 @@
         });
         await refreshConfig();
         showToast("AI Provider를 저장했습니다.", "ok");
+      } else if (form.id === "experience-editor") {
+        // 입력란에서 Enter 를 누르면 폼이 제출되지만 아무 동작도 하지 않았다.
+        await saveExperience();
+        return;
       }
       render();
     } catch (error) {
@@ -679,14 +756,15 @@
     const screen = target.getAttribute("data-screen");
     if (screen) {
       setRoute(screen);
-      if (screen === "experiences" && state.ui.expMode === "list") {
-        state.ui.expMode = "list";
-      }
       render();
       if ((screen === "editor" || screen === "export") && state.currentDoc.selectedIds.length) {
         queuePreview();
       }
-      return;
+      // data-screen 과 data-action 을 함께 가진 카드는 화면 이동만 하고 액션이 무시됐다.
+      // (예: 빈 워크스페이스의 "첫 경험 추가"가 새 경험 폼을 열지 않았다)
+      if (!target.getAttribute("data-action")) {
+        return;
+      }
     }
 
     const formSection = target.getAttribute("data-form-section");
@@ -904,6 +982,9 @@
         case "retry-ai-scan":
           state.importer.aiError = null;
           await importFromScan();
+          break;
+        case "retry-initial-load":
+          await loadInitialData();
           break;
         case "refresh-ai-logs":
           await loadAiLogs();
@@ -1428,11 +1509,29 @@
       message,
       tone: tone || "ok",
     };
+    announce(message, tone);
     window.clearTimeout(toastTimer);
     toastTimer = window.setTimeout(() => {
       state.ui.toast = null;
       render();
     }, 2400);
+  }
+
+  /** 토스트는 화면에만 보이고 스크린리더에는 전달되지 않았다.
+   *  매번 새로 그려지는 노드 대신 고정된 라이브 리전에 문구를 넣는다. */
+  function announce(message, tone) {
+    const region = document.getElementById("live-region");
+    if (!region) {
+      return;
+    }
+    region.setAttribute(
+      "aria-live",
+      tone === "error" || tone === "warn" ? "assertive" : "polite"
+    );
+    region.textContent = "";
+    window.setTimeout(() => {
+      region.textContent = message;
+    }, 30);
   }
 
   function render() {
@@ -1449,7 +1548,7 @@
         <div class="shell-main">
           ${renderTopbar()}
           <main class="workspace">
-            ${state.ui.loading ? renderLoading() : renderScreen()}
+            ${state.ui.loading ? renderLoading() : state.ui.loadError ? renderLoadError() : renderScreen()}
           </main>
         </div>
         ${renderToast()}
@@ -1465,6 +1564,7 @@
 
     mountPreviewFrames();
     bindSectionDrag();
+    focusFileBrowserIfOpen();
     if (state.ui.searchFocus) {
       const search = document.getElementById("experience-search");
       if (search instanceof HTMLInputElement) {
@@ -1567,6 +1667,27 @@
           </div>
         </div>
         <div class="empty-panel">Loading...</div>
+      </section>
+    `;
+  }
+
+  function renderLoadError() {
+    return `
+      <section class="screen" role="alert">
+        <div class="hero">
+          <div>
+            <div class="eyebrow">Connection Error</div>
+            <h2>데이터를 불러오지 못했습니다</h2>
+            <p>${escapeHtml(state.ui.loadError)}</p>
+          </div>
+          <div class="hero-actions">
+            <button class="btn btn-primary" data-action="retry-initial-load" type="button">다시 시도</button>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="eyebrow">확인할 항목</div>
+          <p class="mini-copy">devfolio serve 가 실행 중인지, 터미널에 오류가 없는지 확인한 뒤 다시 시도하세요. 저장된 데이터는 그대로 남아 있습니다.</p>
+        </div>
       </section>
     `;
   }
@@ -1817,15 +1938,30 @@
           </div>
         </div>
 
-        ${
-          !filtered.length
-            ? `<div class="empty-panel">조건에 맞는 경험이 없습니다.</div>`
-            : state.ui.expView === "card"
-              ? `<div class="cards-grid">${filtered.map(renderExperienceCard).join("")}</div>`
-              : renderExperienceTable(filtered)
-        }
+        <div id="experience-results">
+          ${renderExperienceResultsMarkup(filtered)}
+        </div>
       </section>
     `;
+  }
+
+  function renderExperienceResultsMarkup(filtered) {
+    if (!filtered.length) {
+      return `<div class="empty-panel">조건에 맞는 경험이 없습니다.</div>`;
+    }
+    return state.ui.expView === "card"
+      ? `<div class="cards-grid">${filtered.map(renderExperienceCard).join("")}</div>`
+      : renderExperienceTable(filtered);
+  }
+
+  /** 검색어 입력 시 결과 영역만 바꿔 입력 요소와 한글 조합 상태를 유지한다. */
+  function updateExperienceResults() {
+    const container = document.getElementById("experience-results");
+    if (!container) {
+      return false;
+    }
+    container.innerHTML = renderExperienceResultsMarkup(filteredExperiences());
+    return true;
   }
 
   function filteredExperiences() {
@@ -2999,7 +3135,7 @@
     state.ui.logsLoading = true;
     render();
     try {
-      const data = await requestJson("/api/ai-logs?limit=100");
+      const data = await requestJson("/api/ai-logs?limit=100", { timeoutMs: 15000, retries: 1 });
       state.ui.logs = data.entries || [];
     } finally {
       state.ui.logsLoading = false;
@@ -3024,9 +3160,9 @@
       ? "선택한 경험을 기반으로 문서를 구성합니다. 잠시 기다려 주세요."
       : "잠시 기다려 주세요.";
     return `
-      <div class="loading-overlay">
+      <div class="loading-overlay" role="status" aria-live="polite" aria-busy="true">
         <div class="loading-overlay-inner">
-          <div class="spinner"></div>
+          <div class="spinner" aria-hidden="true"></div>
           <strong>${escapeHtml(message)}</strong>
           <p>${sub}</p>
         </div>
@@ -3034,12 +3170,27 @@
     `;
   }
 
+  /** 모달이 열려 있으면 키보드 포커스를 모달 안으로 옮긴다. */
+  function focusFileBrowserIfOpen() {
+    if (!state.ui.fileBrowser.open) {
+      return;
+    }
+    const box = document.querySelector(".modal-box");
+    if (!box || box.contains(document.activeElement)) {
+      return;
+    }
+    const firstControl = box.querySelector("button, [href], input, select, textarea");
+    if (firstControl instanceof HTMLElement) {
+      firstControl.focus();
+    }
+  }
+
   function renderFileBrowserModal() {
     const fb = state.ui.fileBrowser;
     if (!fb.open) return "";
     return `
       <div class="modal-overlay" data-action="file-browser-close">
-        <div class="modal-box" data-action="">
+        <div class="modal-box" role="dialog" aria-modal="true" aria-label="저장소 경로 선택" data-action="">
           <div class="modal-header">
             <div>
               <div class="eyebrow">폴더 선택</div>
@@ -3099,7 +3250,7 @@
     render();
     try {
       const query = path ? `?path=${encodeURIComponent(path)}` : "";
-      const payload = await requestJson(`/api/fs/directories${query}`);
+      const payload = await requestJson(`/api/fs/directories${query}`, { timeoutMs: 15000, retries: 1 });
       state.ui.fileBrowser.currentPath = payload.current_path;
       state.ui.fileBrowser.parentPath = payload.parent_path || null;
       state.ui.fileBrowser.roots = payload.roots || [];

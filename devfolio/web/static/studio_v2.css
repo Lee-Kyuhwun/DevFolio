@@ -12,7 +12,10 @@
   --border-subtle: #21262d;
   --text: #e6edf3;
   --text-2: #9da7b3;
-  --text-3: #6f7a86;
+  /* #8b949e: surface(#161b22) 대비 5.5:1, bg(#0d1117) 대비 6.2:1 — WCAG 2.2 AA(4.5:1) 통과.
+     이전 값 #6f7a86 은 3.96:1 로 eyebrow·hint·mini-copy 같은 12px 이하 텍스트가 기준 미달이었다. */
+  --text-3: #8b949e;
+  --focus: #7dc4ff;
   --accent: #f5a623;
   --accent-dim: rgba(245, 166, 35, 0.14);
   --blue: #58a6ff;
@@ -47,6 +50,32 @@ button, input, select, textarea {
 
 button {
   cursor: pointer;
+}
+
+/* 키보드 사용자를 위한 공통 포커스 표시 (WCAG 2.4.7 Focus Visible).
+   마우스 클릭에는 나타나지 않도록 :focus-visible 만 사용한다. */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* 입력 요소는 자체 border/shadow 로 포커스를 표시하므로 outline 을 겹치지 않게 한다. */
+.input:focus-visible,
+.select:focus-visible,
+.textarea:focus-visible {
+  outline: none;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 a {
@@ -142,7 +171,6 @@ a {
   background: rgba(255, 255, 255, 0.03);
   color: var(--text);
   border-color: rgba(255, 255, 255, 0.06);
-  outline: none;
 }
 
 .nav-button.active {
@@ -328,7 +356,6 @@ a {
 
 .btn:hover,
 .btn:focus-visible {
-  outline: none;
   transform: translateY(-1px);
 }
 
@@ -508,6 +535,16 @@ a {
 .surface-item,
 .section-row {
   padding: 14px;
+}
+
+/* 버튼은 브라우저 기본값이 가운데 정렬이라, 같은 패널 안의 다른 카드(좌측 정렬)와
+   어긋나 보였다. 카드형 버튼은 모두 좌측 정렬로 통일한다. */
+.card-button,
+.doc-card,
+.tone-card,
+.check-row,
+.format-row {
+  text-align: left;
 }
 
 .experience-card h4,
@@ -870,6 +907,7 @@ tbody tr:hover {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
 }
 .provider-name-row {
   display: flex;
@@ -940,15 +978,71 @@ tbody tr:hover {
     height: auto;
   }
 
+  /* 모바일에서는 6개 내비게이션이 2열 그리드로 첫 화면 대부분을 차지했다.
+     한 줄 가로 스크롤로 바꿔 콘텐츠가 바로 보이게 한다. */
+  .sidebar {
+    padding: 12px 14px;
+    gap: 12px;
+  }
+
+  .brand {
+    padding-bottom: 12px;
+  }
+
   .nav-group {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    display: flex;
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 8px;
+    padding-bottom: 4px;
+    scrollbar-width: thin;
+  }
+
+  .nav-group .nav-button {
+    flex: 0 0 auto;
+    padding: 9px 12px;
+  }
+
+  .toast {
+    right: 12px;
+    left: 12px;
+    bottom: 12px;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .preview-panel {
+    min-height: 0;
+  }
+
+  .preview-frame {
+    min-height: 480px;
   }
 
   .topbar,
   .workspace {
     padding-left: 16px;
     padding-right: 16px;
+  }
+
+  /* 좀은 화면에서 상단 바가 두 줄로 어중간하게 감겼다. 행을 명시적으로 나눈다. */
+  .topbar {
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+
+  .crumbs {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .topbar-actions {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .stats-grid,
@@ -971,6 +1065,37 @@ tbody tr:hover {
 /* Fix: suppress animation on same-screen re-renders */
 .screen.no-animate {
   animation: none;
+}
+
+/* 모션 감소 설정 존중 (WCAG 2.3.3 / prefers-reduced-motion).
+   장식 목적의 화면 전환·호버 이동·스피너 회전을 끄고 상태는 텍스트로 전달한다. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .screen {
+    animation: none;
+  }
+
+  .btn:hover,
+  .btn:focus-visible,
+  .surface-item:hover,
+  .card-button:hover,
+  .doc-card:hover,
+  .tone-card:hover,
+  .experience-card:hover,
+  .section-row:hover,
+  .provider-row:hover,
+  .check-row:hover,
+  .format-row:hover {
+    transform: none;
+  }
 }
 
 /* Loading overlay (AI generation) */
@@ -1192,8 +1317,8 @@ tbody tr:hover {
 .log-badge.tone-warn { background: rgba(245, 166, 35, 0.2); color: #f5a623; }
 
 .log-op { font-weight: 500; color: #e6edf3; }
-.log-meta { color: #8b949e; }
-.log-ts { margin-left: auto; color: #6e7681; font-size: 11px; }
+.log-meta { color: var(--text-3); }
+.log-ts { margin-left: auto; color: var(--text-3); font-size: 11px; }
 
 .log-preview {
   font-size: 11px;
@@ -1252,17 +1377,16 @@ label .field-hint {
   gap: 4px;
 }
 
+/* opacity 0.5 는 --text-3 대비를 2:1 수준으로 떨어뜨렸다. 색으로만 구분한다. */
 .doc-target-hint {
   font-size: 11px;
   color: var(--text-3);
   padding: 4px 8px;
   border-radius: 4px;
-  opacity: 0.5;
-  transition: opacity 0.15s, color 0.15s;
+  transition: color 0.15s, background 0.15s;
 }
 
 .doc-target-hint.active {
-  opacity: 1;
-  color: var(--text-2);
-  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
 }

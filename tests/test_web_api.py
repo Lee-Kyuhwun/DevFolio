@@ -819,3 +819,66 @@ def test_scan_git_ai_failure_keeps_basic_scan_result(client, web_store):
     assert payload["status"] == "ok"
     assert payload["analyzed"] is False
     assert payload["payload"] == {"repo": "DevFolio"}
+
+
+def test_inc19_open_folder_rejects_home_sibling_prefix_path(client, tmp_path):
+    home = tmp_path / "home" / "me"
+    home.mkdir(parents=True)
+    sibling = tmp_path / "home" / "me-evil"
+    sibling.mkdir()
+
+    with patch("devfolio.web.routes.api.Path.home", return_value=home):
+        response = client.post("/api/fs/open-folder", params={"path": str(sibling)})
+
+    assert response.status_code == 403, response.text
+    assert "홈 디렉터리 외부" in response.json()["detail"]
+
+
+def test_inc20_open_folder_returns_ok_payload(client, tmp_path):
+    home = tmp_path / "home" / "me"
+    target = home / "projects"
+    target.mkdir(parents=True)
+
+    with (
+        patch("devfolio.web.routes.api.Path.home", return_value=home),
+        patch("devfolio.web.routes.api.subprocess.Popen") as popen,
+    ):
+        response = client.post("/api/fs/open-folder", params={"path": str(target)})
+
+    assert response.status_code == 200, response.text
+    # 반환값이 없으면 응답 모델 검증 실패로 500 이 됐다.
+    assert response.json()["status"] == "ok"
+    assert response.json()["folder"] == str(target.resolve())
+    popen.assert_called_once()
+
+
+def test_open_folder_rejects_non_directory_path(client, tmp_path):
+    home = tmp_path / "home" / "me"
+    home.mkdir(parents=True)
+    plain_file = home / "resume.md"
+    plain_file.write_text("x", encoding="utf-8")
+
+    with patch("devfolio.web.routes.api.Path.home", return_value=home):
+        response = client.post("/api/fs/open-folder", params={"path": str(plain_file)})
+
+    assert response.status_code == 400, response.text
+
+
+def test_ai_logs_limit_is_clamped(client, web_store):
+    log_file = web_store / "ai_logs.jsonl"
+    log_file.write_text(
+        "\n".join(
+            '{"op": "call", "ok": true, "provider": "p%d"}' % index
+            for index in range(3)
+        ),
+        encoding="utf-8",
+    )
+
+    with patch("devfolio.core.storage.AI_LOG_FILE", log_file):
+        clamped_low = client.get("/api/ai-logs", params={"limit": -5})
+        clamped_high = client.get("/api/ai-logs", params={"limit": 10**9})
+
+    assert clamped_low.status_code == 200, clamped_low.text
+    # 음수 limit 은 빨라서 슬라이싱 결과를 뒤집었다(3건 중 1건만, 순서도 반대).
+    assert [entry["provider"] for entry in clamped_low.json()["entries"]] == ["p2"]
+    assert len(clamped_high.json()["entries"]) == 3

@@ -1290,9 +1290,12 @@ def open_folder(path: str = "") -> dict[str, str]:
     folder = Path(path).expanduser().resolve()
     if not folder.exists():
         raise HTTPException(status_code=404, detail=f"경로가 존재하지 않습니다: {path}")
+    if not folder.is_dir():
+        raise HTTPException(status_code=400, detail=f"폴더가 아닙니다: {path}")
 
     home = Path.home().resolve()
-    if not str(folder).startswith(str(home)):
+    # 문자열 접두사 비교는 홈이 /Users/me 일 때 /Users/me-evil 을 같은 경로로 본다(INC-19).
+    if not folder.is_relative_to(home):
         raise HTTPException(
             status_code=403, detail="홈 디렉터리 외부 경로는 열 수 없습니다."
         )
@@ -1318,6 +1321,9 @@ def open_folder(path: str = "") -> dict[str, str]:
             status_code=500, detail=f"폴더를 열 수 없습니다: {exc}"
         ) from exc
 
+    # 반환값이 없으면 dict[str, str] 응답 모델 검증에서 실패해 500 이 된다(INC-20).
+    return {"status": "ok", "folder": str(folder)}
+
 
 # ---------------------------------------------------------------------------
 # AI 로그
@@ -1327,6 +1333,9 @@ def open_folder(path: str = "") -> dict[str, str]:
 @router.get("/ai-logs")
 def get_ai_logs(limit: int = 100) -> dict[str, Any]:
     from devfolio.core.storage import AI_LOG_FILE
+
+    # 음수·과대 limit 은 슬라이싱 결과를 뒤집거나 응답을 키운다. 범위를 고정한다.
+    limit = max(1, min(limit, 1000))
 
     if not AI_LOG_FILE.exists():
         return {"entries": []}
