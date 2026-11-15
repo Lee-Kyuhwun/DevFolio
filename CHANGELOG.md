@@ -2,6 +2,21 @@
 
 이 프로젝트의 주요 변경 사항을 기록합니다. [Keep a Changelog](https://keepachangelog.com/ko/1.1.0/) 형식을 따릅니다.
 
+## [1.0.0] — 2026-11-15
+
+### Changed
+- 제품을 **성과노트(ImpactNote)** 로 전환: 개발자 포트폴리오 생성기 → 회사 업무 기록·근거 관리·제출용 성과보고서 도구
+- 새 도메인: Activity / Achievement / Evidence / Metric / Goal / Report / AIAnalysis
+- 진입점 `impactnote` 추가, 기존 `devfolio` CLI·API·데이터는 호환 계층으로 유지
+- Docker 서비스·볼륨·문서 브랜드 변경, DevFolio 데이터는 읽기 전용 마이그레이션 원본으로 마운트
+
+### Added
+- 근거 없는 수치 차단(`[확인 필요]` 치환) + 검증 지표만 본문에 사용하는 보고서 파이프라인
+- AI 전송 동의·허용 Provider 게이트(기본 차단), AI 실패 시 원본 기록 보존
+- Git 커밋 기반 성과 후보 추출(`needs_review`, 사용자 확인 전 확정 불가)
+- 보고서 템플릿 A~E, 기간 선택(주/월/분기/반기/연/사용자 지정), 버전·제출 상태, MD/DOCX/PDF/TXT/CSV
+- DevFolio → ImpactNote 마이그레이션(ZIP 백업·멱등·원본 보존)
+
 ## [Unreleased]
 
 ### Added

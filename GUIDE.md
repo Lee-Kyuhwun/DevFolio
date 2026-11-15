@@ -1,4 +1,8 @@
-# DevFolio 시작 가이드
+# (레거시) DevFolio 시작 가이드
+
+> **이 문서는 DevFolio 시절의 기록입니다.** 현재 제품은 **성과노트(ImpactNote)** 이며,
+> 설치·사용법은 [README](README.md), 설계·마이그레이션은 [docs/impactnote.md](docs/impactnote.md) 를 참고하세요.
+> 기존 데이터는 `impactnote migrate` 로 그대로 가져올 수 있습니다.
 
 처음 설치부터 AI 키 발급, 등록, 첫 포트폴리오 생성까지 단계별로 안내합니다.
 
@@ -64,7 +68,7 @@ docker compose up --build
 
 브라우저에서 `http://localhost:8000` 접속.
 
-> **제한:** Docker 환경에서는 `devfolio scan`(Git 분석)을 사용할 수 없습니다.  
+> **제한:** Docker 환경에서는 `devfolio scan`(Git 분석)을 사용할 수 없습니다.
 > 로컬 pip 설치 방식을 권장합니다.
 
 ---
@@ -98,7 +102,7 @@ AI Provider를 지금 설정하시겠습니까? (y/n): y
 
 ## 3. AI 키 발급
 
-AI 기능(초안 자동 생성, 문구 개선 등)을 사용하려면 API 키가 필요합니다.  
+AI 기능(초안 자동 생성, 문구 개선 등)을 사용하려면 API 키가 필요합니다.
 **키가 없어도 수동 입력과 문서 내보내기는 가능합니다.**
 
 아래 4개 제공자 중 하나를 선택하세요.
@@ -112,7 +116,7 @@ AI 기능(초안 자동 생성, 문구 개선 등)을 사용하려면 API 키가
 3. 키 이름 입력 (예: `devfolio`) → **Create Key** 클릭
 4. 표시된 `sk-ant-...` 값을 복사 (이 창을 닫으면 다시 볼 수 없음)
 
-> 무료 크레딧으로 시작 가능합니다.  
+> 무료 크레딧으로 시작 가능합니다.
 > 권장 모델: `claude-sonnet-4-20250514`
 
 ---
@@ -154,7 +158,7 @@ ollama pull llama3.2
 ollama serve
 ```
 
-기본 주소: `http://localhost:11434`  
+기본 주소: `http://localhost:11434`
 모델 설정 시 Base URL은 위 주소를 입력합니다.
 
 ---
@@ -253,7 +257,7 @@ devfolio serve
 ### 첫 번째 초안 만들기
 
 1. **입력** 탭으로 이동
-2. 텍스트 영역에 프로젝트 경험을 자유롭게 붙여넣기  
+2. 텍스트 영역에 프로젝트 경험을 자유롭게 붙여넣기
    (노션 내용, 깃허브 PR 설명, 회의록, 업무 메모 무엇이든)
 3. AI 모델 선택 → **AI로 초안 만들기** 클릭
 4. 오른쪽 패널에 초안이 생성되면 내용 검토 및 수정
@@ -356,12 +360,12 @@ devfolio export portfolio --format html
 
 ## 9. FAQ
 
-**Q. AI 키 없이도 사용할 수 있나요?**  
+**Q. AI 키 없이도 사용할 수 있나요?**
 네. 수동으로 프로젝트와 작업 내용을 입력하고 저장한 뒤 이력서·포트폴리오로 내보낼 수 있습니다. AI 기능(초안 자동 생성, 문구 개선)만 비활성화됩니다.
 
 ---
 
-**Q. API 키가 어디에 저장되나요? 안전한가요?**  
+**Q. API 키가 어디에 저장되나요? 안전한가요?**
 키는 OS 키체인에 저장됩니다 (macOS Keychain, Windows Credential Manager, Linux Secret Service). 설정 파일이나 코드에는 저장되지 않습니다. 환경 변수로 주입하는 경우에도 평문 로그에는 절대 출력되지 않습니다.
 
 ---
@@ -376,7 +380,7 @@ devfolio export portfolio --format html
 
 ---
 
-**Q. `devfolio init`을 이미 실행했는데 AI 설정을 나중에 추가할 수 있나요?**  
+**Q. `devfolio init`을 이미 실행했는데 AI 설정을 나중에 추가할 수 있나요?**
 ```bash
 devfolio config ai set
 # 또는 웹 UI Settings 탭에서 언제든 추가/수정 가능
@@ -384,7 +388,7 @@ devfolio config ai set
 
 ---
 
-**Q. 기존 프로젝트 데이터를 백업하거나 이전하려면?**  
+**Q. 기존 프로젝트 데이터를 백업하거나 이전하려면?**
 ```bash
 # 백업
 devfolio data backup
@@ -398,14 +402,14 @@ devfolio data restore backup_file.zip
 
 ---
 
-**Q. 웹 UI 포트를 바꾸고 싶어요.**  
+**Q. 웹 UI 포트를 바꾸고 싶어요.**
 ```bash
 devfolio serve --port 9000
 ```
 
 ---
 
-**Q. 로그를 자세히 보려면?**  
+**Q. 로그를 자세히 보려면?**
 ```bash
 DEVFOLIO_LOG_LEVEL=DEBUG devfolio serve
 ```
