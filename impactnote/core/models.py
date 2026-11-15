@@ -119,7 +119,7 @@ class Activity(BaseModel):
     importance: int = Field(default=3, ge=1, le=5)
     tags: list[str] = Field(default_factory=list)
     evidence_ids: list[str] = Field(default_factory=list)
-    source: Literal["manual", "git", "migration", "ai"] = "manual"
+    source: Literal["manual", "git", "migration", "ai", "analysis"] = "manual"
     source_ref: str = Field(default="", max_length=500)
     created_at: str = Field(default_factory=utc_now)
     updated_at: str = Field(default_factory=utc_now)
@@ -209,7 +209,7 @@ class Achievement(BaseModel):
     status: str = Field(default="user_input")
     period_start: Optional[str] = None
     period_end: Optional[str] = None
-    source: Literal["manual", "ai", "git", "migration"] = "manual"
+    source: Literal["manual", "ai", "git", "migration", "analysis"] = "manual"
     needs_review: bool = False
     # AI/Git 이 제안한 성과는 사용자가 확인(confirmed)하기 전까지 확정하지 않는다.
     confirmed: bool = False

@@ -41,6 +41,7 @@ impactnote serve         # http://127.0.0.1:8000
 | 업무 기록 | 제목+설명으로 빠르게 저장, 프로젝트·유형·문제/행동/결과 보완 |
 | 성과 관리 | 기록을 묶어 성과 후보 생성, 근거 연결, 수치 등록 |
 | 근거 자료 | PR·티켓·로그·문서·회의록을 URL/텍스트로 보관, 확인 처리 |
+| 프로젝트 분석 | 경로 등록 → 문서·코드·Git 전후 비교 → 근거가 연결된 성과 후보 발굴 |
 | AI 성과 분석 | 동의한 경우에만 업무 메모를 성과 구조로 분석(원본 불변) |
 | Git 후보 | 커밋 메시지에서 성과 후보를 결정론적으로 추출(확정 아님) |
 | 성과보고서 | 기간·템플릿 선택 → 미리보기 → MD/DOCX/PDF/TXT/CSV 다운로드 |
@@ -78,6 +79,8 @@ impactnote achievement from-activity act_xxx
 impactnote achievement list --status verified
 impactnote report generate --template monthly --period month --format docx
 impactnote report list
+impactnote intel analyze /path/to/company-project --author-email me@company.com
+impactnote intel list
 impactnote migrate           # DevFolio 데이터 이전(백업·멱등)
 impactnote serve --host 0.0.0.0 --port 8000
 ```
@@ -92,7 +95,20 @@ impactnote serve --host 0.0.0.0 --port 8000
 | 설정 | `~/.config/impactnote` | `IMPACTNOTE_CONFIG_DIR` |
 | DevFolio 원본 | 기존 `devfolio` 경로 | `IMPACTNOTE_LEGACY_DATA_DIR`, `IMPACTNOTE_LEGACY_CONFIG_DIR` |
 
-컬렉션별 JSON 파일(`activities.json`, `achievements.json`, `evidence.json`, `metrics.json`, `reports.json`, `analyses.json`, `settings.json`)로 저장되며 파일 권한은 `0600` 입니다.
+컬렉션별 JSON 파일(`activities.json`, `achievements.json`, `evidence.json`, `metrics.json`, `reports.json`, `analyses.json`, `project_analyses.json`, `settings.json`)로 저장되며 파일 권한은 `0600` 입니다.
+
+### 프로젝트 심층 분석
+
+`프로젝트 분석` 화면 또는 `impactnote intel analyze <path>` 는 **읽기 전용**으로 프로젝트를 조사합니다.
+
+- 문서(MD/TXT/HTML/JSON/YAML/CSV/DOCX/XLSX/PPTX/PDF 등)를 탐색하고 역할을 분류합니다. `.env`·키·자격증명은 읽지 않습니다.
+- Git 커밋 메시지 대신 실제 diff·현재 코드·테스트를 근거로 후보를 만들고, 리버트는 제외합니다.
+- 문서 주장 ↔ 심볼/라우트를 교차 분석해 `일치 / 문서에만 존재 / 코드에만 존재` 를 구분합니다.
+- 전후 수치가 기록된 측정 자료만 개선율을 계산합니다. 측정이 없으면 정성 서술만 합니다.
+- 후보는 `VERIFIED / SUPPORTED_INFERENCE / HYPOTHESIS / INSUFFICIENT_EVIDENCE` 로 표시되고, 적용해도 `needs_review` 상태로 저장됩니다.
+- AI 보강은 외부 전송 동의가 있을 때만 실행되며, AI 는 `VERIFIED` 를 만들 수 없고 인용 근거 ID 밖의 내용은 버립니다.
+
+분석 결과는 프로젝트 경로·HEAD·문서 지문이 같으면 재실행 시 이전 결과를 재사용합니다(`incremental`).
 
 ## AI 설정
 

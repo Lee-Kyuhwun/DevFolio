@@ -119,6 +119,21 @@ details.panel > summary { cursor: pointer; font-weight: 600; }
 .badge.draft { color: var(--text-2); }
 .badge.submitted { color: #3ddc97; border-color: #2a7d5f; }
 .badge.warn { color: var(--warn); border-color: #7c6320; }
+.badge.VERIFIED { color: #3ddc97; border-color: #2a7d5f; }
+.badge.SUPPORTED_INFERENCE { color: #9fc6ff; border-color: #35507a; }
+.badge.HYPOTHESIS { color: #f4b942; border-color: #8a6b22; }
+.badge.INSUFFICIENT_EVIDENCE { color: #ff8f8f; border-color: #7c3030; }
+.badge.partial { color: #f4b942; border-color: #8a6b22; }
+.badge.completed { color: #3ddc97; border-color: #2a7d5f; }
+
+.intel-stats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin: 12px 0 6px; }
+.intel-stats div { background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; padding: 8px 10px; display: grid; }
+.intel-stats b { font-size: 17px; }
+.intel-stats span { color: var(--muted); font-size: 11.5px; }
+
+.diff-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 6px; }
+.diff-box pre.content { max-height: 220px; margin: 4px 0 0; font-size: 11.5px; }
+code { background: var(--surface-2); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; font-size: 11.5px; }
 
 .list { display: grid; gap: 10px; }
 .item {
@@ -162,4 +177,6 @@ pre.content { background: #0a1322; border: 1px solid var(--border); border-radiu
   .main { padding: 18px 16px 60px; }
   .grid.cols-3, .grid.cols-2, .form-grid { grid-template-columns: 1fr; }
   .form-grid .span-2 { grid-column: span 1; }
+  .intel-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .diff-grid { grid-template-columns: 1fr; }
 }

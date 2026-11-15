@@ -22,9 +22,11 @@ app = typer.Typer(
 activity_app = typer.Typer(help="업무 기록 추가·조회")
 achievement_app = typer.Typer(help="성과 조회·생성")
 report_app = typer.Typer(help="제출용 보고서 생성")
+intel_app = typer.Typer(help="프로젝트 자료·코드·Git 이력 심층 분석")
 app.add_typer(activity_app, name="activity")
 app.add_typer(achievement_app, name="achievement")
 app.add_typer(report_app, name="report")
+app.add_typer(intel_app, name="intel")
 
 
 def _service() -> ImpactService:
@@ -206,6 +208,62 @@ def report_generate(
     typer.echo(
         f"포함 성과 {len(report.achievement_ids)}건 / 업무 {len(report.activity_ids)}건"
     )
+
+
+@intel_app.command("analyze")
+def intel_analyze(
+    path: str = typer.Argument(..., help="프로젝트 디렉터리"),
+    author_email: str = typer.Option("", help="본인 커밋 이메일(기여도 판단)"),
+    use_ai: bool = typer.Option(True, "--ai/--no-ai", help="동의한 경우 AI 보강"),
+    provider: str = typer.Option("", help="AI Provider"),
+    force: bool = typer.Option(False, help="캐시 무시하고 다시 분석"),
+) -> None:
+    """문서·코드·Git 변경 전후를 분석해 근거 있는 성과 후보를 만든다."""
+    from impactnote.core.intel import analyze_project
+
+    try:
+        analysis = analyze_project(
+            path,
+            author_email=author_email,
+            use_ai=use_ai,
+            provider=provider or None,
+            force=force,
+        )
+    except Exception as exc:  # noqa: BLE001 — CLI 안내
+        typer.echo(f"프로젝트 분석 실패: {exc}")
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"분석 완료: {analysis.project_name} ({analysis.status})")
+    typer.echo(
+        f"문서 {analysis.stats.get('documents', 0)}개 / 코드 {analysis.stats.get('code_files', 0)}개 / "
+        f"커밋 {analysis.stats.get('commits_scanned', 0)}개 / 후보 {len(analysis.candidates)}건"
+    )
+    typer.echo(
+        f"AI: {analysis.ai.status}"
+        + (f" ({analysis.ai.error})" if analysis.ai.error else "")
+    )
+    typer.echo(f"분석 ID: {analysis.id}")
+    for candidate in analysis.candidates[:8]:
+        typer.echo(
+            f"  [{candidate.quality}] {candidate.title} (근거 {len(candidate.evidence_ids)})"
+        )
+    if analysis.warnings:
+        typer.echo(f"경고 {len(analysis.warnings)}건: {analysis.warnings[0]}")
+
+
+@intel_app.command("list")
+def intel_list() -> None:
+    """저장된 프로젝트 분석 이력을 출력한다."""
+    from impactnote.core.service import ImpactService
+
+    items = ImpactService().project_analyses()
+    if not items:
+        typer.echo("프로젝트 분석 이력이 없습니다.")
+        return
+    for item in items:
+        typer.echo(
+            f"{item.created_at[:10]}  {item.project_name}  [{item.status}]  "
+            f"후보 {len(item.candidates)}건  {item.id}"
+        )
 
 
 @report_app.command("list")

@@ -32,6 +32,7 @@ COLLECTIONS = (
     "goals",
     "reports",
     "analyses",
+    "project_analyses",
 )
 
 

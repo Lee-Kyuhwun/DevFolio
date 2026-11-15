@@ -154,7 +154,30 @@ POST /api/migrate 또는 impactnote migrate
 | `AIAnalysis` | activity_id, status, result, error_code, provider, model | 결과는 별도 컬렉션, 원본 불변 |
 | `Settings` | user_name, role, default_template, external_ai_consent, allowed_providers | 동의 기본값 `False` |
 
-저장 컬렉션: `activities`, `achievements`, `evidence`, `metrics`, `goals`, `reports`, `analyses`, `settings`.
+저장 컬렉션: `activities`, `achievements`, `evidence`, `metrics`, `goals`, `reports`, `analyses`, `project_analyses`, `settings`.
+
+---
+
+## 3.1 프로젝트 인텔리전스 엔진 (`impactnote/core/intel`)
+
+프로젝트 경로 하나로 문서·코드·Git 이력을 연결해 성과 후보와 근거 그래프를 만든다.
+
+```
+discovery.py   문서 탐색·내용 추출(docx/xlsx/pptx/pdf)·역할 분류·비밀 제외·삭제 문서 복원
+gitintel.py    읽기 전용 git log/show/diff, numstat 파싱, revert/merge 판별, 파일별 패치
+gitintel.py    → checkout/reset/브랜치 전환 없음 (원본 저장소 불변)
+engine.py      코드 인벤토리(AST 심볼·라우트·의존성) → 문서 주장 교차 분석
+               → 변경 전후 타임라인 → 측정값 파싱/변화율 → 후보 그룹화
+               → 기여도 분리 → 증분 캐시(HEAD+문서 지문) → partial 실패 처리
+ai_stage.py    동의/Provider 게이트 → 근거 인용 번들 → JSON 파싱
+               → 인용 ID 검증 → 수치 세탁 → AI 는 최대 SUPPORTED_INFERENCE
+```
+
+- 후보는 `path + 기술 범주`로 묶어 여러 커밋을 하나의 개선 과정으로 재구성한다.
+- 리버트/머지 커밋은 후보에서 제외하고 경고에 남긴다.
+- 후보 적용 시 Evidence 를 만들고 `Achievement(source="analysis", needs_review=True, confirmed=False)` 로 저장한다.
+  검증된 측정 문서가 연결된 경우에만 Metric 을 verified 로 추가한다.
+- AI 실패·Rate Limit 은 결정론적 결과를 지우지 않고 `status=partial` 로 표시한다.
 
 ---
 
@@ -181,7 +204,7 @@ impactnote/core/ai.py
 
 - `create_app()`: FastAPI 앱, `/` SPA, `/favicon.svg`, `/static`, `/api` 라우터
 - SPA 는 상태를 메모리에 두고 API 만 호출한다(서버 템플릿 없음).
-- 주요 API: `/api/health`, `/meta`, `/dashboard`, `/activities`, `/achievements`, `/evidence`, `/metrics`, `/ai/analyze`, `/ai/analyses/{id}/apply`, `/git/import`, `/reports`, `/settings`, `/migrate`
+- 주요 API: `/api/health`, `/meta`, `/dashboard`, `/activities`, `/achievements`, `/evidence`, `/metrics`, `/ai/analyze`, `/ai/analyses/{id}/apply`, `/git/import`, `/projects/analyze`, `/projects/analyses`, `/projects/analyses/{id}`, `/projects/analyses/{id}/candidates/{cid}/apply`, `/projects/analyses/{id}/candidates/{cid}/dismiss`, `/reports`, `/settings`, `/migrate`
 - 파일 다운로드는 `ExportEngine` 산출물을 스트리밍한다.
 
 ---

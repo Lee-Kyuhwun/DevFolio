@@ -201,7 +201,10 @@ class ImpactService:
             evidence[item] for item in achievement.evidence_ids if item in evidence
         ]
         # AI·Git 이 만든 후보는 사용자가 확인하기 전까지 "근거 확인됨"으로 올리지 않는다.
-        if achievement.source in {"ai", "git"} and not achievement.confirmed:
+        if (
+            achievement.source in {"ai", "git", "analysis"}
+            and not achievement.confirmed
+        ):
             achievement.status = "needs_review"
             achievement.needs_review = True
             return
@@ -383,6 +386,172 @@ class ImpactService:
         settings = Settings.model_validate(merged)
         self.store.save_settings(settings)
         return settings
+
+    # ------------------------------------------------------------------
+    # 프로젝트 인텔리전스
+    # ------------------------------------------------------------------
+    def project_analyses(self) -> list:
+        from impactnote.core.intel.models import ProjectAnalysis
+
+        items = self.store.all("project_analyses", ProjectAnalysis)
+        return sorted(items, key=lambda item: item.created_at, reverse=True)
+
+    def project_analysis(self, analysis_id: str):
+        from impactnote.core.intel.models import ProjectAnalysis
+
+        item = self.store.get("project_analyses", analysis_id, ProjectAnalysis)
+        if item is None:
+            raise NotFound("프로젝트 분석 결과를 찾을 수 없습니다.")
+        return item
+
+    def save_project_analysis(self, analysis):
+        self.store.put("project_analyses", analysis)
+        return analysis
+
+    def analyze_project(
+        self,
+        project_path: str,
+        *,
+        author_email: str = "",
+        use_ai: bool = True,
+        provider: Optional[str] = None,
+        force: bool = False,
+    ):
+        """프로젝트 경로 하나로 문서·코드·Git 이력을 분석한다."""
+        from impactnote.core.intel import analyze_project
+
+        return analyze_project(
+            project_path,
+            author_email=author_email,
+            use_ai=use_ai,
+            provider=provider,
+            force=force,
+            store=self.store,
+        )
+
+    def apply_project_candidate(
+        self, analysis_id: str, candidate_id: str
+    ) -> Achievement:
+        """프로젝트 분석 후보를 업무 기록·성과·근거로 저장한다(확인 전 상태 유지)."""
+        import re
+
+        from impactnote.core.intel.models import ProjectAnalysis
+
+        analysis = self.store.get("project_analyses", analysis_id, ProjectAnalysis)
+        if analysis is None:
+            raise NotFound("프로젝트 분석 결과를 찾을 수 없습니다.")
+        candidate = next(
+            (item for item in analysis.candidates if item.id == candidate_id), None
+        )
+        if candidate is None:
+            raise NotFound("성과 후보를 찾을 수 없습니다.")
+        if candidate.status == "dismissed":
+            raise ValueError("제외된 후보는 성과로 저장할 수 없습니다.")
+        if candidate.status == "applied" and candidate.applied_achievement_id:
+            return self.achievement(candidate.applied_achievement_id)
+
+        ref_map = {item.id: item for item in analysis.evidence}
+        evidence_ids: list[str] = []
+        type_map = {
+            "commit": "git_commit",
+            "code": "file",
+            "document": "file",
+            "test": "test_result",
+            "measurement": "report",
+            "claim": "note",
+        }
+        for ref_id in candidate.evidence_ids:
+            ref = ref_map.get(ref_id)
+            if ref is None:
+                continue
+            reference = ref.path
+            if ref.locator:
+                reference = f"{reference}#{ref.locator}" if reference else ref.locator
+            evidence = self.create_evidence(
+                {
+                    "type": type_map.get(ref.kind, "note"),
+                    "title": ref.title[:200],
+                    "reference": reference[:2000],
+                    "description": ref.excerpt[:2000],
+                    "verified": ref.verified,
+                }
+            )
+            evidence_ids.append(evidence.id)
+
+        today = utc_now()[:10]
+        activity = self.create_activity(
+            {
+                "title": candidate.title[:200],
+                "description": candidate.action[:4000],
+                "date": today,
+                "project": analysis.project_name[:120],
+                "activity_type": "general",
+                "problem": candidate.problem[:2000],
+                "action": candidate.action[:2000],
+                "result": candidate.result[:2000],
+                "source": "analysis",
+                "source_ref": f"intel:{analysis.id}:{candidate.id}"[:500],
+                "evidence_ids": evidence_ids,
+                "tags": ["프로젝트분석", candidate.quality],
+            }
+        )
+        achievement = self.create_achievement(
+            {
+                "title": candidate.title[:200],
+                "activity_ids": [activity.id],
+                "problem": candidate.problem[:3000],
+                "action": candidate.action[:3000],
+                "result": candidate.result[:3000],
+                "impact_categories": candidate.impact_categories[:3],
+                "evidence_ids": evidence_ids,
+                "period_start": today,
+                "period_end": today,
+                "source": "analysis",
+                "confirmed": False,
+                "needs_review": True,
+                "status": "needs_review",
+            }
+        )
+
+        if candidate.measurement_id:
+            measurement = next(
+                (
+                    item
+                    for item in analysis.measurements
+                    if item.id == candidate.measurement_id
+                ),
+                None,
+            )
+            if measurement and measurement.verified:
+                number = re.match(r"\s*(-?\d+(?:[.,]\d+)?)", measurement.after)
+                if number:
+                    self.add_metric(
+                        achievement.id,
+                        {
+                            "name": (measurement.metric or "개선 효과")[:120],
+                            "value": number.group(1).replace(",", "."),
+                            "unit": measurement.unit[:40],
+                            "period": measurement.conditions[:80],
+                            "basis": measurement.conditions[:500],
+                            "verified": True,
+                        },
+                    )
+
+        candidate.status = "applied"
+        candidate.applied_achievement_id = achievement.id
+        self.store.put("project_analyses", analysis)
+        return achievement
+
+    def dismiss_project_candidate(self, analysis_id: str, candidate_id: str):
+        analysis = self.project_analysis(analysis_id)
+        candidate = next(
+            (item for item in analysis.candidates if item.id == candidate_id), None
+        )
+        if candidate is None:
+            raise NotFound("성과 후보를 찾을 수 없습니다.")
+        candidate.status = "dismissed"
+        self.store.put("project_analyses", analysis)
+        return analysis
 
     def analyses(self) -> list[AIAnalysis]:
         items = self.store.all("analyses", AIAnalysis)

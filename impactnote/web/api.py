@@ -80,6 +80,24 @@ def meta() -> dict[str, Any]:
         "settings": _model_payload(settings),
         "legacy_available": legacy_available(),
         "external_ai_enabled": settings.external_ai_consent,
+        "intel_quality_labels": {
+            "VERIFIED": "검증됨",
+            "SUPPORTED_INFERENCE": "근거 기반 추론",
+            "HYPOTHESIS": "가설",
+            "INSUFFICIENT_EVIDENCE": "근거 부족",
+        },
+        "intel_doc_kinds": {
+            "requirements": "요구사항·기획",
+            "design": "설계·의사결정",
+            "technical_review": "기술 검토",
+            "implementation": "구현 설명",
+            "incident": "장애 분석",
+            "test": "테스트·검증",
+            "performance": "성능 측정",
+            "deployment": "배포·운영",
+            "report": "업무 결과·보고",
+            "reference": "참고 자료",
+        },
     }
 
 
@@ -455,6 +473,85 @@ def download_report(report_id: str, format: str = "md") -> FileResponse:
 # ---------------------------------------------------------------------------
 # 설정·마이그레이션
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# 프로젝트 인텔리전스
+# ---------------------------------------------------------------------------
+
+
+@router.post("/projects/analyze")
+def analyze_project_endpoint(payload: dict[str, Any]) -> dict[str, Any]:
+    project_path = str(payload.get("project_path") or payload.get("path") or "").strip()
+    if not project_path:
+        raise HTTPException(status_code=400, detail="project_path 가 필요합니다.")
+    target = Path(project_path).expanduser()
+    if not target.exists() or not target.is_dir():
+        raise HTTPException(
+            status_code=400, detail="프로젝트 디렉터리를 찾을 수 없습니다."
+        )
+    try:
+        analysis = _service().analyze_project(
+            str(target),
+            author_email=str(payload.get("author_email") or ""),
+            use_ai=bool(payload.get("use_ai", True)),
+            provider=payload.get("provider") or None,
+            force=bool(payload.get("force")),
+        )
+    except Exception as exc:
+        raise _fail(exc) from exc
+    return {"status": "ok", "analysis": _model_payload(analysis)}
+
+
+@router.get("/projects/analyses")
+def list_project_analyses() -> dict[str, Any]:
+    items = []
+    for analysis in _service().project_analyses():
+        items.append(
+            {
+                "id": analysis.id,
+                "project_name": analysis.project_name,
+                "project_path": analysis.project_path,
+                "created_at": analysis.created_at,
+                "status": analysis.status,
+                "head_sha": analysis.head_sha,
+                "incremental": analysis.incremental,
+                "stats": analysis.stats,
+                "quality_summary": analysis.quality_summary,
+                "candidate_count": len(analysis.candidates),
+                "ai_status": analysis.ai.status,
+            }
+        )
+    return {"status": "ok", "analyses": items}
+
+
+@router.get("/projects/analyses/{analysis_id}")
+def get_project_analysis(analysis_id: str) -> dict[str, Any]:
+    try:
+        analysis = _service().project_analysis(analysis_id)
+    except Exception as exc:
+        raise _fail(exc) from exc
+    return {"status": "ok", "analysis": _model_payload(analysis)}
+
+
+@router.post(
+    "/projects/analyses/{analysis_id}/candidates/{candidate_id}/apply", status_code=201
+)
+def apply_project_candidate(analysis_id: str, candidate_id: str) -> dict[str, Any]:
+    try:
+        achievement = _service().apply_project_candidate(analysis_id, candidate_id)
+    except Exception as exc:
+        raise _fail(exc) from exc
+    return {"status": "ok", "achievement": _model_payload(achievement)}
+
+
+@router.post("/projects/analyses/{analysis_id}/candidates/{candidate_id}/dismiss")
+def dismiss_project_candidate(analysis_id: str, candidate_id: str) -> dict[str, Any]:
+    try:
+        analysis = _service().dismiss_project_candidate(analysis_id, candidate_id)
+    except Exception as exc:
+        raise _fail(exc) from exc
+    return {"status": "ok", "analysis": _model_payload(analysis)}
 
 
 @router.get("/settings")

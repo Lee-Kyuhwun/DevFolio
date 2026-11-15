@@ -8,6 +8,7 @@
     { id: "activities", label: "업무 기록", icon: "✎" },
     { id: "achievements", label: "성과 관리", icon: "★" },
     { id: "evidence", label: "근거 자료", icon: "🔗" },
+    { id: "projects", label: "프로젝트 분석", icon: "⌕" },
     { id: "ai", label: "AI 성과 분석", icon: "✦" },
     { id: "reports", label: "성과보고서", icon: "▤" },
     { id: "submissions", label: "제출 이력", icon: "📤" },
@@ -23,6 +24,9 @@
     evidence: [],
     reports: [],
     analyses: [],
+    projectAnalyses: [],
+    projectAnalysis: null,
+    projectBusy: false,
     selectedActivities: new Set(),
     editingActivity: null,
     editingAchievement: null,
@@ -118,18 +122,20 @@
     state.error = "";
     try {
       if (!state.meta) state.meta = await api("/api/meta");
-      const [dashboard, activities, achievements, evidence, reports] = await Promise.all([
+      const [dashboard, activities, achievements, evidence, reports, projectAnalyses] = await Promise.all([
         api("/api/dashboard"),
         api("/api/activities"),
         api("/api/achievements"),
         api("/api/evidence"),
         api("/api/reports"),
+        api("/api/projects/analyses"),
       ]);
       state.dashboard = dashboard;
       state.activities = activities.activities || [];
       state.achievements = achievements.achievements || [];
       state.evidence = evidence.evidence || [];
       state.reports = reports.reports || [];
+      state.projectAnalyses = projectAnalyses.analyses || [];
       const alive = new Set(state.activities.map((item) => item.id));
       state.selectedActivities.forEach((id) => {
         if (!alive.has(id)) state.selectedActivities.delete(id);
@@ -183,6 +189,7 @@
         activities: "한 일을 먼저 남기세요. 제목과 한 줄 설명만으로 충분합니다.",
         achievements: "업무 기록을 골라 성과로 묶고, 근거와 기여도를 연결합니다.",
         evidence: "커밋·티켓·테스트 결과·문서 등 제출에 필요한 근거를 모읍니다.",
+        projects: "프로젝트 경로만 등록하면 문서·코드·Git 변경 전후를 연결해 성과 후보를 발굴합니다.",
         ai: "기록을 바탕으로 성과 구조를 제안합니다. 근거 없는 수치는 자동으로 걸러집니다.",
         reports: "기간과 제출 목적을 고르면 기록된 내용만으로 보고서를 만듭니다.",
         submissions: "생성한 보고서의 버전과 제출 상태를 관리합니다.",
@@ -514,6 +521,183 @@
       }`;
   }
 
+  function qualityBadge(quality) {
+    const labels = (state.meta && state.meta.intel_quality_labels) || {};
+    return `<span class="badge ${esc(quality)}">${esc(labels[quality] || quality)}</span>`;
+  }
+
+  function intelDocKind(kind) {
+    const labels = (state.meta && state.meta.intel_doc_kinds) || {};
+    return labels[kind] || kind;
+  }
+
+  function projectsScreen() {
+    const analysis = state.projectAnalysis;
+    return `
+      <div class="card">
+        <h3>프로젝트 경로로 심층 분석</h3>
+        <form data-form="intel-analyze" class="form-grid">
+          <label class="field span-2">프로젝트 디렉터리
+            <input name="project_path" required placeholder="/Users/you/company-project" />
+          </label>
+          <label class="field">내 커밋 이메일 (선택)
+            <input name="author_email" type="email" placeholder="me@company.com" />
+          </label>
+          <label class="field">AI Provider (선택)
+            <input name="provider" placeholder="예: groq, ollama" />
+          </label>
+          <label class="checkline"><input type="checkbox" name="use_ai" value="1" checked /> 외부 AI 보강 사용 (설정에서 동의한 경우만 전송)</label>
+          <label class="checkline"><input type="checkbox" name="force" value="1" /> 캐시 무시하고 다시 분석</label>
+          <div class="form-actions span-2">
+            <button class="btn btn-primary" type="submit" ${state.projectBusy ? "disabled" : ""}>${state.projectBusy ? "분석 중..." : "프로젝트 분석"}</button>
+            <span class="hint">문서·코드·Git 이력을 읽기 전용으로 조사합니다. 원본 파일과 브랜치는 변경하지 않습니다.</span>
+          </div>
+        </form>
+        ${state.projectBusy ? '<div class="notice" style="margin-top:12px">문서 탐색 → 코드 인벤토리 → Git 변경 전후 비교 → 후보 생성을 진행 중입니다. 큰 저장소는 시간이 걸릴 수 있습니다.</div>' : ""}
+      </div>
+      ${analysis ? intelDetail(analysis) : `<div class="empty" style="margin-top:14px">분석 결과를 선택하거나 새 프로젝트를 분석하세요.</div>`}
+      <div class="card" style="margin-top:14px">
+        <h3>분석 이력</h3>
+        ${
+          state.projectAnalyses.length
+            ? `<div class="list">${state.projectAnalyses
+                .map(
+                  (item) => `<div class="item">
+                    <div class="item-head"><strong>${esc(item.project_name)}</strong>${statusBadge(item.status, { completed: "완료", partial: "부분 완료", failed: "실패" })}${item.incremental ? '<span class="badge">캐시 재사용</span>' : ""}</div>
+                    <div class="item-meta"><span>${esc(item.created_at.slice(0, 16).replace("T", " "))}</span><span>문서 ${(item.stats || {}).documents || 0}</span><span>코드 ${(item.stats || {}).code_files || 0}</span><span>커밋 ${(item.stats || {}).commits_scanned || 0}</span><span>후보 ${item.candidate_count || 0}</span><span>AI ${esc(item.ai_status || "-")}</span></div>
+                    <div class="item-actions"><button class="btn btn-sm" data-action="open-intel" data-id="${esc(item.id)}" type="button">근거 보기</button></div>
+                  </div>`
+                )
+                .join("")}</div>`
+            : '<p class="hint">아직 프로젝트 분석 이력이 없습니다.</p>'
+        }
+      </div>`;
+  }
+
+  function intelDetail(analysis) {
+    const stats = analysis.stats || {};
+    const quality = analysis.quality_summary || {};
+    const refs = analysis.evidence || [];
+    const refMap = Object.fromEntries(refs.map((item) => [item.id, item]));
+    const findings = analysis.findings || [];
+    const warnings = analysis.warnings || [];
+    const ai = analysis.ai || {};
+    return `
+      <div class="card" style="margin-top:14px">
+        <div class="item-head">
+          <h3 style="margin:0">${esc(analysis.project_name)}</h3>
+          ${statusBadge(analysis.status, { completed: "완료", partial: "부분 완료", failed: "실패" })}
+          ${analysis.incremental ? '<span class="badge">캐시 재사용</span>' : ""}
+          <span class="hint">${esc(analysis.project_path)}</span>
+        </div>
+        <div class="intel-stats">
+          <div><b>${stats.documents || 0}</b><span>문서</span></div>
+          <div><b>${stats.code_files || 0}</b><span>코드 파일</span></div>
+          <div><b>${stats.commits_scanned || 0}</b><span>커밋</span></div>
+          <div><b>${stats.candidates || 0}</b><span>성과 후보</span></div>
+          <div><b>${stats.measurements || 0}</b><span>측정 자료</span></div>
+          <div><b>${analysis.head_sha ? analysis.head_sha.slice(0, 8) : "-"}</b><span>HEAD</span></div>
+        </div>
+        <p class="hint">분석 범위: ${esc(stats.commit_range || "-")} · 기여자 ${stats.contributors || 0}명 · 코드 ${stats.code_lines || 0}줄</p>
+        <div class="chips" style="margin-top:8px">
+          ${qualityBadge("VERIFIED")} ${quality.VERIFIED || 0}
+          ${qualityBadge("SUPPORTED_INFERENCE")} ${quality.SUPPORTED_INFERENCE || 0}
+          ${qualityBadge("HYPOTHESIS")} ${quality.HYPOTHESIS || 0}
+          ${qualityBadge("INSUFFICIENT_EVIDENCE")} ${quality.INSUFFICIENT_EVIDENCE || 0}
+        </div>
+        <p class="hint" style="margin-top:8px">AI 보강: ${esc(ai.status || "skipped")} ${ai.used ? `· ${esc(ai.provider || "")} ${esc(ai.model || "")}` : "· 결정론적 분석만 사용"}${ai.prompt_chars ? ` · prompt ${ai.prompt_chars}자` : ""}</p>
+        ${ai.error ? `<div class="notice error" style="margin-top:8px">AI 보강 실패(부분 결과 보존): ${esc(ai.error)}</div>` : ""}
+        ${warnings.length ? `<details style="margin-top:10px"><summary class="hint">분석 경고·누락 가능성 ${warnings.length}건</summary><ul class="hint">${warnings.map((item) => `<li>${esc(item)}</li>`).join("")}</ul></details>` : ""}
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <h3>발견한 문서 (${(analysis.documents || []).length})</h3>
+        ${(analysis.documents || []).length
+          ? `<div class="chips" style="margin-bottom:8px">${Array.from(new Set((analysis.documents || []).map((item) => item.kind))).map((kind) => `<span class="badge">${esc(intelDocKind(kind))}</span>`).join(" ")}</div>
+            <table><thead><tr><th>문서</th><th>역할</th><th>크기</th><th>상태</th></tr></thead><tbody>
+            ${(analysis.documents || []).slice(0, 20).map((item) => `<tr><td>${esc(item.path)}<br /><span class="hint">${esc(item.summary || "")}</span></td><td>${esc(intelDocKind(item.kind))}</td><td>${item.chars}자</td><td>${item.deleted ? "Git 이력" : item.git_tracked ? "Git 추적" : "로컬"}</td></tr>`).join("")}
+            </tbody></table>`
+          : '<p class="hint">문서를 찾지 못했습니다. 코드와 Git 이력만으로 분석했습니다.</p>'}
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <h3>문서 ↔ 코드 교차 분석</h3>
+        ${findings.length
+          ? `<div class="list">${findings.slice(0, 24).map((item) => `<div class="item">
+              <div class="item-head"><strong>${esc(item.title)}</strong>${qualityBadge(item.quality)}</div>
+              <p>${esc(item.detail)}</p>
+              <div class="item-meta">${(item.paths || []).map((path) => `<code>${esc(path)}</code>`).join(" ")}</div>
+            </div>`).join("")}</div>`
+          : '<p class="hint">문서 주장과 코드를 연결하지 못했습니다.</p>'}
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <h3>기술 진화 타임라인</h3>
+        ${(analysis.timeline || []).length
+          ? `<div class="list">${(analysis.timeline || []).map((step) => `<div class="item">
+              <div class="item-head"><strong>${esc(step.label)}</strong><span class="hint">${esc(step.date || "")}</span>${step.change_kind ? `<span class="badge">${esc(step.change_kind)}</span>` : ""}</div>
+              <div class="item-meta">${esc(step.summary || "")}${step.sha ? ` · ${esc(step.sha.slice(0, 8))}` : ""}</div>
+              ${step.before || step.after ? `<div class="diff-grid"><div class="diff-box"><span class="hint">변경 전</span><pre class="content">${esc(step.before || "(기록 없음)")}</pre></div><div class="diff-box"><span class="hint">변경 후</span><pre class="content">${esc(step.after || "(기록 없음)")}</pre></div></div>` : ""}
+            </div>`).join("")}</div>`
+          : '<p class="hint">재구성할 만한 커밋 변경이 없습니다.</p>'}
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <h3>측정된 개선 (${(analysis.measurements || []).length})</h3>
+        ${(analysis.measurements || []).length
+          ? `<table><thead><tr><th>이전</th><th>이후</th><th>변화율</th><th>측정 조건</th><th>검증</th><th>출처</th></tr></thead><tbody>
+            ${(analysis.measurements || []).map((item) => `<tr><td>${esc(item.before)}</td><td>${esc(item.after)}</td><td>${item.change_percent == null ? "미측정" : `${item.change_percent}%`}</td><td>${esc(item.conditions)}</td><td>${item.verified ? "측정 문서" : "참고용"}</td><td>${esc(item.source_path)}</td></tr>`).join("")}
+            </tbody></table>`
+          : '<p class="hint">전후 수치가 기록된 측정 자료가 없습니다. 개선 효과는 정성적으로만 표시됩니다.</p>'}
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <h3>성과 후보 (${(analysis.candidates || []).length})</h3>
+        ${(analysis.candidates || []).length
+          ? `<div class="list">${(analysis.candidates || []).map((item) => intelCandidate(item, refMap)).join("")}</div>`
+          : '<p class="hint">근거가 연결된 후보를 만들지 못했습니다. 커밋·코드 변경이 더 필요할 수 있습니다.</p>'}
+      </div>
+      ${(ai.notes || []).length ? `<div class="notice" style="margin-top:14px">AI 메모: ${(ai.notes || []).map((note) => esc(note)).join(" · ")}</div>` : ""}`;
+  }
+
+  function intelCandidate(candidate, refMap) {
+    const refs = (candidate.evidence_ids || []).map((id) => refMap[id]).filter(Boolean);
+    const contribution = candidate.contribution || {};
+    const dismissed = candidate.status === "dismissed";
+    const applied = candidate.status === "applied";
+    return `<article class="item" ${dismissed ? 'style="opacity:.55"' : ""}>
+        <div class="item-head">
+          <strong>${esc(candidate.title)}</strong>
+          ${qualityBadge(candidate.quality)}
+          <span class="badge">신뢰도 ${candidate.confidence}</span>
+          ${applied ? '<span class="badge verified">성과로 저장됨</span>' : dismissed ? '<span class="badge">제외됨</span>' : ""}
+        </div>
+        <p><b>문제</b> ${esc(candidate.problem)}</p>
+        <p><b>수행</b> ${esc(candidate.action)}</p>
+        <p><b>결과</b> ${esc(candidate.result)}</p>
+        <div class="item-meta">
+          <span>기여: ${esc(contribution.role || "미확인")}</span>
+          ${(candidate.impact_categories || []).map((cat) => `<span>${esc(impactLabel(cat))}</span>`).join("")}
+        </div>
+        ${(candidate.notes || []).length ? `<p class="hint">${(candidate.notes || []).map((note) => esc(note)).join(" · ")}</p>` : ""}
+        <details>
+          <summary class="hint">근거 ${refs.length}건 확인</summary>
+          <div class="list" style="margin-top:8px">
+            ${refs.map((ref) => `<div class="item" style="background:var(--surface-2)">
+              <div class="item-head"><span class="badge">${esc(ref.kind)}</span><strong>${esc(ref.title)}</strong>${ref.verified ? '<span class="badge verified">확인됨</span>' : '<span class="badge warn">추론</span>'}</div>
+              <div class="item-meta"><span>${esc(ref.path || "-")}</span><span>${esc(ref.locator || "")}</span><span>수집 ${esc((ref.collected_at || "").slice(0, 10))}</span></div>
+              ${ref.excerpt ? `<p class="hint">${esc(ref.excerpt)}</p>` : ""}
+            </div>`).join("")}
+          </div>
+        </details>
+        <div class="item-actions">
+          ${!applied && !dismissed ? `<button class="btn btn-primary btn-sm" data-action="intel-apply" data-id="${esc(candidate.id)}" data-analysis="${esc(state.projectAnalysis.id)}" type="button">성과로 저장 (검토 필요)</button>
+          <button class="btn btn-sm btn-danger" data-action="intel-dismiss" data-id="${esc(candidate.id)}" data-analysis="${esc(state.projectAnalysis.id)}" type="button">제외</button>` : ""}
+          ${applied && candidate.applied_achievement_id ? `<span class="hint">성과 ID: ${esc(candidate.applied_achievement_id)} — 성과 관리에서 확인하세요.</span>` : ""}
+        </div>
+      </article>`;
+  }
+
   function aiScreen() {
     const consent = state.meta && state.meta.external_ai_enabled;
     const analysis = state.analysis;
@@ -696,6 +880,7 @@
     activities: activitiesScreen,
     achievements: achievementsScreen,
     evidence: evidenceScreen,
+    projects: projectsScreen,
     ai: aiScreen,
     reports: reportsScreen,
     submissions: submissionsScreen,
@@ -717,6 +902,33 @@
     const data = new FormData(form);
     const payload = Object.fromEntries(data.entries());
     delete payload.impact;
+    if (name === "intel-analyze") {
+      state.projectBusy = true;
+      render();
+      try {
+        const result = await api("/api/projects/analyze", {
+          method: "POST",
+          body: JSON.stringify({
+            project_path: payload.project_path,
+            author_email: payload.author_email || "",
+            provider: payload.provider || "",
+            use_ai: payload.use_ai === "1",
+            force: payload.force === "1",
+          }),
+        });
+        state.projectAnalysis = result.analysis;
+        toast(
+          result.analysis.incremental
+            ? "변경이 없어 이전 분석을 재사용했습니다."
+            : `분석 완료 — 후보 ${result.analysis.candidates.length}건, 문서 ${result.analysis.stats.documents}개`,
+          "ok"
+        );
+      } finally {
+        state.projectBusy = false;
+      }
+      await refresh();
+      return;
+    }
     if (name === "activity-save") {
       const body = {
         title: payload.title,
@@ -852,7 +1064,23 @@
     const id = button.getAttribute("data-id");
     try {
       if (action === "refresh") await refresh();
-      else if (action === "edit-activity") {
+      else if (action === "open-intel") {
+        state.projectAnalysis = (await api(`/api/projects/analyses/${id}`)).analysis;
+        state.screen = "projects";
+        render();
+      } else if (action === "intel-apply") {
+        const analysisId = button.getAttribute("data-analysis");
+        const result = await api(`/api/projects/analyses/${analysisId}/candidates/${id}/apply`, { method: "POST" });
+        toast("성과로 저장했습니다. 성과 관리에서 근거를 확인하고 확정하세요.", "ok");
+        state.projectAnalysis = (await api(`/api/projects/analyses/${analysisId}`)).analysis;
+        state.editingAchievement = result.achievement;
+        await refresh();
+      } else if (action === "intel-dismiss") {
+        const analysisId = button.getAttribute("data-analysis");
+        state.projectAnalysis = (await api(`/api/projects/analyses/${analysisId}/candidates/${id}/dismiss`, { method: "POST" })).analysis;
+        toast("후보를 제외했습니다.", "ok");
+        await refresh();
+      } else if (action === "edit-activity") {
         state.editingActivity = state.activities.find((item) => item.id === id) || null;
         render();
       } else if (action === "cancel-activity-edit") {
