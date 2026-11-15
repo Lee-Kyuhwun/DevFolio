@@ -10,7 +10,16 @@
 | 문서 | 내용 |
 | --- | --- |
 | [`impactnote.md`](impactnote.md) | 제품 개념, 도메인, 수치 가드레일, AI 동의, 보고서, API, 마이그레이션 |
-| [`04-architecture.md`](04-architecture.md) | 시스템 구조, 요청 흐름, 데이터 모델, 배포, 레거시 호환 |
+| [`installation.md`](installation.md) | 새 PC·Docker·OS별 설치, 데이터 위치, Clean Clone |
+| [`architecture.md`](architecture.md) | 현재 시스템 구조, Evidence Graph, AI Provider·평가 계층 |
+| [`ai-evaluation.md`](ai-evaluation.md) | Ground Truth, 6개 지표 정의, 임계값, 실행 방법 |
+| [`nvidia-provider.md`](nvidia-provider.md) | NVIDIA NIM 설정·검증 모델·보안·제한 |
+| [`testing.md`](testing.md) | 단위·통합·Live·Clean Clone·CI 검증 |
+| [`evaluation-results.md`](evaluation-results.md) | 2026-11-15 실제 측정 결과·실패·한계 |
+| [`final-report-2026-11-15.md`](final-report-2026-11-15.md) | Phase 16 최종 보고·판정 |
+| [`audits/2026-11-15/`](audits/2026-11-15/) | 6개 역할별 감사 보고서 |
+| [`ponytail/README.md`](ponytail/README.md) | Ponytail FULL 운영 규칙·원문·라이선스 |
+| [`04-architecture.md`](04-architecture.md) | DevFolio 시절 시스템 구조 (역사 자료, 현재 구조는 architecture.md) |
 | [`01-project-analysis.md`](01-project-analysis.md) | 제품 정체성, 구현 범위, 실행 흐름, 테스트·리스크 |
 | [`02-technical-decisions.md`](02-technical-decisions.md) | 주요 설계 결정과 트레이드오프 |
 | [`03-portfolio-case-study.md`](03-portfolio-case-study.md) | 제출용 케이스 스터디 |
@@ -37,5 +46,7 @@
 1. [`../README.md`](../README.md) — 제품 소개·실행
 2. [`../GUIDE.md`](../GUIDE.md) — 사용 흐름
 3. [`impactnote.md`](impactnote.md) — 설계·가드레일
-4. [`04-architecture.md`](04-architecture.md) — 구조
-5. [`../CONTRIBUTING.md`](../CONTRIBUTING.md) — 개발·검증 규칙
+4. [`architecture.md`](architecture.md) — 현재 구조
+5. [`ai-evaluation.md`](ai-evaluation.md) — AI 평가 방법
+6. [`evaluation-results.md`](evaluation-results.md) — 실제 결과와 한계
+7. [`../CONTRIBUTING.md`](../CONTRIBUTING.md) — 개발·검증 규칙

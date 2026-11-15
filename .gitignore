@@ -5,17 +5,24 @@ __pycache__/
 *.pyc
 .venv/
 .ruff_cache/
+
+# Secrets — 실제 키는 어떤 경우에도 커밋하지 않는다.
+.env
+.env.*
+!.env.example
+api_keys.json
+*.pem
+*.key
 .coverage
 coverage.xml
 .DS_Store
 ~$*
 evals/cases/
 evals/runs/
+evals/impact/.cache/
 
-# AI 에이전트 작업 문서 — 로컬 작업 기록이라 공개 저장소에는 넣지 않는다.
-# 파일은 로컬에 남으므로 에이전트 워크플로우는 그대로 동작한다.
-AGENTS.md
-CLAUDE.md
+# 프로젝트 지침은 다른 PC의 Clone 에도 적용해야 하므로 버전 관리한다.
+# 아래 로컬 작업 기록은 공개 저장소에 넣지 않는다.
 .claude/
 docs/agent-incidents.md
 docs/ai-collaboration.md
