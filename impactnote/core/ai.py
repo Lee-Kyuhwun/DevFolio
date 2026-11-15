@@ -11,6 +11,7 @@ import json
 import re
 from typing import Optional
 
+from impactnote.core.claims import gate_result
 from impactnote.core.metrics import sanitize_ai_result
 from impactnote.core.models import AIAnalysis, Activity
 from impactnote.core.service import ImpactService
@@ -45,6 +46,9 @@ USER_PROMPT = """<activity>
 - 숫자를 쓸 때는 위 기록에 그 숫자가 실제로 있을 때만 쓰세요.
 - 팀 성과를 개인 성과로 표현하지 말고, 본인이 한 일과 공동 작업을 구분하세요.
 - 결과가 기록에 없으면 result 를 빈 문자열로 두고, unverified_fields 에 "result" 를 넣으세요.
+- "안정성 향상", "생산성 개선", "비용 절감", "시간 단축", "성능 최적화", "장애 예방" 같은 효과 주장은
+  기록에 측정값이나 전후 비교가 있을 때만 result 에 쓰세요. 없으면 효과 문장을 빼고 무엇을 했는지만 쓰세요.
+- result 의 모든 효과 문장에는 위 <activity> 또는 연결된 근거에 대응하는 기록이 있어야 합니다.
 - impact_categories 는 다음 중에서만 고르세요: productivity, efficiency, stability, quality, cost,
   incident_prevention, automation, customer, schedule, risk, collaboration, technical, process
 </rules>
@@ -130,6 +134,9 @@ def analyze_activity(
         activity.description,
         activity.problem,
         activity.action,
+        # 사용자가 기록한 결과도 근거다. 이 값을 빼면 기록된 측정값(20분 → 5분)을
+        # AI 가 인용해도 "근거 없음" 으로 오판한다.
+        activity.result,
         activity.project,
         *evidence_sources,
     ]
@@ -164,7 +171,22 @@ def analyze_activity(
         )
         parsed = _parse_json(raw)
         cleaned, removed = sanitize_ai_result(parsed, sources)
+        # 수치를 통과한 정성 효과 주장도 근거와 대조한다(2026-11-15 감사 결함).
+        cleaned, removed_effects = gate_result(cleaned, sources)
         cleaned["unverified_metrics"] = removed
+        cleaned["unverified_effects"] = removed_effects
+        if removed_effects:
+            fields = cleaned.get("unverified_fields")
+            if not isinstance(fields, list):
+                fields = []
+            dropped_fields = {
+                item["field"].split(".")[0].split("[")[0] for item in removed_effects
+            }
+            cleaned["unverified_fields"] = list(
+                dict.fromkeys([*fields, *sorted(dropped_fields)])
+            )
+            if not str(cleaned.get("result") or "").strip():
+                cleaned["result"] = ""
         analysis.result = cleaned
         analysis.provider = str(telemetry.get("provider", ""))
         analysis.model = str(telemetry.get("model", ""))

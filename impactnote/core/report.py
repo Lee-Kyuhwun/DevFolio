@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from impactnote.core import periods
+from impactnote.core.claims import gate_text
 from impactnote.core.metrics import sanitize_claims
 from impactnote.core.models import (
     IMPACT_CATEGORIES,
@@ -103,10 +104,20 @@ def _bullet(text: str, indent: str = "") -> str:
 
 
 def _achievement_lines(
-    achievement: Achievement, metrics: list[Metric], sources: Iterable[str]
+    achievement: Achievement,
+    metrics: list[Metric],
+    sources: Iterable[str],
+    *,
+    effect_sources: Optional[Iterable[str]] = None,
 ) -> tuple[list[str], list[str]]:
-    """성과 1건을 보고서 문장으로 바꾼다. (본문, 확인 필요 수치)"""
+    """성과 1건을 보고서 문장으로 바꾼다. (본문, 확인 필요 항목)
+
+    `effect_sources` 가 주어지면(AI·분석·Git 이 만든 성과) 수치뿐 아니라
+    정성 효과 주장도 외부 근거와 다시 대조한다. 사용자가 확인한 뒤에도
+    근거 없는 "안정성 향상" 류가 본문에 재유입되는 것을 막는다.
+    """
     source_list = list(sources)
+    effect_list = list(effect_sources) if effect_sources is not None else []
     lines: list[str] = []
     unverified: list[str] = []
 
@@ -116,6 +127,13 @@ def _achievement_lines(
         cleaned, dropped = sanitize_claims(value, source_list)
         for item in dropped:
             unverified.append(f"{achievement.title} · {label}: {item['raw']}")
+        if effect_list:
+            cleaned, blocked = gate_text(cleaned, effect_list)
+            for item in blocked:
+                unverified.append(
+                    f"{achievement.title} · {label} 효과 주장 제거: "
+                    f"{item['sentence']} — {item['reason']}"
+                )
         return cleaned
 
     lines.append(f"**{achievement.title}**")
@@ -194,27 +212,61 @@ def build_content(
     metric_map = bundle["metrics"]
     settings = service.settings()
 
+    # AI·Git·분석 후보는 사용자가 확인하기 전에는 공식 실적 본문에 넣지 않는다.
+    pending_achievements = [
+        item
+        for item in achievements
+        if item.source in {"ai", "git", "analysis"} and not item.confirmed
+    ]
+    pending_ids = {item.id for item in pending_achievements}
+    pending_activity_ids = {
+        activity_id
+        for item in pending_achievements
+        for activity_id in item.activity_ids
+    }
+    achievements = [item for item in achievements if item.id not in pending_ids]
+    # 미확정 후보가 만든 업무 기록도 공식 본문에서는 빼고 부록에서만 알린다.
+    confirmed_activity_ids = {
+        activity_id for item in achievements for activity_id in item.activity_ids
+    }
+    activities = [
+        item
+        for item in activities
+        if item.id not in pending_activity_ids or item.id in confirmed_activity_ids
+    ]
+
     unverified_all: list[str] = []
     achievement_blocks: list[list[str]] = []
     for achievement in achievements:
+        evidence_sources = [
+            f"{evidence[item].title} {evidence[item].reference} {evidence[item].description}"
+            for item in achievement.evidence_ids
+            if item in evidence
+        ]
+        activity_sources = [
+            f"{activity.description} {activity.problem} {activity.action} {activity.result}"
+            for activity in activities
+            if activity.id in achievement.activity_ids
+        ]
         sources = [
             achievement.title,
             achievement.problem,
             achievement.action,
             achievement.result,
-            *[
-                f"{evidence[item].title} {evidence[item].reference} {evidence[item].description}"
-                for item in achievement.evidence_ids
-                if item in evidence
-            ],
-            *[
-                f"{activity.description} {activity.problem} {activity.action}"
-                for activity in activities
-                if activity.id in achievement.activity_ids
-            ],
+            *evidence_sources,
+            *activity_sources,
         ]
+        # 기계가 만든 성과는 사용자 확인 후에도 외부 근거로 효과 주장을 재검증한다.
+        effect_sources = (
+            [*evidence_sources, *activity_sources]
+            if achievement.source in {"ai", "analysis", "git"}
+            else None
+        )
         lines, unverified = _achievement_lines(
-            achievement, metric_map.get(achievement.id, []), sources
+            achievement,
+            metric_map.get(achievement.id, []),
+            sources,
+            effect_sources=effect_sources,
         )
         achievement_blocks.append(lines)
         unverified_all.extend(unverified)
@@ -364,7 +416,14 @@ def build_content(
             f"- 작성자: {settings.user_name}"
             + (f" / {settings.organization}" if settings.organization else "")
         )
-    lines.append(f"- 포함 범위: 업무 {len(activities)}건, 성과 {len(achievements)}건")
+    lines.append(
+        f"- 포함 범위: 업무 {len(activities)}건, 성과 {len(achievements)}건"
+        + (
+            f" (본문 제외 확인 필요 {len(pending_achievements)}건)"
+            if pending_achievements
+            else ""
+        )
+    )
     lines.append("")
     if char_limit:
         used = 0
@@ -389,7 +448,25 @@ def build_content(
         f"- 확인된 성과: {sum(1 for item in achievements if item.status == 'verified')}건 / "
         f"일부 확인: {sum(1 for item in achievements if item.status == 'partially_verified')}건 / "
         f"확인 필요: {sum(1 for item in achievements if item.status in {'needs_review', 'user_input'})}건"
+        + (
+            f" / 본문 제외 미확정: {len(pending_achievements)}건"
+            if pending_achievements
+            else ""
+        )
     )
+    if pending_achievements:
+        lines.append("### 확인 필요 성과 (본문 제외)")
+        lines.extend(
+            _bullet(
+                f"{item.title} — 사용자 확인 전에는 실적으로 확정하지 않음"
+                + (
+                    f" (연결 업무 {len(item.activity_ids)}건도 본문 제외)"
+                    if item.activity_ids
+                    else ""
+                )
+            )
+            for item in pending_achievements
+        )
     if unverified_all:
         lines.append("### 확인 필요 항목 (근거 없음)")
         lines.extend(_bullet(item) for item in dict.fromkeys(unverified_all))
@@ -407,6 +484,7 @@ def build_content(
         "period_start": period_start,
         "period_end": period_end,
         "achievement_ids": [item.id for item in achievements],
+        "pending_achievement_ids": [item.id for item in pending_achievements],
         "activity_ids": [item.id for item in activities],
         "unverified": list(dict.fromkeys(unverified_all)),
     }
