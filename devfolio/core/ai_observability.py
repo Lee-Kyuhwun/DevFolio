@@ -20,7 +20,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 from devfolio.core.ai_reliability import ErrorKind
 from devfolio.log import get_logger
@@ -64,6 +64,9 @@ STAGE_DEFS: tuple[tuple[str, str], ...] = (
 )
 STAGE_IDS = tuple(stage_id for stage_id, _ in STAGE_DEFS)
 STAGE_LABELS = dict(STAGE_DEFS)
+
+# 저장하는 품질 이슈 상한 — 이슈가 수십 개여도 실행 기록이 비대해지지 않게 한다.
+QUALITY_ISSUE_LIMIT = 20
 
 
 # ---------------------------------------------------------------------------
@@ -390,6 +393,13 @@ class AnalysisRun:
     effective_model: str = ""
     fallback_count: int = 0
     quality_verdict: str = ""
+    # 품질 검증 상세 — verdict 만으로는 "어느 필드가 왜 실패했는지"를 알 수 없다.
+    quality: dict[str, Any] = field(default_factory=dict)
+    # 분석을 시작한 시점의 저장소 상태(코드가 바뀐 뒤 옛 결과를 최신으로 오인하지 않게).
+    repo_head_sha: str = ""
+    repo_branch: str = ""
+    repo_dirty: bool = False
+    repo_dirty_files: int = 0
     error_summary: str = ""
     started_at: float = field(default_factory=time.time)
     completed_at: Optional[float] = None
@@ -574,6 +584,56 @@ class AnalysisRun:
             )
         )
 
+    def set_repo_state(
+        self,
+        *,
+        head_sha: str = "",
+        branch: str = "",
+        dirty: bool = False,
+        dirty_files: int = 0,
+    ) -> None:
+        """분석 시작 시점의 HEAD/dirty 여부를 기록한다(이미 기록했으면 덮어쓰지 않음)."""
+        if self.repo_head_sha:
+            return
+        self.repo_head_sha = str(head_sha or "")
+        self.repo_branch = str(branch or "")
+        self.repo_dirty = bool(dirty)
+        self.repo_dirty_files = max(0, int(dirty_files or 0))
+
+    def set_quality(self, report: Any) -> None:
+        """품질 리포트를 저장 가능한 형태로 축약한다(code·field·level·hard).
+
+        메시지는 redact 후 200자로 자르고, 이슈는 `QUALITY_ISSUE_LIMIT` 개까지만 남긴다.
+        잘린 개수는 `truncated`/`issue_count` 로 보존해 "이슈가 몇 건이었는지"는 잃지 않는다.
+        """
+        if not report:
+            return
+        data = report.to_dict() if hasattr(report, "to_dict") else dict(report)
+        raw_issues = list(data.get("issues") or [])
+        issues: list[dict[str, Any]] = []
+        for issue in raw_issues[:QUALITY_ISSUE_LIMIT]:
+            item = issue.to_dict() if hasattr(issue, "to_dict") else dict(issue)
+            issues.append(
+                {
+                    "code": str(item.get("code", ""))[:80],
+                    "field": str(item.get("field", ""))[:80],
+                    "level": int(item.get("level", 0) or 0),
+                    "hard": bool(item.get("hard", False)),
+                    "message": redact(str(item.get("message", "")), 200),
+                }
+            )
+        self.quality = {
+            "verdict": str(data.get("verdict", "")),
+            "passed": bool(data.get("passed", False)),
+            "level1_ok": bool(data.get("level1_ok", True)),
+            "level2_ok": bool(data.get("level2_ok", True)),
+            "issues": issues,
+            "issue_count": len(raw_issues),
+            "truncated": len(raw_issues) > QUALITY_ISSUE_LIMIT,
+        }
+        if not self.quality_verdict:
+            self.quality_verdict = self.quality["verdict"]
+
     def fail(self, code: str, *, stage_id: str = "", message: str = "") -> None:
         """복구 불가 실패로 종결한다."""
         self.errors.append(
@@ -605,12 +665,14 @@ class AnalysisRun:
         status: str,
         *,
         quality_verdict: str = "",
+        quality: Any = None,
         payload: Optional[dict[str, Any]] = None,
     ) -> None:
         if self.cancelled:
             return  # 취소된 실행의 결과는 반영하지 않는다
         self.status = status if status in TERMINAL_STATUSES else RUN_FAILED
-        self.quality_verdict = quality_verdict
+        self.set_quality(quality)
+        self.quality_verdict = quality_verdict or self.quality.get("verdict", "")
         if payload is not None:
             self.payload = payload
         self.current_stage = ""
@@ -662,6 +724,15 @@ class AnalysisRun:
             "fallback_occurred": self.fallback_count > 0,
             "fallback_count": self.fallback_count,
             "quality_verdict": self.quality_verdict,
+            "quality": dict(self.quality),
+            "repo_state": {
+                "head_sha": self.repo_head_sha,
+                "head_sha_short": self.repo_head_sha[:8],
+                "branch": self.repo_branch,
+                "dirty": self.repo_dirty,
+                "dirty_files": self.repo_dirty_files,
+                "recorded": bool(self.repo_head_sha),
+            },
             "error_summary": self.error_summary,
             "stages": [
                 self.stages[stage_id].to_dict()
@@ -782,6 +853,13 @@ class AnalysisRunRegistry:
             effective_model=str(item.get("effective_model", "")),
             fallback_count=int(item.get("fallback_count", 0) or 0),
             quality_verdict=str(item.get("quality_verdict", "")),
+            quality=dict(item.get("quality") or {}),
+            repo_head_sha=str((item.get("repo_state") or {}).get("head_sha", "")),
+            repo_branch=str((item.get("repo_state") or {}).get("branch", "")),
+            repo_dirty=bool((item.get("repo_state") or {}).get("dirty", False)),
+            repo_dirty_files=int(
+                (item.get("repo_state") or {}).get("dirty_files", 0) or 0
+            ),
             error_summary=str(item.get("error_summary", "")),
             started_at=float(item.get("started_at", time.time())),
             completed_at=item.get("completed_at"),
@@ -844,6 +922,7 @@ class AnalysisRunRegistry:
         requested_provider: str = "",
         requested_model: str = "",
         request_id: str = "",
+        repo_state: Optional[Mapping[str, Any]] = None,
     ) -> AnalysisRun:
         run = AnalysisRun(
             analysis_id=uuid.uuid4().hex,
@@ -853,6 +932,13 @@ class AnalysisRunRegistry:
             requested_model=requested_model,
             params=dict(params),
         )
+        if repo_state:
+            run.set_repo_state(
+                head_sha=str(repo_state.get("head_sha", "")),
+                branch=str(repo_state.get("branch", "")),
+                dirty=bool(repo_state.get("dirty", False)),
+                dirty_files=int(repo_state.get("dirty_files", 0) or 0),
+            )
         with self._lock:
             self._ensure_loaded()
             self._runs[run.analysis_id] = run

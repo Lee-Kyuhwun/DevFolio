@@ -261,6 +261,29 @@ class ScanResult:
         }
 
 
+@dataclass(frozen=True)
+class RepoState:
+    """분석 시점의 저장소 상태 — "이 결과가 어느 코드 기준인지"를 남기기 위한 값."""
+
+    head_sha: str = ""
+    branch: str = ""
+    dirty: bool = False
+    dirty_files: int = 0
+
+    @property
+    def short_sha(self) -> str:
+        return self.head_sha[:8]
+
+    def to_dict(self) -> dict:
+        return {
+            "head_sha": self.head_sha,
+            "head_sha_short": self.short_sha,
+            "branch": self.branch,
+            "dirty": self.dirty,
+            "dirty_files": self.dirty_files,
+        }
+
+
 # ---------------------------------------------------------------------------
 # Git 명령 실행 헬퍼
 # ---------------------------------------------------------------------------
@@ -298,6 +321,49 @@ def _run_git(repo_path: Path, args: list[str]) -> str:
 
 def _is_git_repo(path: Path) -> bool:
     return (path / ".git").exists()
+
+
+def read_repo_state(repo_path: Path) -> RepoState:
+    """HEAD SHA·브랜치·작업 트리 변경 여부를 읽는다.
+
+    git 저장소가 아니거나(git init 전 디렉터리) git 이 없어도 예외를 올리지 않는다 —
+    관측 정보를 못 읽었다고 분석 자체를 막으면 안 되기 때문이다.
+    """
+    try:
+        head_sha = _run_git(repo_path, ["rev-parse", "HEAD"]).strip()
+    except DevfolioError:
+        return RepoState()
+    branch = ""
+    try:
+        branch = _run_git(repo_path, ["rev-parse", "--abbrev-ref", "HEAD"]).strip()
+    except DevfolioError:
+        pass
+    dirty_files = 0
+    try:
+        status = _run_git(repo_path, ["status", "--porcelain"])
+        dirty_files = len([line for line in status.splitlines() if line.strip()])
+    except DevfolioError:
+        pass
+    return RepoState(
+        head_sha=head_sha,
+        branch="" if branch == "HEAD" else branch,  # detached HEAD 는 브랜치명이 아님
+        dirty=dirty_files > 0,
+        dirty_files=dirty_files,
+    )
+
+
+def count_commits_between(
+    repo_path: Path, older_sha: str, newer_ref: str = "HEAD"
+) -> Optional[int]:
+    """`older_sha..newer_ref` 사이의 커밋 수. 계산할 수 없으면 None(추측하지 않음)."""
+    if not older_sha:
+        return None
+    try:
+        raw = _run_git(repo_path, ["rev-list", "--count", f"{older_sha}..{newer_ref}"])
+    except DevfolioError:
+        return None
+    raw = raw.strip()
+    return int(raw) if raw.isdigit() else None
 
 
 def _detect_repo_url(repo_path: Path) -> str:

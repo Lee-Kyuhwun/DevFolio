@@ -831,6 +831,7 @@ def scan_git(body: GitScanRequest) -> dict[str, Any]:
                 },
                 requested_provider=requested_provider,
                 requested_model=requested_model,
+                repo_state=_repo_state_for(repo_path),
             )
             run.apply_event({"type": "stage_start", "stage": "scan"})
             run.apply_event(
@@ -870,6 +871,7 @@ def scan_git(body: GitScanRequest) -> dict[str, Any]:
                     quality_verdict=(
                         outcome.quality.verdict if outcome.quality else ""
                     ),
+                    quality=outcome.quality,
                     payload=outcome.payload,
                 )
                 if outcome.quality and not outcome.quality.passed:
@@ -1003,6 +1005,13 @@ def _prepare_scan_request(body: GitScanRequest):
     )
 
 
+def _repo_state_for(repo_path: Path) -> dict[str, Any]:
+    """분석 시작 시점의 HEAD/dirty 상태. 실패해도 빈 값으로 계속 진행한다."""
+    from devfolio.core.git_scanner import read_repo_state
+
+    return read_repo_state(repo_path).to_dict()
+
+
 def _scan_metrics(scan_result) -> dict[str, Any]:
     return {
         "commits": len(scan_result.commits),
@@ -1024,6 +1033,7 @@ def _execute_analysis(
         cfg = _load_config_with_normalized_models()
         run.apply_event({"type": "stage_start", "stage": "scan"})
         scan_result = scan_repo(repo_path, author_email=author_email, analyze=True)
+        run.set_repo_state(head_sha=getattr(scan_result, "head_sha", ""))
         run.apply_event(
             {
                 "type": "stage_end",
@@ -1052,6 +1062,7 @@ def _execute_analysis(
         run.finish(
             outcome.status,
             quality_verdict=outcome.quality.verdict if outcome.quality else "",
+            quality=outcome.quality,
             payload=outcome.payload,
         )
         if outcome.quality and not outcome.quality.passed:
@@ -1092,6 +1103,7 @@ def _execute_cases_retry(
         scan_result = scan_repo(
             repo_path, author_email=str(params.get("author_email", "")), analyze=True
         )
+        run.set_repo_state(head_sha=getattr(scan_result, "head_sha", ""))
         run.apply_event(
             {
                 "type": "stage_end",
@@ -1160,7 +1172,9 @@ def _execute_cases_retry(
             if report.passed and not cases_error
             else ("partial" if report.passed else "failed")
         )
-        run.finish(status, quality_verdict=report.verdict, payload=merged)
+        run.finish(
+            status, quality_verdict=report.verdict, quality=report, payload=merged
+        )
         if not report.passed:
             run.fail(
                 ErrorCode.QUALITY_GATE_FAILED,
@@ -1212,6 +1226,7 @@ def scan_git_async(body: GitScanRequest) -> dict[str, Any]:
             },
             requested_provider=requested_provider,
             requested_model=requested_model,
+            repo_state=_repo_state_for(repo_path),
         )
         registry.save(run)
         _ANALYSIS_EXECUTOR.submit(
@@ -1244,6 +1259,59 @@ def get_analysis(
         "cursor": run.seq,
         "analysis": run.to_dict(include_dev=dev_allowed),
         "events": run.events_since(since),
+    }
+
+
+@router.get("/analysis/{analysis_id}/repo-state")
+def get_analysis_repo_state(analysis_id: str) -> dict[str, Any]:
+    """분석 시점의 커밋과 현재 저장소를 비교해 "몇 개 커밋 전 코드인지" 알려준다.
+
+    기존 스냅샷 계약(`/api/analysis/{id}`)은 그대로 두고 별도 엔드포인트로 분리했다.
+    git 이 없거나 저장소가 사라졌으면 추측하지 않고 `available: false` 로 답한다.
+    """
+    from devfolio.core.git_scanner import count_commits_between, read_repo_state
+
+    run = get_run_registry().get(analysis_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="분석 실행을 찾을 수 없습니다.")
+    recorded = {
+        "head_sha": run.repo_head_sha,
+        "head_sha_short": run.repo_head_sha[:8],
+        "branch": run.repo_branch,
+        "dirty": run.repo_dirty,
+        "dirty_files": run.repo_dirty_files,
+    }
+    repo_path = str((run.params or {}).get("repo_path", "") or "")
+    path = Path(repo_path) if repo_path else None
+    if path is None or not path.exists():
+        return {
+            "status": "ok",
+            "available": False,
+            "recorded": recorded,
+            "current": None,
+            "stale": False,
+            "behind_commits": None,
+            "reason": "분석한 저장소 경로를 찾을 수 없습니다.",
+        }
+    current = read_repo_state(path)
+    stale = bool(recorded["head_sha"]) and current.head_sha != recorded["head_sha"]
+    behind: Optional[int] = (
+        0 if not stale else count_commits_between(path, recorded["head_sha"])
+    )
+    reason = ""
+    if stale and behind is None:
+        reason = (
+            "기록된 커밋을 저장소 이력에서 찾을 수 없습니다(리베이스·강제 푸시 가능성)."
+        )
+    return {
+        "status": "ok",
+        "available": True,
+        "recorded": recorded,
+        "current": current.to_dict(),
+        "stale": stale,
+        "behind_commits": behind,
+        "dirty_now": current.dirty,
+        "reason": reason,
     }
 
 
@@ -1298,6 +1366,7 @@ def retry_analysis(analysis_id: str, body: RetryAnalysisRequest) -> dict[str, An
         },
         requested_provider=requested_provider,
         requested_model=requested_model,
+        repo_state=_repo_state_for(repo_path),
     )
     registry.save(new_run)
 

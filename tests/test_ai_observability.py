@@ -9,14 +9,17 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 import time
 from collections import Counter
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from devfolio.core.ai_quality import QualityReport
+from devfolio.core.ai_quality import QualityIssue, QualityReport
 from devfolio.core.ai_reliability import ErrorKind, classify_error
 from devfolio.core.ai_observability import (
     AnalysisRun,
@@ -630,7 +633,18 @@ def test_inc24_client_snapshot_matches_server_status(client, tmp_path):  # noqa:
 
 
 def test_sync_scan_marks_quality_failure_as_failed(client, tmp_path):  # noqa: F811
-    quality = QualityReport(level2_ok=False)
+    quality = QualityReport(
+        level2_ok=False,
+        issues=[
+            QualityIssue(
+                level=2,
+                code="unverified_metric",
+                field="summary",
+                message="8배 개선 수치의 근거를 찾지 못했습니다.",
+                hard=True,
+            )
+        ],
+    )
     outcome = AnalysisOutcome(
         payload={},
         stages=[StageResult("scan", "completed"), StageResult("quality", "failed")],
@@ -670,6 +684,12 @@ def test_sync_scan_marks_quality_failure_as_failed(client, tmp_path):  # noqa: F
     assert body["analyzed"] is False
     assert body["analysis"]["status"] == "failed"
     assert body["analysis"]["errors"][-1]["error_code"] == "QUALITY_GATE_FAILED"
+    # 품질 실패의 "어느 필드가 왜" 문제인지가 실행 기록에 남아야 재시도가 의미 있다.
+    quality = body["analysis"]["quality"]
+    assert quality["issue_count"] == 1
+    assert quality["issues"][0]["field"] == "summary"
+    assert quality["issues"][0]["code"] == "unverified_metric"
+    assert quality["issues"][0]["hard"] is True
 
 
 def test_events_are_returned_after_cursor():
@@ -690,3 +710,286 @@ def test_run_elapsed_is_measured_not_estimated():
     run.finish("completed")
 
     assert 1900 <= run.to_dict()["elapsed_ms"] <= 2600
+
+
+# ---------------------------------------------------------------------------
+# INC-25. 품질 이슈 저장 · 분석 기준 커밋 · 폴링 재연결 계약
+# ---------------------------------------------------------------------------
+
+
+def _git(repo: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", "-C", str(repo), *args], check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+def _make_repo(tmp_path: Path) -> Path:
+    """커밋 2개가 있는 실제 git 저장소 — 분석 기준 SHA 비교를 실제 git 으로 검증한다."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    for name, message in (("a.txt", "first"), ("b.txt", "second")):
+        (repo / name).write_text(message, encoding="utf-8")
+        _git(repo, "add", name)
+        _git(
+            repo,
+            "-c",
+            "user.name=test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-q",
+            "-m",
+            message,
+        )
+    return repo
+
+
+def test_inc25_quality_issues_are_saved_per_field():
+    report = QualityReport(
+        level2_ok=False,
+        issues=[
+            QualityIssue(
+                level=2,
+                code="unverified_metric",
+                field="summary",
+                message="8배 개선 수치의 근거가 없습니다.",
+                hard=True,
+            ),
+            QualityIssue(
+                level=1,
+                code="unsupported_tech",
+                field="tech_stack",
+                message="근거에서 확인되지 않은 기술입니다.",
+            ),
+        ],
+    )
+    run = _run()
+    run.finish("failed", quality_verdict=report.verdict, quality=report)
+
+    quality = run.to_dict()["quality"]
+    assert quality["verdict"] == "rejected_evidence"
+    assert quality["passed"] is False
+    assert quality["issue_count"] == 2
+    assert quality["truncated"] is False
+    assert quality["issues"][0]["field"] == "summary"
+    assert quality["issues"][0]["hard"] is True
+    assert quality["issues"][1]["field"] == "tech_stack"
+    assert quality["issues"][1]["level"] == 1
+
+
+def test_inc25_quality_issue_list_is_capped_but_count_is_kept():
+    report = QualityReport(
+        issues=[
+            QualityIssue(level=1, code="empty_field", field=f"f{index}", message="")
+            for index in range(30)
+        ]
+    )
+    run = _run()
+    run.finish("failed", quality=report)
+
+    quality = run.to_dict()["quality"]
+    assert len(quality["issues"]) == 20
+    assert quality["issue_count"] == 30
+    assert quality["truncated"] is True
+
+
+def test_inc25_quality_messages_are_redacted():
+    report = QualityReport(
+        issues=[
+            QualityIssue(
+                level=1,
+                code="unverified_metric",
+                field="summary",
+                message="key sk-abcdef123456 at /Users/alice/secret.md",
+            )
+        ]
+    )
+    run = _run()
+    run.finish("failed", quality=report)
+
+    message = run.to_dict()["quality"]["issues"][0]["message"]
+    assert "sk-abcdef123456" not in message
+    assert "/Users/alice" not in message
+
+
+def test_inc25_quality_and_repo_state_survive_restart(tmp_path):
+    registry = AnalysisRunRegistry(path=tmp_path / "runs.json")
+    run = registry.create(
+        repo_name="DevFolio",
+        params={"repo_path": str(tmp_path)},
+        repo_state={
+            "head_sha": "a" * 40,
+            "branch": "main",
+            "dirty": True,
+            "dirty_files": 2,
+        },
+    )
+    run.finish(
+        "failed",
+        quality=QualityReport(
+            level2_ok=False,
+            issues=[
+                QualityIssue(
+                    level=2,
+                    code="unverified_metric",
+                    field="summary",
+                    message="근거 없음",
+                    hard=True,
+                )
+            ],
+        ),
+    )
+    registry.save(run)
+
+    reloaded = AnalysisRunRegistry(path=tmp_path / "runs.json").get(run.analysis_id)
+    assert reloaded is not None
+    data = reloaded.to_dict()
+    assert data["quality"]["issues"][0]["field"] == "summary"
+    assert data["repo_state"]["head_sha"] == "a" * 40
+    assert data["repo_state"]["branch"] == "main"
+    assert data["repo_state"]["dirty"] is True
+    assert data["repo_state"]["dirty_files"] == 2
+
+
+def test_inc25_repo_state_is_recorded_once_at_start():
+    run = _run()
+    run.set_repo_state(head_sha="a" * 40, branch="main", dirty=True, dirty_files=3)
+    # 분석 중 스캔이 다른 SHA 를 보고해도 시작 시점 기록을 덮어쓰지 않는다.
+    run.set_repo_state(head_sha="b" * 40, branch="dev")
+
+    state = run.to_dict()["repo_state"]
+    assert state["head_sha"] == "a" * 40
+    assert state["head_sha_short"] == "a" * 8
+    assert state["branch"] == "main"
+    assert state["dirty"] is True
+    assert state["dirty_files"] == 3
+    assert state["recorded"] is True
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git 실행 파일이 없습니다.")
+def test_inc25_repo_state_endpoint_counts_commits_behind(
+    client,  # noqa: F811
+    tmp_path,
+    _isolate_analysis_runs,
+):
+    from devfolio.core.git_scanner import read_repo_state
+
+    repo = _make_repo(tmp_path)
+    run = _isolate_analysis_runs.create(
+        repo_name="demo",
+        params={"repo_path": str(repo)},
+        repo_state=read_repo_state(repo).to_dict(),
+    )
+    _isolate_analysis_runs.save(run)
+    (repo / "c.txt").write_text("third", encoding="utf-8")
+    _git(repo, "add", "c.txt")
+    _git(
+        repo,
+        "-c",
+        "user.name=test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-q",
+        "-m",
+        "third",
+    )
+
+    body = client.get(f"/api/analysis/{run.analysis_id}/repo-state").json()
+
+    assert body["available"] is True
+    assert body["stale"] is True
+    assert body["behind_commits"] == 1
+    assert body["current"]["head_sha"] != body["recorded"]["head_sha"]
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git 실행 파일이 없습니다.")
+def test_inc25_repo_state_endpoint_is_fresh_right_after_scan(
+    client,  # noqa: F811
+    tmp_path,
+    _isolate_analysis_runs,
+):
+    from devfolio.core.git_scanner import read_repo_state
+
+    repo = _make_repo(tmp_path)
+    run = _isolate_analysis_runs.create(
+        repo_name="demo",
+        params={"repo_path": str(repo)},
+        repo_state=read_repo_state(repo).to_dict(),
+    )
+    _isolate_analysis_runs.save(run)
+
+    body = client.get(f"/api/analysis/{run.analysis_id}/repo-state").json()
+
+    assert body["available"] is True
+    assert body["stale"] is False
+    assert body["behind_commits"] == 0
+
+
+def test_inc25_repo_state_endpoint_does_not_guess_without_git(
+    client,  # noqa: F811
+    tmp_path,
+    _isolate_analysis_runs,
+):
+    run = _isolate_analysis_runs.create(
+        repo_name="plain", params={"repo_path": str(tmp_path)}
+    )
+    _isolate_analysis_runs.save(run)
+
+    body = client.get(f"/api/analysis/{run.analysis_id}/repo-state").json()
+
+    assert body["stale"] is False
+    assert body["behind_commits"] == 0
+    assert body["recorded"]["head_sha"] == ""  # 모르는 값을 최신으로 단정하지 않는다
+
+
+def test_inc25_repo_state_endpoint_reports_missing_repo(
+    client,  # noqa: F811
+    tmp_path,
+    _isolate_analysis_runs,
+):
+    run = _isolate_analysis_runs.create(
+        repo_name="gone", params={"repo_path": str(tmp_path / "missing")}
+    )
+    _isolate_analysis_runs.save(run)
+
+    body = client.get(f"/api/analysis/{run.analysis_id}/repo-state").json()
+
+    assert body["available"] is False
+    assert body["stale"] is False
+    assert body["behind_commits"] is None
+    assert body["reason"]
+
+
+def test_inc25_repo_state_endpoint_unknown_analysis_returns_404(client):  # noqa: F811
+    response = client.get("/api/analysis/does-not-exist/repo-state")
+    assert response.status_code == 404
+
+
+def test_inc25_snapshot_adds_fields_without_breaking_contract(client, tmp_path):  # noqa: F811
+    with patch.object(api_module._ANALYSIS_EXECUTOR, "submit"):
+        body = client.post(
+            "/api/scan/git/async",
+            json={
+                "repo_path": str(tmp_path),
+                "author_email": "me@example.com",
+                "analyze": True,
+            },
+        ).json()
+
+    analysis = body["analysis"]
+    for key in (
+        "analysis_id",
+        "status",
+        "progress_percent",
+        "stages",
+        "calls",
+        "errors",
+        "requested_model",
+        "effective_model",
+        "seq",
+    ):
+        assert key in analysis
+    assert analysis["quality"] == {}
+    assert "repo_state" in analysis
