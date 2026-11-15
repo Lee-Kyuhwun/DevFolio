@@ -93,6 +93,12 @@
       analysisId: null,
       analysisCursor: 0,
       analysisPolling: false,
+      // 연결 상태·신선도 — "멈춘 화면"을 진행 중으로 오인하지 않게 한다.
+      analysisConn: "live",
+      analysisLastUpdateAt: 0,
+      analysisRetryCount: 0,
+      analysisLastError: "",
+      repoState: null,
       devDetail: false,
       modelStatus: null,
       modelStatusLoading: false,
@@ -1041,6 +1047,9 @@
           break;
         case "analysis-cancel":
           await cancelAnalysis();
+          break;
+        case "analysis-reconnect":
+          await reconnectAnalysis();
           break;
         case "analysis-toggle-dev":
           state.importer.devDetail = !state.importer.devDetail;
@@ -2287,6 +2296,36 @@
 
   const ANALYSIS_TERMINAL = ["completed", "partial", "failed", "cancelled"];
 
+  // 폴링 재연결 — 네트워크가 끊겨도 관측을 멈추지 않는다(1s→2s→4s→8s, 최대 5회).
+  const ANALYSIS_RECONNECT_MAX = 5;
+  const ANALYSIS_RECONNECT_BASE_MS = 1000;
+  const ANALYSIS_RECONNECT_MAX_MS = 8000;
+
+  function analysisBackoffMs(failures) {
+    const exponent = Math.max(0, Number(failures || 1) - 1);
+    return Math.min(ANALYSIS_RECONNECT_MAX_MS, ANALYSIS_RECONNECT_BASE_MS * 2 ** exponent);
+  }
+
+  function formatSince(ms) {
+    const seconds = Math.max(0, Math.round((Number(ms) || 0) / 1000));
+    if (seconds < 1) return "방금";
+    if (seconds < 60) return `${seconds}초 전`;
+    return `${Math.floor(seconds / 60)}분 전`;
+  }
+
+  /** 표시 문구만 1초마다 갱신한다(진행률·상태는 서버 스냅샷 그대로). */
+  function updateAnalysisFreshness() {
+    const nodes = document.querySelectorAll("[data-analysis-freshness]");
+    if (!nodes.length) return;
+    const last = state.importer.analysisLastUpdateAt;
+    const text = last ? `마지막 갱신 ${formatSince(Date.now() - last)}` : "갱신 기록 없음";
+    nodes.forEach((node) => {
+      node.textContent = text;
+    });
+  }
+
+  window.setInterval(updateAnalysisFreshness, 1000);
+
   function analysisIsRunning(analysis) {
     return Boolean(analysis) && !ANALYSIS_TERMINAL.includes(analysis.status);
   }
@@ -2345,6 +2384,10 @@
     state.importer.analysisId = null;
     state.importer.analysisCursor = 0;
     state.importer.analysisPolling = false;
+    state.importer.analysisConn = "live";
+    state.importer.analysisRetryCount = 0;
+    state.importer.analysisLastUpdateAt = 0;
+    state.importer.repoState = null;
     state.ui.aiLoading = false;
     render();
     try {
@@ -2374,34 +2417,85 @@
   }
 
   async function pollAnalysis() {
+    if (state.importer.analysisPolling) return;
     state.importer.analysisPolling = true;
     const id = state.importer.analysisId;
+    let failures = 0;
     try {
       while (state.importer.analysisPolling && state.importer.analysisId === id) {
-        const since = state.importer.analysisCursor || 0;
-        const dev = state.importer.devDetail ? "&include_dev=true" : "";
-        const data = await requestJson(
-          `/api/analysis/${encodeURIComponent(id)}?since=${since}${dev}`
-        );
-        const previousStatus = state.importer.analysis ? state.importer.analysis.status : "";
-        state.importer.analysisCursor = data.cursor;
-        state.importer.analysis = data.analysis;
-        refreshAnalysisPanel();
-        if (previousStatus !== data.analysis.status) {
-          announce(`AI 분석 상태: ${data.analysis.status_label || data.analysis.status}`);
+        try {
+          const since = state.importer.analysisCursor || 0;
+          const dev = state.importer.devDetail ? "&include_dev=true" : "";
+          const data = await requestJson(
+            `/api/analysis/${encodeURIComponent(id)}?since=${since}${dev}`
+          );
+          const previousStatus = state.importer.analysis ? state.importer.analysis.status : "";
+          failures = 0;
+          state.importer.analysisConn = "live";
+          state.importer.analysisRetryCount = 0;
+          state.importer.analysisLastError = "";
+          state.importer.analysisLastUpdateAt = Date.now();
+          state.importer.analysisCursor = data.cursor;
+          state.importer.analysis = data.analysis;
+          refreshAnalysisPanel();
+          if (previousStatus !== data.analysis.status) {
+            announce(`AI 분석 상태: ${data.analysis.status_label || data.analysis.status}`);
+          }
+          if (ANALYSIS_TERMINAL.includes(data.analysis.status)) {
+            finishAnalysis(data.analysis);
+            return;
+          }
+          await sleep(800);
+        } catch (error) {
+          // 상태 조회 실패는 분석 실패가 아니다 — 지수 백오프로 다시 붙는다.
+          failures += 1;
+          state.importer.analysisRetryCount = failures;
+          state.importer.analysisLastError = error.message || "분석 상태를 확인하지 못했습니다.";
+          if (failures >= ANALYSIS_RECONNECT_MAX) {
+            state.importer.analysisConn = "offline";
+            state.importer.aiError = state.importer.analysisLastError;
+            refreshAnalysisPanel();
+            announce("분석 상태 연결이 끊겼습니다. 다시 연결을 눌러 주세요.");
+            showToast("분석 상태 연결이 끊겼습니다. 다시 연결을 눌러 주세요.", "warn");
+            return;
+          }
+          state.importer.analysisConn = "reconnecting";
+          refreshAnalysisPanel();
+          if (failures === 1) {
+            announce("분석 상태 연결이 끊겼습니다. 다시 연결하는 중입니다.");
+          }
+          await sleep(analysisBackoffMs(failures));
         }
-        if (ANALYSIS_TERMINAL.includes(data.analysis.status)) {
-          finishAnalysis(data.analysis);
-          return;
-        }
-        await sleep(800);
       }
-    } catch (error) {
-      state.importer.aiError = error.message || "분석 상태를 확인하지 못했습니다.";
-      showToast(state.importer.aiError, "warn");
     } finally {
       state.importer.analysisPolling = false;
     }
+  }
+
+  /** 사용자가 직접 다시 붙일 때 — 오프라인(백오프 소진) 상태에서만 동작한다. */
+  async function reconnectAnalysis() {
+    if (!state.importer.analysisId || state.importer.analysisPolling) return;
+    state.importer.analysisConn = "live";
+    state.importer.analysisRetryCount = 0;
+    refreshAnalysisPanel();
+    await pollAnalysis();
+  }
+
+  async function loadRepoState() {
+    const id = state.importer.analysisId;
+    if (!id) {
+      state.importer.repoState = null;
+      return;
+    }
+    try {
+      state.importer.repoState = await requestJson(
+        `/api/analysis/${encodeURIComponent(id)}/repo-state`
+      );
+    } catch (error) {
+      // 부가 정보다 — 실패해도 분석 패널은 그대로 보여준다.
+      state.importer.repoState = null;
+    }
+    refreshAnalysisPanel();
   }
 
   async function refreshAnalysisSnapshot() {
@@ -2433,6 +2527,9 @@
   }
 
   function finishAnalysis(analysis) {
+    state.importer.analysisConn = "live";
+    state.importer.analysisRetryCount = 0;
+    state.importer.analysisLastUpdateAt = Date.now();
     if (analysis && analysis.payload) {
       state.experienceForm = scanPayloadToExperience(analysis.payload);
       state.ui.formSection = "basics";
@@ -2458,6 +2555,7 @@
       showToast(analysis.error_summary || "AI 분석을 완료하지 못했습니다.", "warn");
     }
     render();
+    loadRepoState();
   }
 
   async function retryAnalysis(stage) {
@@ -2471,6 +2569,10 @@
       state.importer.analysisId = started.analysis_id;
       state.importer.analysis = started.analysis;
       state.importer.analysisCursor = 0;
+      state.importer.analysisLastUpdateAt = 0; // 새 실행 — 이전 실행의 갱신 시각을 물려받지 않는다
+      state.importer.analysisConn = "live";
+      state.importer.analysisRetryCount = 0;
+      state.importer.repoState = null;
       state.importer.aiError = null;
       rememberAnalysisId(started.analysis_id);
       refreshAnalysisPanel();
@@ -2618,6 +2720,104 @@
       <p class="analysis-muted">${escapeHtml(status.note || "")}</p>`;
   }
 
+  const ANALYSIS_QUALITY_FIELD_LABELS = {
+    project_type: "프로젝트 유형",
+    purpose: "목적",
+    problem: "문제",
+    solution: "해결",
+    summary: "요약",
+    key_features: "주요 기능",
+    tech_stack: "기술 스택",
+    tasks: "업무",
+    problem_solving_cases: "문제 해결 사례",
+  };
+
+  const ANALYSIS_QUALITY_CODE_LABELS = {
+    unverified_metric: "근거에서 확인되지 않은 수치",
+    unsupported_tech: "근거에서 확인되지 않은 기술",
+    missing_field: "필수 항목 누락",
+    duplicate_task_name: "중복된 업무명",
+    empty_field: "비어 있는 항목",
+  };
+
+  /** `tasks[0].result` 같은 경로도 사람이 읽는 이름으로 바꾼다. */
+  function qualityFieldLabel(field) {
+    const known = ANALYSIS_QUALITY_FIELD_LABELS[field];
+    if (known) return known;
+    const task = /^tasks\[(\d+)\]\.(\w+)$/.exec(field || "");
+    if (task) {
+      const sub = { name: "업무명", problem: "문제", solution: "해결", result: "결과" }[task[2]] || task[2];
+      return `업무 ${Number(task[1]) + 1} · ${sub}`;
+    }
+    return field;
+  }
+
+  /** 품질 이슈를 필드 단위로 묶어 보여준다 — "어느 항목을 고쳐야 하는지"가 보여야 재시도가 의미 있다. */
+  function renderQualityBlock(analysis) {
+    const quality = analysis.quality || null;
+    const issues = quality && Array.isArray(quality.issues) ? quality.issues : [];
+    if (!issues.length) return "";
+    const byField = new Map();
+    issues.forEach((issue) => {
+      const key = issue.field || "(공통)";
+      if (!byField.has(key)) byField.set(key, []);
+      byField.get(key).push(issue);
+    });
+    const rows = Array.from(byField.entries())
+      .map(([field, fieldIssues]) => {
+        const hard = fieldIssues.some((issue) => issue.hard);
+        const items = fieldIssues
+          .map((issue) => {
+            const label = ANALYSIS_QUALITY_CODE_LABELS[issue.code] || issue.code;
+            const message = issue.message
+              ? `<span class="analysis-quality-message">${escapeHtml(issue.message)}</span>`
+              : "";
+            return `<li><code>${escapeHtml(issue.code)}</code> ${escapeHtml(label)} ${message}</li>`;
+          })
+          .join("");
+        return `<li class="analysis-quality-field${hard ? " analysis-quality-hard" : ""}">
+            <div class="analysis-quality-head">
+              <span class="analysis-quality-field-name">${escapeHtml(qualityFieldLabel(field))}</span>
+              <span class="analysis-quality-count">${fieldIssues.length}건${hard ? " · 필수" : ""}</span>
+            </div>
+            <ul>${items}</ul>
+          </li>`;
+      })
+      .join("");
+    const more = quality.truncated
+      ? `<p class="analysis-muted">이슈 ${quality.issue_count}건 중 ${issues.length}건만 표시합니다.</p>`
+      : "";
+    return `<div class="analysis-block analysis-quality">
+        <div class="analysis-block-title">품질 검증 상세 (${quality.issue_count}건 · ${quality.passed ? "통과" : "미통과"})</div>
+        <ul class="analysis-quality-list">${rows}</ul>
+        ${more}
+      </div>`;
+  }
+
+  /** 분석 시점 커밋과 현재 저장소를 비교한 배너. 모르면 "모른다"고 두고 추측하지 않는다. */
+  function renderRepoStateBanner(analysis) {
+    if (!analysis || !ANALYSIS_TERMINAL.includes(analysis.status)) return "";
+    const recorded = analysis.repo_state || {};
+    if (!recorded.recorded) return "";
+    const repo = state.importer.repoState;
+    if (!repo || !repo.available) return "";
+    if (!repo.stale) {
+      return recorded.dirty
+        ? `<div class="analysis-repo-note">작업 트리에 변경사항이 있는 상태에서 분석되었습니다(커밋되지 않은 파일 ${recorded.dirty_files || 0}개).</div>`
+        : "";
+    }
+    const behind = Number.isFinite(repo.behind_commits) ? repo.behind_commits : null;
+    const label =
+      behind === null || behind === 0
+        ? "분석 이후 코드가 변경되었습니다"
+        : `${behind}개 커밋 전 코드 기준입니다`;
+    return `<div class="analysis-stale-banner" role="status">
+        <span class="analysis-stale-icon" aria-hidden="true">◷</span>
+        <span>${escapeHtml(label)} — 지금 코드로 다시 분석하면 최신 내용이 반영됩니다.</span>
+        <button class="btn btn-secondary" data-action="analysis-retry-all" type="button">다시 분석</button>
+      </div>`;
+  }
+
   function renderAnalysisProgressPanel() {
     const analysis = state.importer.analysis;
     if (!analysis) return "";
@@ -2668,7 +2868,11 @@
     const canRetryCases =
       analysis.status !== "failed" ||
       (analysis.stages || []).some((stage) => stage.stage_id === "cases" && stage.status === "failed");
+    const record = analysis.repo_state || {};
     const actions = [];
+    if (state.importer.analysisConn === "offline") {
+      actions.push('<button class="btn btn-primary" data-action="analysis-reconnect" type="button">다시 연결</button>');
+    }
     if (running) {
       actions.push('<button class="btn btn-secondary" data-action="analysis-cancel" type="button">분석 취소</button>');
     } else {
@@ -2689,7 +2893,20 @@
           </span>
           <span class="analysis-elapsed">${formatDuration(analysis.elapsed_ms)}</span>
           <span class="analysis-muted">${completed} / ${total} 단계</span>
+          ${
+            running || state.importer.analysisConn !== "live"
+              ? `<span class="analysis-freshness" data-analysis-freshness>마지막 갱신 ${state.importer.analysisLastUpdateAt ? formatSince(Date.now() - state.importer.analysisLastUpdateAt) : "기록 없음"}</span>`
+              : ""
+          }
+          ${
+            state.importer.analysisConn === "reconnecting"
+              ? `<span class="analysis-conn analysis-conn-reconnecting"><span aria-hidden="true">⇅</span> 연결 끊김 · 재연결 중 (${state.importer.analysisRetryCount}/${ANALYSIS_RECONNECT_MAX})</span>`
+              : state.importer.analysisConn === "offline"
+                ? '<span class="analysis-conn analysis-conn-offline"><span aria-hidden="true">⊘</span> 연결 끊김</span>'
+                : ""
+          }
         </div>
+        ${renderRepoStateBanner(analysis)}
         <div class="analysis-progressbar analysis-progressbar-${meta.tone}" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}" aria-valuetext="${completed} / ${total} 단계 완료">
           <span style="width:${percent}%"></span>
         </div>
@@ -2698,11 +2915,13 @@
           <dt>요청 모델</dt><dd>${escapeHtml(requested)}</dd>
           <dt>${running ? "현재 모델" : "결과 모델"}</dt><dd>${escapeHtml(running ? current : finishedModel)} ${rawIds}</dd>
           ${analysis.fallback_occurred ? `<dt>전환</dt><dd>${analysis.fallback_count}회 자동 전환됨</dd>` : ""}
+          ${record.head_sha_short ? `<dt>분석 기준</dt><dd><code>${escapeHtml(record.head_sha_short)}</code>${record.branch ? ` · ${escapeHtml(record.branch)}` : ""}${record.dirty ? ` · 변경사항 ${record.dirty_files || 0}개 포함` : ""}</dd>` : ""}
           <dt>분석 ID</dt><dd><code>${escapeHtml(analysis.analysis_id)}</code></dd>
         </dl>
         <ol class="analysis-stagelist">${stageHtml}</ol>
         ${renderFallbackTrail(analysis)}
-        ${analysis.error_summary ? renderAnalysisErrors(analysis) : ""}
+        ${analysis.error_summary && ["failed", "partial", "cancelled"].includes(analysis.status) ? renderAnalysisErrors(analysis) : ""}
+        ${renderQualityBlock(analysis)}
         <div class="analysis-actions">${actions.join("")}</div>
         ${renderCallHistory(analysis)}
         <details class="analysis-details">
