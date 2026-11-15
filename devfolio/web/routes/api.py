@@ -795,6 +795,7 @@ def scan_git(body: GitScanRequest) -> dict[str, Any]:
         ai_analysis: Optional[dict] = None
         ai_error: Optional[str] = None
         ai_report: Optional[dict] = None
+        ai_completed = False
         if body.analyze and scan_result.project_context:
             scan_metrics = {
                 "commits": len(scan_result.commits),
@@ -827,6 +828,27 @@ def scan_git(body: GitScanRequest) -> dict[str, Any]:
                 ai_report = outcome.to_dict()
                 if outcome.completed:
                     ai_analysis = outcome.payload
+                    ai_completed = True
+                elif outcome.status == "partial":
+                    # 일부 단계(예: 사례 추출)만 실패한 경우 — 초안은 살리되 "완료"로 표시하지 않는다.
+                    ai_analysis = outcome.payload
+                    failed_stages = "; ".join(
+                        f"{stage.name}: {stage.detail}"
+                        for stage in outcome.stages
+                        if stage.status == "failed"
+                    )
+                    ai_error = "AI 분석 일부 미완료(PARTIAL)" + (
+                        f" — {failed_stages}"
+                        if failed_stages
+                        else (
+                            f" — {outcome.quality.summary()}" if outcome.quality else ""
+                        )
+                    )
+                    logger.warning(
+                        "AI 딥 분석 부분 완료 — 초안은 유지하고 상태만 PARTIAL 로: model=%s stages=%s",
+                        outcome.model_used,
+                        [(s.name, s.status) for s in outcome.stages],
+                    )
                 else:
                     # AI 초안이 품질 하한선을 넘지 못했다 — 기본 스캔 결과만 쓴다.
                     ai_error = outcome.error or (
@@ -852,8 +874,8 @@ def scan_git(body: GitScanRequest) -> dict[str, Any]:
         return {
             "status": "ok",
             "cached": False,
-            # analyzed 는 "AI 호출 성공"이 아니라 "품질 검증까지 통과"를 뜻한다.
-            "analyzed": ai_analysis is not None,
+            # analyzed 는 "AI 호출 성공"이 아니라 "필수 단계까지 완료 + 품질 검증 통과"를 뜻한다.
+            "analyzed": ai_completed,
             "ai_error": ai_error,
             "ai_report": ai_report,
             "payload": payload,

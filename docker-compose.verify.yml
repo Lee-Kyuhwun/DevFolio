@@ -1,0 +1,10 @@
+# 검증 모드 override — 개발 중 자동 재시작(WatchFiles reload)을 끈다.
+#
+# 개발:  docker compose up -d                     (코드 변경 시 자동 재시작)
+# 검증:  docker compose -f docker-compose.yml -f docker-compose.verify.yml up -d
+#        → E2E/부하 측정 중 소스 저장이나 파일 변경으로 분석 요청이 끊기지 않는다.
+#
+# 재시작·설정 변경은 운영 영향이 있으므로 사용자 승인 후 실행한다.
+services:
+  devfolio:
+    command: ["serve", "--host", "0.0.0.0", "--no-open"]

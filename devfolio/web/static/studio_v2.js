@@ -1261,7 +1261,9 @@
       state.ui.formSection = "basics";
       const report = state.importer.aiReport;
       const modelNote = report && report.model_used ? ` (${report.model_used})` : "";
-      if (payload.ai_error) {
+      if (report && report.status === "partial") {
+        showToast(`AI 분석이 일부만 완료되었습니다${modelNote} — 나머지는 기본 스캔 결과입니다.`, "warn");
+      } else if (payload.ai_error) {
         showToast("AI 분석을 완료하지 못했습니다 — 기본 스캔 결과만 가져왔습니다.", "warn");
       } else if (report && report.fallback_used) {
         showToast(`모델을 자동 전환해 AI 분석을 완료했습니다${modelNote}.`, "ok");

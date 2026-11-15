@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import re
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -91,11 +92,16 @@ def classify_error(exc: BaseException) -> ErrorKind:
         return ErrorKind.AUTH
 
     # 할당량·속도 제한 — 재시도 가치가 있는 대표적인 오류.
+    # Provider 마다 문구가 다르다: Groq "Rate limit reached for model ...",
+    # pollinations "Free limit reached: 1 reply every 45 seconds per IP" (litellm 은 APIError 로 올린다).
     if (
         "ratelimiterror" in text
         or "rate limit" in text
         or "ratelimit" in text
         or "resource_exhausted" in text
+        or "free limit" in text
+        or "too many requests" in text
+        or "retry after" in text
         or "429" in text
     ):
         return ErrorKind.RATE_LIMIT
@@ -152,6 +158,8 @@ class ReliabilitySettings:
     cooldown_seconds: float = 300.0  # 일시 장애 모델을 쉬게 하는 시간
     max_backoff_seconds: float = 8.0  # 백오프 상한
     provider_fallback: bool = True  # Provider 장애 시 다른 Provider 로 전환할지
+    # Provider 분당 토큰 예산. 0 이면 비활성. 값은 계정 정책에 맞춰 사용자가 정한다.
+    provider_tpm: int = 0
     allow_third_party_fallback: bool = (
         True  # 키 없는 내장 Provider(pollinations) 허용 여부
     )
@@ -176,6 +184,7 @@ class ReliabilitySettings:
             provider_fallback=_env_bool(
                 "DEVFOLIO_AI_PROVIDER_FALLBACK", defaults.provider_fallback
             ),
+            provider_tpm=_env_int("DEVFOLIO_AI_PROVIDER_TPM", defaults.provider_tpm),
             allow_third_party_fallback=_env_bool(
                 "DEVFOLIO_AI_ALLOW_THIRD_PARTY", defaults.allow_third_party_fallback
             ),
@@ -240,8 +249,15 @@ def backoff_delay(
     return delay * (0.5 + random.random() / 2)
 
 
+_RETRY_AFTER_PATTERN = re.compile(r"retry\s+after\s+(\d+(?:\.\d+)?)\s*s", re.IGNORECASE)
+
+
 def parse_retry_after(exc: BaseException) -> Optional[float]:
-    """예외에서 Retry-After(초)를 뽑아낸다. 없으면 None."""
+    """예외에서 Retry-After(초)를 뽑아낸다.
+
+    ① 예외 속성/응답 헤더(표준) → ② 본문 문구("Retry after 18s", pollinations).
+    헤더가 없으면 포기하지 않고 본문을 본다 — pollinations 는 헤더 대신 문구로 알린다.
+    """
     for attr in ("retry_after", "retry_after_seconds"):
         value = getattr(exc, attr, None)
         if isinstance(value, (int, float)) and value >= 0:
@@ -257,7 +273,10 @@ def parse_retry_after(exc: BaseException) -> Optional[float]:
             try:
                 return float(raw)
             except (TypeError, ValueError):
-                return None
+                pass
+    match = _RETRY_AFTER_PATTERN.search(str(exc))
+    if match:
+        return float(match.group(1))
     return None
 
 
@@ -267,6 +286,9 @@ class HealthRecord:
     reason: str
     marked_at: float
     permanent: bool
+    # 이 기록만의 Cooldown 길이. None 이면 저장소 기본값을 쓴다.
+    # 429 의 Retry-After 처럼 Provider 가 알려준 대기 시간을 그대로 반영할 때 쓴다.
+    ttl: Optional[float] = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -274,6 +296,7 @@ class HealthRecord:
             "reason": self.reason,
             "marked_at": self.marked_at,
             "permanent": self.permanent,
+            "ttl": self.ttl,
         }
 
 
@@ -354,18 +377,52 @@ class ModelHealthStore:
         return f"{provider_name}::{model_name}"
 
     def blocked(self, key: str) -> bool:
+        return self.remaining(key) > 0
+
+    def remaining(self, key: str) -> float:
+        """차단이 플러질 때까지 남은 초. 0 이면 차단 아님.
+
+        permanent 기록은 아주 큰 값을 돌려준다(사실상 해제되지 않음).
+        """
         self._load()
         record = self._records.get(key)
         if record is None:
-            return False
+            return 0.0
         if record.permanent:
-            return True
-        if time.time() - record.marked_at >= self.cooldown_seconds:
+            return float("inf")
+        ttl = record.ttl if record.ttl is not None else self.cooldown_seconds
+        elapsed = time.time() - record.marked_at
+        if elapsed >= ttl:
             # Cooldown 종료 → 다시 시도 가능(HALF_OPEN).
             self._records.pop(key, None)
             self._save()
-            return False
-        return True
+            return 0.0
+        return ttl - elapsed
+
+    # -- Provider 단위 차단 --------------------------------------------
+    # 레이트 리밋은 모델이 아니라 계정·IP 단위로 걸리는 경우가 많다.
+    # Groq 은 조직 단위로 제한하고, pollinations 는 IP 단위로 제한한다(로그 문구 기준).
+    # 따라서 모델을 바꿔 가며 같은 한도를 반복 소모하지 않도록 Provider 도 차단한다.
+    def block_provider(
+        self, provider_name: str, seconds: Optional[float], reason: str
+    ) -> None:
+        self._load()
+        ttl = seconds if seconds and seconds > 0 else self.cooldown_seconds
+        key = self.key(provider_name, PROVIDER_WILDCARD)
+        self._records[key] = HealthRecord(
+            kind=ErrorKind.RATE_LIMIT.value,
+            reason=reason[:200],
+            marked_at=time.time(),
+            permanent=False,
+            ttl=ttl,
+        )
+        self._save()
+        logger.warning(
+            "Provider 차단: %s (%.0f초, reason=%.120s)", provider_name, ttl, reason
+        )
+
+    def provider_cooldown_remaining(self, provider_name: str) -> float:
+        return self.remaining(self.key(provider_name, PROVIDER_WILDCARD))
 
     def block(self, key: str, kind: ErrorKind, reason: str) -> None:
         self._load()
@@ -399,6 +456,85 @@ class ModelHealthStore:
         self._records.clear()
         self._loaded = True
         self._save()
+
+
+PROVIDER_WILDCARD = "*"
+
+
+def estimate_tokens(messages: list[dict], max_tokens: Optional[int] = None) -> int:
+    """요청 1회의 토큰 사용량을 보수적으로 어림한다.
+
+    정확한 토크나이저를 추가하지 않는다(의존성·비용). 문자 수 / 3 은 한국어·코드 혼합에서
+    실제보다 조금 크게 나오는 편이라, 예산 확인용으로는 안전한 쪽이다.
+    출력은 모델이 실제로 다 쓸 수 있는 양(max_tokens)을 예약한다.
+    """
+    prompt_chars = sum(len(str(m.get("content", ""))) for m in messages)
+    return prompt_chars // 3 + (max_tokens or 0)
+
+
+class ProviderTokenWindow:
+    """Provider 별 분당 토큰 예산(슬라이딩 윈도우).
+
+    capacity 가 0 이면 비활성(기본). 제한값은 Provider 정책마다 다르고 계정마다 다를 수
+    있으므로 코드에 상수로 박지 않고 `DEVFOLIO_AI_PROVIDER_TPM` 으로 설정한다.
+    상태는 프로세스 로컬이다 — 로컬 단일 프로세스 도구라 Redis 같은 공유 저장소는 불필요하다.
+    """
+
+    def __init__(self, capacity: int, window_seconds: float = 60.0) -> None:
+        self.capacity = max(0, int(capacity))
+        self.window_seconds = window_seconds
+        self._events: list[tuple[float, int]] = []
+
+    @property
+    def enabled(self) -> bool:
+        return self.capacity > 0
+
+    def _prune(self, now: float) -> None:
+        cutoff = now - self.window_seconds
+        self._events = [(ts, tok) for ts, tok in self._events if ts > cutoff]
+
+    def used(self) -> int:
+        self._prune(time.monotonic())
+        return sum(tokens for _, tokens in self._events)
+
+    def wait_seconds(self, tokens: int = 0) -> float:
+        """지금 요청을 보내려면 얼마나 기다려야 하는가. 0 이면 바로 가능."""
+        if not self.enabled:
+            return 0.0
+        now = time.monotonic()
+        self._prune(now)
+        if sum(t for _, t in self._events) + tokens <= self.capacity:
+            return 0.0
+        # 가장 오래된 이벤트가 윈도우를 벗어나면 다시 여유가 생긴다.
+        if not self._events:
+            return 0.0
+        oldest = min(ts for ts, _ in self._events)
+        return max(0.0, self.window_seconds - (now - oldest))
+
+    def reserve(self, tokens: int) -> None:
+        if not self.enabled:
+            return
+        self._events.append((time.monotonic(), max(0, tokens)))
+
+    def reset(self) -> None:
+        self._events.clear()
+
+
+_TOKEN_WINDOWS: dict[str, ProviderTokenWindow] = {}
+
+
+def get_token_window(
+    provider_name: str, settings: "ReliabilitySettings"
+) -> ProviderTokenWindow:
+    window = _TOKEN_WINDOWS.get(provider_name)
+    if window is None or window.capacity != settings.provider_tpm:
+        window = ProviderTokenWindow(settings.provider_tpm)
+        _TOKEN_WINDOWS[provider_name] = window
+    return window
+
+
+def reset_token_windows() -> None:
+    _TOKEN_WINDOWS.clear()
 
 
 _DEFAULT_STORE: Optional[ModelHealthStore] = None

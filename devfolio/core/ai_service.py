@@ -52,8 +52,10 @@ from devfolio.core.ai_reliability import (
     ReliabilitySettings,
     backoff_delay,
     classify_error,
+    estimate_tokens,
     filter_candidates,
     get_health_store,
+    get_token_window,
     is_permanent,
     is_retryable,
     parse_retry_after,
@@ -362,6 +364,9 @@ def _log_prompt_preview(messages: list[dict]) -> None:
 # 분석 단계 상태 — 사용자 화면에 그대로 표시된다.
 STAGE_PENDING = "pending"
 STAGE_RUNNING = "running"
+# JSON Object Mode(response_format)를 실제로 지원하는 Provider — 공식 문서 근거.
+_JSON_MODE_PROVIDERS = frozenset({"groq", "openai", "openrouter"})
+
 STAGE_COMPLETED = "completed"
 STAGE_PARTIAL = "partial"
 STAGE_FAILED = "failed"
@@ -401,9 +406,12 @@ class AnalysisOutcome:
     fallback_used: bool = False
     error: str = ""
     completed: bool = False
+    # completed | partial | failed — 화면은 이 값으로 "AI 분석 완료"와 "일부만 완료"를 구분 한다.
+    status: str = "failed"
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "status": self.status,
             "completed": self.completed,
             "model_used": self.model_used,
             "fallback_used": self.fallback_used,
@@ -1017,6 +1025,7 @@ class AIService:
 
         settings = ReliabilitySettings.from_env()
         budget = Budget(seconds=settings.time_budget_seconds)
+        store = get_health_store(settings)
         reported = telemetry if telemetry is not None else {}
         provider_chain = self._provider_fallback_chain(provider_name)
         last_error: Exception = RuntimeError("알 수 없는 오류")
@@ -1030,6 +1039,17 @@ class AIService:
                 )
                 break
             if not self._provider_allowed(provider, settings):
+                continue
+            # 앞선 단계에서 429 를 받은 Provider 는 같은 한도를 공유한다.
+            # (Groq 은 조직 단위, pollinations 는 IP 단위 제한 — 로그 문구 기준)
+            cooldown = store.provider_cooldown_remaining(provider.name)
+            if cooldown > 0:
+                logger.warning(
+                    "Provider %s 는 %.0f초 Cooldown 중 → 건너뜁니다 (한도 상태 공유)",
+                    provider.name,
+                    cooldown,
+                )
+                reported.setdefault("cooldowns_skipped", []).append(provider.name)
                 continue
             if budget.expired():
                 logger.warning(
@@ -1115,7 +1135,10 @@ class AIService:
             kwargs["temperature"] = temperature
         if max_tokens is not None:
             kwargs["max_tokens"] = max_tokens
-        if json_mode:
+        # JSON Object Mode 는 Provider 지원 여부가 갈린다 (Groq/OpenAI/OpenRouter 지원).
+        # 미지원 Provider 에 그대로 보내면 400 으로 쓸 수 있는 fallback 후보를 날리므로,
+        # 지원이 확인된 Provider 에서만 켜고 나머지는 검증기(_extract_json)로 막는다.
+        if json_mode and provider.name in _JSON_MODE_PROVIDERS:
             kwargs["response_format"] = {"type": "json_object"}
         if provider.base_url:
             kwargs["api_base"] = provider.base_url
@@ -1145,6 +1168,13 @@ class AIService:
         for model_index, runtime_model in enumerate(candidates, start=1):
             kwargs["model"] = self._provider_model_string(provider.name, runtime_model)
             model_key = ModelHealthStore.key(provider.name, runtime_model)
+            # Groq 의 gpt-oss 는 추론 모델이다. 기본 추론 강도(medium)의 숨은 추론 토큰이
+            # max_tokens 를 먼저 소모해 JSON 이 잘렸다 (INC-23: response_chars=25,
+            # finish_reason=length, prompt_chars=4834). 구조화 추출에는 low 로 충분하고
+            # 지연·토큰도 줄어든다. (공식: Groq Reasoning 문서 — gpt-oss 는 low|medium|high)
+            kwargs.pop("reasoning_effort", None)
+            if provider.name == "groq" and "gpt-oss" in str(runtime_model):
+                kwargs["reasoning_effort"] = "low"
             max_attempts = active_settings.model_retries + 1
 
             for attempt in range(1, max_attempts + 1):
@@ -1156,6 +1186,22 @@ class AIService:
                             "DEVFOLIO_AI_TIME_BUDGET 로 조정할 수 있습니다."
                         ),
                     )
+                # Provider 분당 토큰 예산이 설정되어 있으면 요청 전에 확인한다.
+                window = get_token_window(provider.name, active_settings)
+                estimated_tokens = estimate_tokens(messages, max_tokens)
+                wait = window.wait_seconds(estimated_tokens)
+                if wait > 0:
+                    if active_budget.can_wait(wait):
+                        logger.warning(
+                            "토큰 예산 대기: provider=%s %.0f초 (예상 %d토큰)",
+                            provider.name,
+                            wait,
+                            estimated_tokens,
+                        )
+                        time.sleep(wait)
+                    else:
+                        raise DevfolioAIRateLimitError(provider.name)
+
                 active_budget.attempts += 1
                 t_start = time.monotonic()
                 try:
@@ -1210,6 +1256,7 @@ class AIService:
                         duration_ms=int((t_end - t_start) * 1000),
                         ok=True,
                     )
+                    window.reserve(estimated_tokens)
                     store.clear(model_key)
                     reported.update(
                         {
@@ -1253,6 +1300,9 @@ class AIService:
                         and "day" in err_str.lower()
                     ):
                         # 일 단위 한도 소진 — 기다려도 회복되지 않는다.
+                        store.block_provider(
+                            provider.name, active_settings.cooldown_seconds, err_str
+                        )
                         raise DevfolioAIRateLimitError(provider.name) from e
 
                     if is_permanent(kind):
@@ -1292,11 +1342,15 @@ class AIService:
                         continue
 
                     if kind is ErrorKind.RATE_LIMIT:
-                        # 같은 계정·같은 Provider 의 RPM 한도는 모델을 바꿔도 유지된다.
+                        # 같은 계정·같은 Provider 의 RPM/TPM 한도는 모델을 바꿔도 유지된다.
                         # 남은 모델을 더 두드리지 않고 다음 Provider 로 넘긴다 (INC-12 계약).
+                        # 다음 단계가 같은 한도를 반복 소모하지 않도록 Provider 도 Cooldown 한다.
+                        retry_after = parse_retry_after(e)
+                        store.block_provider(provider.name, retry_after, err_str)
                         logger.warning(
-                            "Provider %s 속도 제한 소진 → 다음 Provider 로: %.160s",
+                            "Provider %s 속도 제한 소진 → %.0f초 Cooldown, 다음 Provider 로: %.160s",
                             provider.name,
+                            retry_after or active_settings.cooldown_seconds,
                             err_str,
                         )
                         raise DevfolioAIRateLimitError(provider.name) from e
@@ -2453,8 +2507,17 @@ class AIService:
             files_section = "[주요 소스 파일]\n" + "\n\n".join(parts) + "\n\n"
 
         # --- Git 통계 섹션 ---
+        # languages 값은 "파일 개수"다(비율이 아니다). %로 보이려면 직적 총합으로 나눠야 한다.
+        # 이전에는 개수를 그대로 %로 찍어 "Python(329%)" 같은 값이 프롬프트에 들어갔다.
+        lang_counts = scan_metrics.get("languages") or {}
+        lang_total = sum(lang_counts.values()) or 0
         langs_str = ", ".join(
-            f"{k}({v}%)" for k, v in (scan_metrics.get("languages") or {}).items()
+            (
+                f"{name}({count * 100 / lang_total:.0f}%, {count}개 파일)"
+                if lang_total
+                else f"{name}({count}개 파일)"
+            )
+            for name, count in lang_counts.items()
         )
         git_section = (
             f"[Git 통계]\n"
@@ -2502,7 +2565,9 @@ class AIService:
             _CODE_ANALYSIS_SYSTEM,
             prompt,
             provider_name,
-            json_mode=False,
+            # 최상위 객체 스키마 — JSON Object Mode 로 구문 오류를 원천 차단한다.
+            # (미지원 Provider 는 _call_single_provider 가 일반 모드로 내린다)
+            json_mode=True,
             max_tokens=2500,
             validator=self._extract_json,
             telemetry=telemetry,
@@ -2629,11 +2694,21 @@ class AIService:
             )
         )
         cases = payload.get("problem_solving_cases") or []
+        cases_error = telemetry.get("cases_error", "")
+        if cases_error:
+            cases_status = STAGE_FAILED
+            cases_detail = cases_error[:160]
+        elif cases:
+            cases_status = STAGE_COMPLETED
+            cases_detail = f"{len(cases)}건 추출"
+        else:
+            cases_status = STAGE_SKIPPED
+            cases_detail = "근거가 될 커밋 이력 없음"
         stages.append(
             StageResult(
                 name="cases",
-                status=STAGE_COMPLETED if cases else STAGE_SKIPPED,
-                detail=f"{len(cases)}건 추출" if cases else "근거가 될 커밋 이력 없음",
+                status=cases_status,
+                detail=cases_detail,
                 model=telemetry.get("model", ""),
             )
         )
@@ -2646,9 +2721,18 @@ class AIService:
                 detail=report.summary(),
             )
         )
+        # 사례 추출이 실패했으면 품질 검증을 통과했더라도 완료로 처리하지 않는다.
+        completed = report.passed and not cases_error
+        if completed:
+            status = "completed"
+        elif report.passed:
+            status = "partial"
+        else:
+            status = "failed"
         logger.info(
-            "AI 딥 분석 검증: verdict=%s model=%s fallback=%s issues=%d",
+            "AI 딥 분석 검증: verdict=%s status=%s model=%s fallback=%s issues=%d",
             report.verdict,
+            status,
             telemetry.get("model", ""),
             bool(telemetry.get("fallback")),
             len(report.issues),
@@ -2659,7 +2743,8 @@ class AIService:
             quality=report,
             model_used=telemetry.get("model", ""),
             fallback_used=bool(telemetry.get("fallback")),
-            completed=report.passed,
+            completed=completed,
+            status=status,
         )
 
     def _extract_problem_solving_cases(
@@ -2729,8 +2814,19 @@ class AIService:
                 result = json.loads(arr_match.group(0))
                 if isinstance(result, list):
                     return [c for c in result if isinstance(c, dict)]
+                if telemetry is not None:
+                    telemetry["cases_error"] = (
+                        f"CasesSchemaError: JSON 배열이 아닌 {type(result).__name__} 반환"
+                    )
+            elif telemetry is not None:
+                telemetry["cases_error"] = (
+                    "CasesParseError: 응답에서 JSON 배열을 찾지 못했습니다"
+                )
         except Exception as exc:
+            # 빈 배열로 계속하되, "근거가 없어서 0건"과 "실패해서 0건"을 구분해 보고한다.
             logger.warning("문제 해결 사례 추출 실패 (빈 배열로 계속): %s", exc)
+            if telemetry is not None:
+                telemetry["cases_error"] = f"{type(exc).__name__}: {str(exc)[:160]}"
         return []
 
     def test_connection(self, provider_name: Optional[str] = None) -> tuple[bool, str]:
