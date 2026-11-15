@@ -1,5 +1,10 @@
 # UI/UX 감사 및 개선
 
+> **아카이브 (2026-11-15):** 이 문서는 **DevFolio 시절의 기록**입니다. 현재 제품은 **성과노트(ImpactNote)** 이며,
+> 최신 제품 설명·구조·검증 결과는 `README.md`, `docs/impactnote.md`, `docs/04-architecture.md` 가 기준입니다.
+> 아래 내용은 당시의 판단과 측정을 보존하기 위해 수정하지 않았습니다.
+
+
 기준일: 2026-11-15
 대상: `devfolio serve` Portfolio Studio (`/` → `studio_v2.css` + `studio_v2.js`)
 방법: 격리된 임시 홈 디렉터리에서 서버 실행 → 실제 브라우저(Chromium)에서 화면 확인·요소 측정 → 코드 수정 → 동일 조건 재측정

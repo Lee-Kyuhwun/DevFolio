@@ -93,8 +93,10 @@ Git 커밋 / AI 분석 ───┘                                   │
 
 - `tests/test_impactnote.py`: 기록 CRUD, 성과·근거 상태, 지표 검증, Git 후보, AI 동의/실패/수치 세탁, 기간 집계,
   템플릿·버전, 다운로드, 마이그레이션 멱등·원본 보존, 파일 권한, 브랜드 문자열.
-- 기존 `tests/` 401개는 레거시 호환 계층(`devfolio`) 검증으로 유지한다.
-- Docker: `docker compose up -d --build` 후 `http://localhost:8000`.
+- 기존 `tests/` 401개는 레거시 호환 계층(`devfolio`) 검증으로 유지한다(전체 431개).
+- `scripts/check.sh`, CI(`.github/workflows/ci.yml`), `tox.ini` 가 `impactnote/` 를 lint·커버리지 대상에 포함한다.
+- Docker: `docker compose up -d --build` 후 `http://localhost:8000` (서비스명 `impactnote`, 컨테이너 `devfolio-impactnote-1`).
+- 검증 완료: 컨테이너 내 E2E(기록→성과→근거→지표→DOCX/MD 보고서), 마이그레이션 멱등·백업·원본 불변, 브라우저 흐름.
 
 ## 9. 범위 밖 / 남은 개선
 

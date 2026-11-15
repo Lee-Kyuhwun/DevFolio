@@ -16,6 +16,9 @@
 - Git 커밋 기반 성과 후보 추출(`needs_review`, 사용자 확인 전 확정 불가)
 - 보고서 템플릿 A~E, 기간 선택(주/월/분기/반기/연/사용자 지정), 버전·제출 상태, MD/DOCX/PDF/TXT/CSV
 - DevFolio → ImpactNote 마이그레이션(ZIP 백업·멱등·원본 보존)
+- `impactnote` 패키지·CLI·Docker 서비스, 레거시 데이터 읽기 전용 마운트
+- CI·tox·`scripts/check.sh` 에 `impactnote` lint/커버리지 포함
+- 문서 체계 정비: README·GUIDE·설계·아키텍처 현재화, 과거 DevFolio 문서는 아카이브 배너로 보존
 
 ## [Unreleased]
 

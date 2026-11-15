@@ -1,5 +1,11 @@
 # AI Reliability 운영 가이드
 
+> **현재 적용 (2026-11-15):** 이 문서의 재시도·차단·오류 분류는 `devfolio/core/ai_service.py` 에 구현되어 있고,
+> 성과노트의 `impactnote/core/ai.py` 가 이를 그대로 재사용한다. 새 제품에서는 호출 전에
+> `Settings.external_ai_consent` 와 `allowed_providers` 게이트가 먼저 적용되며, 실패한 분석은
+> `AIAnalysis(status="failed")` 로만 남기고 원본 업무 기록은 변경하지 않는다.
+> 아래의 Provider별 세부 정책과 장애 사례는 레거시 계층에도 동일하게 유효하다.
+
 DevFolio의 AI 딥 분석은 모델이 폐기되거나 Provider 장애가 나도 **품질 하한선을 지키며** 끝까지 갈 수 있게 설계되어 있다.
 이 문서는 그 구조와 운영 방법을 정리한다.
 
