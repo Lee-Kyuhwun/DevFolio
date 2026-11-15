@@ -603,6 +603,27 @@ AI is optional. You can use DevFolio as a local-only portfolio and resume manage
 
 Heavy AI dependencies are loaded lazily, so the base CLI stays lighter unless you explicitly install AI extras.
 
+### Model fallback and quality gate
+
+AI analysis does not stop at the first failure. When a model is deprecated, rate-limited, or returns an unusable response:
+
+- deprecated models are blocked permanently, transient failures are blocked for a cooldown window
+- the call moves to the next model candidate, then to the next provider
+- retries apply only to transient errors and stay inside a 90-second budget for the whole analysis
+- a response counts as complete only if it passes a deterministic quality gate (schema, required fields, and tech-stack/number claims traceable to the repository)
+- if every provider fails, the Git scaffold is still returned and the analysis is reported as incomplete — never presented as an AI result
+
+| Variable | Default | Effect |
+|---|---|---|
+| `DEVFOLIO_AI_TIME_BUDGET` | `90` | total seconds for one analysis, including retries and fallbacks |
+| `DEVFOLIO_AI_MODEL_RETRIES` | `1` | extra attempts on the same model for transient errors |
+| `DEVFOLIO_AI_MAX_MODELS` | `3` | model candidates tried per provider |
+| `DEVFOLIO_AI_COOLDOWN` | `300` | how long a transiently failing model stays out |
+| `DEVFOLIO_AI_PROVIDER_FALLBACK` | `1` | `0` disables switching to another provider |
+| `DEVFOLIO_AI_ALLOW_THIRD_PARTY` | `1` | `0` keeps your data away from the bundled pollinations endpoint |
+
+See [`docs/ai-reliability.md`](docs/ai-reliability.md) for the failure policy table and operations guide.
+
 ## Data and Privacy
 
 DevFolio stores project data locally using `platformdirs`.
@@ -1284,6 +1305,27 @@ DevFolio는 다음 Provider를 지원합니다.
 AI는 필수가 아닙니다. Provider를 하나도 설정하지 않고 로컬 전용 포트폴리오/이력서 관리 도구로만 사용해도 됩니다.
 
 무거운 AI 의존성은 lazy import 방식으로 불러오므로, AI extra를 설치하지 않아도 기본 CLI는 상대적으로 가볍게 유지됩니다.
+
+### 모델 자동 전환과 품질 검증
+
+AI 분석은 첫 실패에서 멈추지 않습니다. 모델이 폐기되었거나, 속도 제한에 걸렸거나, 쓸 수 없는 응답을 돌려주면:
+
+- 폐기된 모델은 **영구 차단**, 일시 장애는 Cooldown 동안만 차단합니다
+- 다음 모델 후보로, 그다음에는 다음 Provider로 넘어갑니다
+- 재시도는 일시 오류에만 적용하고, 분석 전체 90초 예산을 넘지 않습니다
+- 응답은 결정론적 품질 검증(스키마·필수 필드, 기술 스택과 수치의 저장소 근거)을 통과해야만 완료로 인정됩니다
+- 모든 Provider가 실패하면 Git 스캔 결과는 그대로 돌려주고, AI 분석은 **미완료로 표시**합니다 (AI 결과처럼 꾸미지 않습니다)
+
+| 환경변수 | 기본값 | 설명 |
+|---|---|---|
+| `DEVFOLIO_AI_TIME_BUDGET` | `90` | 분석 1회 전체 시간 예산(초), 재시도·전환 포함 |
+| `DEVFOLIO_AI_MODEL_RETRIES` | `1` | 일시 오류일 때 같은 모델 추가 시도 횟수 |
+| `DEVFOLIO_AI_MAX_MODELS` | `3` | Provider당 시도할 모델 후보 수 |
+| `DEVFOLIO_AI_COOLDOWN` | `300` | 일시 장애 모델을 제외하는 시간(초) |
+| `DEVFOLIO_AI_PROVIDER_FALLBACK` | `1` | `0`이면 다른 Provider로 전환하지 않음 |
+| `DEVFOLIO_AI_ALLOW_THIRD_PARTY` | `1` | `0`이면 내장 pollinations로 데이터를 보내지 않음 |
+
+실패 분류표와 운영 절차는 [`docs/ai-reliability.md`](docs/ai-reliability.md)에 정리되어 있습니다.
 
 ## 데이터와 프라이버시
 

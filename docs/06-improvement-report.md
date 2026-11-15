@@ -89,7 +89,7 @@
 
 | 검사 | 결과 |
 |---|---|
-| `pytest` (전체) | **289 passed** (작업 전 285 → +4), 약 3.0초 |
+| `pytest` (전체) | **334 passed** (UI 라운드 289 → INC-21 +4 → AI 신뢰성 +41), 약 3.8초 |
 | `ruff check devfolio/ tests/` | **All checks passed** |
 | 되돌림 확인 (INC-19) | `startswith`로 되돌리면 `test_inc19_open_folder_rejects_home_sibling_prefix_path` **실패** ✅ |
 | 되돌림 확인 (INC-20) | `return` 제거 시 `test_inc20_open_folder_returns_ok_payload` **실패(500)** ✅ |
@@ -148,3 +148,45 @@
 | P3 | `ai_logs.jsonl` 회전 | 무한 증가 |
 | P3 | 죽은 프론트엔드 자산 삭제 | 약 4.3k 줄 |
 | P3 | 자동 접근성 감사(axe) | 의존성 추가 판단 필요 |
+
+---
+
+## 8. 후속 라운드 — AI 신뢰성 계층 (INC-21·INC-22)
+
+이 문서의 1~7절은 UI/UX 라운드(커밋 `207e738`) 기준이다. 이후 AI 분석 실패를 다루는 별도 라운드가 이어졌으므로 수치와 구조를 여기에 갱신한다.
+
+### 발견한 장애
+
+| 증상 | 원인 |
+|---|---|
+| AI 딥 분석이 항상 "기본 스캔 결과로 계속"으로 끝남 | Groq 후보 4개가 모두 폐기·미존재(`/v1/models` 실측) |
+| 폴백 응답이 JSON으로 파싱되지 않음 | pollinations가 `max_tokens` 미지정 시 1,500토큰에서 절단(`finish_reason=length`) |
+| 폐기 모델을 매 호출마다 반복 시도 | 모델 상태를 기억하는 계층이 없었고 `_MAX_RETRIES`가 모든 예외에 적용 |
+| 요청 성공이 곪 분석 완료로 처리 | 응답의 형태·근거·잘림 여부를 판정하지 않음 |
+
+### 추가한 구조
+
+| 파일 | 역할 |
+|---|---|
+| `core/ai_reliability.py` | 오류 분류, 모델 Circuit Breaker(파일 영속), 시간 예산(90초), 백오프+`Retry-After` |
+| `core/ai_quality.py` | Level 1(스키마)·Level 2(기술 스택·수치 근거 대조) Hard Gate |
+| `core/ai_service.py` | 단계 상태(`AnalysisOutcome`), 재시도 제어 지점 단일화, `max_retries=0` |
+| `web/routes/api.py`, `studio_v2.js/.css` | 사용 모델·자동 전환·단계·품질 판정 노출 |
+
+### 결과 (측정)
+
+| 항목 | 값 |
+|---|---|
+| `pytest` | **334 passed** (289 → INC-21 +4 → AI 신뢰성 +41) |
+| Docker E2E `/api/scan/git` | 9.3초, `analyzed: true`, `groq/openai/gpt-oss-120b`, 품질 `passed`(기술 12/14 근거 확인) |
+| 전 Provider 실패 시 | `completed: false`, `payload: {}`, 스캔 단계만 유지 |
+| 폐기 모델 낭비 호출 | 요청당 4회 → 0회 |
+
+### 남은 위험
+
+| 우선순위 | 항목 | 이유 |
+|---|---|---|
+| P1 | 모델 목록 `/v1/models` 자동 동기화 | 폐기 반복 시 수동 갱신이 필요하다 |
+| P2 | pollinations 1,500토큰 상한 대응(스키마 축약·호출 분할) | 서버 측 상한은 클라이언트로 못 넘긴다 |
+| P2 | P95 지연·장기 성공률 수집 | 1회 E2E 외에 측정하지 않았다 |
+| P3 | UI 패널 브라우저 확인 | 코드 검증(`node --check`)만 했고 화면은 보지 않았다 |

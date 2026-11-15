@@ -28,7 +28,7 @@ flowchart TB
         TE["core/template_engine.py"]
         EE["core/export_engine.py"]
         GS["core/git_scanner.py"]
-        AIS["core/ai_service.py"]
+        AIS["core/ai_service.py<br/>+ ai_reliability · ai_quality"]
         SY["core/sync_service.py"]
         MAP["web/experience_mapper.py"]
         SEC["utils/security.py"]
@@ -85,6 +85,22 @@ flowchart TB
 | 프레임워크 없는 JS | 웹 UI | 빌드 단계 없이 단일 파일로 배포. Docker 이미지에 Node가 필요 없다 |
 
 **트레이드오프 [사실]**: 프레임워크 없는 구조는 빌드 복잡도를 없애는 대신, 상태 관리·부분 갱신·접근성 처리를 직접 구현해야 한다. 이번에 발견한 UI 결함(검색 입력 중 전체 재렌더, 포커스 표시 부재)은 모두 그 비용이다.
+
+### AI 호출 계층의 분리 (2026-11-15 추가)
+
+AI 관련 책임을 세 모듈로 나눴다. 호출 경로는 `routes/api.py → ai_service → (ai_reliability, ai_quality)` 단방향이다.
+
+| 모듈 | 책임 | 하지 않는 일 |
+|---|---|---|
+| `core/ai_service.py` | 프롬프트 조립, 단계 상태(`AnalysisOutcome`), provider·모델 순회 | 실패 정책 결정, 품질 판정 |
+| `core/ai_reliability.py` | 오류 분류(영구/일시), Circuit Breaker, 시간 예산, 백오프 | API 호출, 프롬프트 조립 |
+| `core/ai_quality.py` | 스키마·근거 대조 검증(Level 1·2) | 모델 선택, 재시도 |
+
+**재시도 제어 지점은 `_call_single_provider` 하나**다. litellm 내부 재시도는 `max_retries=0`으로 꺼서 애플리케이션 재시도와 중첩되지 않는다.
+
+모델 차단 상태는 데이터 디렉터리의 `ai_model_health.json`에 남는다. 폐기 모델은 영구 차단, 일시 장애는 Cooldown(기본 300초) 후 다시 후보에 들어간다. **[사실]**
+
+**[추론]** 이 분리의 목적은 테스트 가능성이다. 오류 분류·차단·품질 판정이 모두 순수 함수·작은 상태 객체라 실제 API 없이 검증된다(`tests/test_ai_reliability.py` 41개). 호출 경로에 정책이 섞여 있으면 이 중 어느 것도 단독으로 고정하기 어렵다.
 
 ---
 

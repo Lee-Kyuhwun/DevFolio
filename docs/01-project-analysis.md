@@ -54,7 +54,7 @@ README는 기능이 많다. 실제 코드에서 확인한 범위는 다음과 �
 | CLI 프로젝트/작업 CRUD | 구현됨 | `devfolio/commands/project.py`, `task.py` |
 | 웹 스튜디오(경험 CRUD) | 구현됨 | `devfolio/web/routes/api.py` (`/api/experiences`) |
 | Git 저장소 스캔 | 구현됨 | `devfolio/core/git_scanner.py`, `/api/scan/git` |
-| AI 초안/요약/task 문구 | 구현됨 (선택 의존성) | `devfolio/core/ai_service.py` (litellm lazy import) |
+| AI 초안/요약/task 문구 | 구현됨 (선택 의존성) | `core/ai_service.py`(litellm lazy import) + `core/ai_reliability.py`(재시도·차단·예산) + `core/ai_quality.py`(품질 하한선) |
 | 미리보기 | 구현됨 (draft 미저장 상태도 가능) | `/api/preview/{doc_type}`, `DraftPreviewRequest.source == "draft"` |
 | 다중 포맷 export | 구현됨 | `ExportEngine.export_*` |
 | GitHub 동기화 | 구현됨 | `devfolio/core/sync_service.py`, `commands/sync.py` |
@@ -193,12 +193,13 @@ POST /api/scan/git {repo_path, author_email, refresh, analyze}
 
 ## 6. 테스트
 
-**[사실]** `pytest` 289개 통과(이번 작업 전 285개). 구성:
+**[사실]** `pytest` 334개 통과(2026-11-15 기준). 구성:
 
 - 모델/저장소/프로젝트 매니저/템플릿/export 단위 테스트
 - `tests/test_web_api.py` — FastAPI `TestClient` 기반 라우터 계약 테스트(경험 CRUD 왕복, 미리보기, export, 스캔 오류 처리, AI provider 설정)
 - `tests/test_ai_service.py`, `test_ai_review_gate.py` — AI 응답 파싱·거절 감지·심사 게이트
-- `tests/test_incident_regressions.py` — `test_inc01_*` ~ `test_inc18_*` 회귀 테스트
+- `tests/test_incident_regressions.py` — `test_inc01_*` ~ `test_inc21_*` 회귀 테스트
+- `tests/test_ai_reliability.py` — 오류 분류·Circuit Breaker·시간 예산·품질 하한선·열화 동작 41개
 - `tests/test_evals_*` — 생성 전략 평가 하네스
 
 **없는 것**: 프론트엔드(JS) 테스트, 브라우저 E2E, 성능 측정 자동화. `package.json`이 없어 JS 테스트 인프라 자체가 없다. **[사실]**
@@ -209,8 +210,8 @@ POST /api/scan/git {repo_path, author_email, refresh, analyze}
 
 | 항목 | 상태 |
 |---|---|
-| AI 실제 호출 | 미실행 (API 키·비용 필요) |
-| Docker 실행 | 미검증 |
+| AI 실제 호출 | 실행 검증됨 — 2026-11-15 Groq 무료 등급, `/api/scan/git` E2E 9.3초 |
+| Docker 실행 | 검증됨 — compose 기동 후 컴퓨테이너 내부에서 E2E 실행 |
 | PDF/DOCX 실제 렌더 | 미실행 (단위 테스트로만 커버) |
 | Lighthouse/CWV | 미측정 |
 | 프론트엔드 자동 테스트 | 인프라 없음 |
