@@ -787,7 +787,12 @@ def test_inc21_code_analysis_requests_explicit_output_budget():
     captured: dict = {}
 
     def fake_call(
-        system_prompt, user_prompt, provider_name=None, json_mode=False, max_tokens=None
+        system_prompt,
+        user_prompt,
+        provider_name=None,
+        json_mode=False,
+        max_tokens=None,
+        **kwargs,
     ):
         captured["max_tokens"] = max_tokens
         return json.dumps({"project_type": "CLI 도구"})

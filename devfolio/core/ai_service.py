@@ -21,6 +21,7 @@ import time
 from typing import (
     Annotated,
     Any,
+    Callable,
     Optional,
 )  # Any=Object, Optional[T]=nullable T 힌트(실행 강제 X).
 
@@ -37,6 +38,25 @@ from devfolio.exceptions import (
     DevfolioAIAuthError,
     DevfolioAIError,
     DevfolioAIRateLimitError,
+)
+from devfolio.core.ai_quality import (
+    QualityIssue,
+    QualityReport,
+    build_evidence_index,
+    validate_analysis,
+)
+from devfolio.core.ai_reliability import (
+    Budget,
+    ErrorKind,
+    ModelHealthStore,
+    ReliabilitySettings,
+    backoff_delay,
+    classify_error,
+    filter_candidates,
+    get_health_store,
+    is_permanent,
+    is_retryable,
+    parse_retry_after,
 )
 from devfolio.log import get_logger
 from devfolio.models.config import AIProviderConfig, Config
@@ -316,6 +336,81 @@ def _write_ai_log(
         AI_LOG_FILE.write_text("\n".join(existing) + "\n", encoding="utf-8")
     except Exception:
         pass
+
+
+def _log_prompt_preview(messages: list[dict]) -> None:
+    """프롬프트 미리보기는 DEBUG 로그에서만 남긴다.
+
+    기본 운영 로그에 프롬프트 전문을 남기면 소스 코드·개인정보가 로그에 축적된다
+    (Phase 8: Prompt 전체 내용을 기본 운영 로그에 기록하지 않는다).
+    """
+    if not logger.isEnabledFor(10):  # logging.DEBUG
+        return
+    system_text = next(
+        (m.get("content", "") for m in messages if m.get("role") == "system"), ""
+    )
+    user_text = next(
+        (m.get("content", "") for m in messages if m.get("role") == "user"), ""
+    )
+    logger.debug(
+        "  [system] %.300s\n  [user] %.600s",
+        system_text.replace("\n", " "),
+        user_text.replace("\n", " "),
+    )
+
+
+# 분석 단계 상태 — 사용자 화면에 그대로 표시된다.
+STAGE_PENDING = "pending"
+STAGE_RUNNING = "running"
+STAGE_COMPLETED = "completed"
+STAGE_PARTIAL = "partial"
+STAGE_FAILED = "failed"
+STAGE_SKIPPED = "skipped"
+
+
+@dataclass
+class StageResult:
+    """분석 파이프라인 한 단계의 실행 결과."""
+
+    name: str
+    status: str
+    detail: str = ""
+    model: str = ""
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "name": self.name,
+            "status": self.status,
+            "detail": self.detail,
+            "model": self.model,
+        }
+
+
+@dataclass
+class AnalysisOutcome:
+    """AI 딥 분석 1회의 종합 결과.
+
+    `completed` 는 "AI 호출이 성공했다"가 아니라 **품질 하한선을 통과했다**는 뜻입니다.
+    호출이 성공해도 검증에 실패하면 completed=False 이고, 화면에는 미완료로 표시됩니다.
+    """
+
+    payload: dict[str, Any]
+    stages: list[StageResult]
+    quality: Optional[QualityReport]
+    model_used: str = ""
+    fallback_used: bool = False
+    error: str = ""
+    completed: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "completed": self.completed,
+            "model_used": self.model_used,
+            "fallback_used": self.fallback_used,
+            "error": self.error,
+            "stages": [stage.to_dict() for stage in self.stages],
+            "quality": self.quality.to_dict() if self.quality else None,
+        }
 
 
 # API 키 없이 사용 가능한 기본 내장 provider (pollinations.ai)
@@ -717,6 +812,8 @@ class AIService:
         provider_name: Optional[str] = None,
         json_mode: bool = False,
         max_tokens: Optional[int] = None,
+        validator: Optional[Callable[[str], Any]] = None,
+        telemetry: Optional[dict[str, Any]] = None,
     ) -> str:
         """system/user 2턴 호출 호환용 래퍼."""
         return self._call_messages(
@@ -727,6 +824,8 @@ class AIService:
             provider_name=provider_name,
             max_tokens=max_tokens,
             json_mode=json_mode,
+            validator=validator,
+            telemetry=telemetry,
         )
 
     @staticmethod
@@ -893,8 +992,18 @@ class AIService:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         json_mode: bool = False,
+        validator: Optional[Callable[[str], Any]] = None,
+        telemetry: Optional[dict[str, Any]] = None,
     ) -> str:
-        """litellm 호출. provider chain을 순서대로 시도하며 실패 시 자동 fallback."""
+        """litellm 호출. provider chain 을 순서대로 시도하며 실패 시 자동 fallback.
+
+        재시도 횟수·대기·차단은 `_call_single_provider` 한 곳에서만 결정한다.
+        litellm 내부 재시도(`max_retries`)는 꺼서 재시도가 중첩되지 않게 한다.
+
+        validator: 응답 본문을 검증하는 함수. 예외를 던지면 그 응답은 실패로 보고
+        다음 모델 후보로 넘어간다(잘린 JSON·스키마 위반을 다른 모델로 복구).
+        telemetry: 실제 사용된 provider/model/fallback 여부를 담아 돌려줄 dict.
+        """
         try:
             import litellm  # lazy import for fast CLI startup
 
@@ -906,39 +1015,72 @@ class AIService:
                 hint="`pip install devfolio[ai]`로 AI 의존성을 설치하세요.",
             )
 
+        settings = ReliabilitySettings.from_env()
+        budget = Budget(seconds=settings.time_budget_seconds)
+        reported = telemetry if telemetry is not None else {}
         provider_chain = self._provider_fallback_chain(provider_name)
         last_error: Exception = RuntimeError("알 수 없는 오류")
+        tried: list[str] = []
 
-        for prov_idx, provider in enumerate(provider_chain):
-            is_last_provider = prov_idx == len(provider_chain) - 1
+        for chain_index, provider in enumerate(provider_chain):
+            # 사용자가 자동 Provider 전환을 꺼두면 첫 후보만 시도한다.
+            if chain_index > 0 and not settings.provider_fallback:
+                logger.warning(
+                    "Provider 자동 전환이 꺼져 있어(DEVFOLIO_AI_PROVIDER_FALLBACK=0) 나머지 후보를 건너뜁니다"
+                )
+                break
+            if not self._provider_allowed(provider, settings):
+                continue
+            if budget.expired():
+                logger.warning(
+                    "시간 예산(%.0f초) 초과로 남은 Provider 를 건너뜁니다: %s",
+                    settings.time_budget_seconds,
+                    provider.name,
+                )
+                break
+            tried.append(provider.name)
             try:
                 return self._call_single_provider(
-                    litellm, provider, messages, temperature, max_tokens, json_mode
+                    litellm,
+                    provider,
+                    messages,
+                    temperature,
+                    max_tokens,
+                    json_mode,
+                    validator=validator,
+                    budget=budget,
+                    settings=settings,
+                    telemetry=reported,
                 )
             except DevfolioAIAuthError as e:
                 last_error = e
-                if is_last_provider:
-                    raise
-                next_name = provider_chain[prov_idx + 1].name
                 logger.warning(
-                    "Provider %s 인증 실패 → %s 로 재시도: %s",
-                    provider.name,
-                    next_name,
-                    e,
+                    "Provider %s 인증 실패 → 다음 Provider 로: %s", provider.name, e
                 )
             except (DevfolioAIError, DevfolioAIRateLimitError) as e:
                 last_error = e
-                if is_last_provider:
-                    raise
-                next_name = provider_chain[prov_idx + 1].name
                 logger.warning(
-                    "Provider %s 실패 → %s 로 재시도: %s",
-                    provider.name,
-                    next_name,
-                    e,
+                    "Provider %s 실패 → 다음 Provider 로: %s", provider.name, e
                 )
 
+        reported["providers_tried"] = tried
         raise DevfolioAIError(str(last_error)) from last_error
+
+    @staticmethod
+    def _provider_allowed(
+        provider: "AIProviderConfig", settings: ReliabilitySettings
+    ) -> bool:
+        """데이터가 나가는 Provider 인지 확인한다.
+
+        pollinations 는 프로젝트 내장 기본 Provider 지만 외부 무료 서비스이므로
+        `DEVFOLIO_AI_ALLOW_THIRD_PARTY=0` 으로 차단할 수 있게 한다.
+        """
+        if provider.name == "pollinations" and not settings.allow_third_party_fallback:
+            logger.warning(
+                "pollinations 는 DEVFOLIO_AI_ALLOW_THIRD_PARTY=0 이라 이번 호출에서 제외합니다"
+            )
+            return False
+        return True
 
     def _call_single_provider(
         self,
@@ -948,9 +1090,25 @@ class AIService:
         temperature: Optional[float],
         max_tokens: Optional[int],
         json_mode: bool,
+        *,
+        validator: Optional[Callable[[str], Any]] = None,
+        budget: Optional[Budget] = None,
+        settings: Optional[ReliabilitySettings] = None,
+        telemetry: Optional[dict[str, Any]] = None,
     ) -> str:
-        """단일 provider로 litellm 호출 (model candidates + retry 포함)."""
+        """단일 provider 로 호출한다 (모델 후보 순환 + 정책 기반 재시도).
+
+        실패 분류표:
+          - 영구(폐기·인증·400·정책·컨텍스트): 같은 모델 재시도 없이 다음 후보
+          - 일시(429·타임아웃·5xx): 백오프 1회 후 같은 모델, 예산 없으면 즉시 전환
+          - 검증 실패(잘림·JSON·빈 응답): 재시도 없이 다음 후보
+        """
         self._set_env_key(provider)
+
+        active_settings = settings or ReliabilitySettings.from_env()
+        active_budget = budget or Budget(seconds=active_settings.time_budget_seconds)
+        store = get_health_store(active_settings)
+        reported = telemetry if telemetry is not None else {}
 
         kwargs: dict = {"messages": messages}
         if temperature is not None:
@@ -963,48 +1121,58 @@ class AIService:
             kwargs["api_base"] = provider.base_url
         # 응답이 없을 때 영구 대기하지 않도록 타임아웃을 항상 명시한다 (INC-21).
         kwargs["timeout"] = _REQUEST_TIMEOUT
+        # 재시도 제어 지점은 이 함수 하나뿐이다 (INC-22).
+        kwargs["max_retries"] = 0
+
+        candidates = filter_candidates(
+            provider.name,
+            self._runtime_model_candidates(provider),
+            store=store,
+            limit=active_settings.max_models,
+        )
+        if not candidates:
+            raise DevfolioAIError(
+                f"[{provider.name}] 사용 가능한 모델 후보가 없습니다.",
+                hint=(
+                    "모든 후보가 폐기되었거나 Cooldown 중입니다. "
+                    "`devfolio ai models` 로 상태를 확인하거나 다른 Provider 를 설정하세요."
+                ),
+            )
 
         last_error: Exception = RuntimeError("알 수 없는 오류")
-        t_start = time.monotonic()
-        model_candidates = self._runtime_model_candidates(provider)
-        for model_index, runtime_model in enumerate(model_candidates, start=1):
+        reported.setdefault("errors", [])
+
+        for model_index, runtime_model in enumerate(candidates, start=1):
             kwargs["model"] = self._provider_model_string(provider.name, runtime_model)
-            for attempt in range(1, _MAX_RETRIES + 1):
+            model_key = ModelHealthStore.key(provider.name, runtime_model)
+            max_attempts = active_settings.model_retries + 1
+
+            for attempt in range(1, max_attempts + 1):
+                if active_budget.expired():
+                    raise DevfolioAIError(
+                        "AI 시간 예산을 초과했습니다.",
+                        hint=(
+                            f"예산 {active_settings.time_budget_seconds:.0f}초를 넘겨 중단했습니다. "
+                            "DEVFOLIO_AI_TIME_BUDGET 로 조정할 수 있습니다."
+                        ),
+                    )
+                active_budget.attempts += 1
+                t_start = time.monotonic()
                 try:
-                    _sys = next(
-                        (
-                            m.get("content", "")
-                            for m in messages
-                            if m.get("role") == "system"
-                        ),
-                        "",
-                    )
-                    _usr = next(
-                        (
-                            m.get("content", "")
-                            for m in messages
-                            if m.get("role") == "user"
-                        ),
-                        "",
-                    )
                     logger.info(
-                        "AI 요청 시작: model=%s attempt=%d/%d prompt_chars=%d json_mode=%s\n"
-                        "  [system] %.300s%s\n"
-                        "  [user]   %.600s%s",
+                        "AI 요청 시작: model=%s attempt=%d/%d prompt_chars=%d json_mode=%s",
                         kwargs["model"],
                         attempt,
-                        _MAX_RETRIES,
+                        max_attempts,
                         sum(len(m.get("content", "")) for m in messages),
                         json_mode,
-                        _sys.replace("\n", " "),
-                        "..." if len(_sys) > 300 else "",
-                        _usr.replace("\n", " "),
-                        "..." if len(_usr) > 600 else "",
                     )
-                    t_start = time.monotonic()
+                    _log_prompt_preview(messages)
+
                     response = litellm.completion(**kwargs)
                     t_end = time.monotonic()
                     content = response.choices[0].message.content or ""
+
                     if not content.strip():
                         raise ValueError(
                             f"모델 {kwargs['model']}이 빈 응답을 반환했습니다 — "
@@ -1015,22 +1183,25 @@ class AIService:
                             f"모델 {kwargs['model']}이 결과 대신 오류 문구를 반환했습니다(크레딧 부족) — "
                             "무료 등급에서 처리할 수 없는 크기의 요청일 수 있습니다."
                         )
-                    # 출력 토큰 한도에서 잘린 응답은 JSON이 중간에 끊긴다. 파싱 단계까지
-                    # 내려보내지 않고 즉시 후보 교체로 넘긴다 (INC-21).
                     if getattr(response.choices[0], "finish_reason", None) == "length":
                         raise ValueError(
                             f"모델 {kwargs['model']} 응답이 출력 토큰 한도에서 잘렸습니다 "
                             f"(finish_reason=length, response_chars={len(content)}) — "
                             "구조화 JSON이 완성되지 않습니다."
                         )
+                    if validator is not None:
+                        try:
+                            validator(content)
+                        except Exception as exc:  # noqa: BLE001 — 검증 실패도 모델 교체 사유
+                            raise ValueError(f"JSON 검증 실패: {exc}") from exc
+
                     logger.info(
-                        "AI 응답 수신: model=%s duration=%dms response_chars=%d\n  [response] %.800s%s",
+                        "AI 응답 수신: model=%s duration=%dms response_chars=%d",
                         kwargs["model"],
                         int((t_end - t_start) * 1000),
                         len(content),
-                        content.replace("\n", " "),
-                        "..." if len(content) > 800 else "",
                     )
+                    logger.debug("  [response] %.400s", content.replace("\n", " "))
                     _write_ai_log(
                         provider=provider.name,
                         model=kwargs["model"],
@@ -1039,49 +1210,30 @@ class AIService:
                         duration_ms=int((t_end - t_start) * 1000),
                         ok=True,
                     )
+                    store.clear(model_key)
+                    reported.update(
+                        {
+                            "provider": provider.name,
+                            "model": kwargs["model"],
+                            "fallback": bool(model_index > 1 or attempt > 1),
+                            "attempts": active_budget.attempts,
+                            "elapsed_ms": int(
+                                (time.monotonic() - active_budget.started_at) * 1000
+                            ),
+                        }
+                    )
                     return content
-                except Exception as e:
-                    import traceback as _tb
 
-                    err_class = type(e).__name__
+                except Exception as e:  # noqa: BLE001 — 모든 실패를 분류해 정책으로 처리
+                    last_error = e
                     err_str = str(e)
-                    if (
-                        "AuthenticationError" in err_class
-                        or "Unauthorized" in err_class
-                    ):
-                        raise DevfolioAIAuthError(provider.name) from e
-                    if (
-                        "NotFoundError" in err_class
-                        or ('"code": 404' in err_str and "NOT_FOUND" in err_str)
-                        or (
-                            err_class == "ValueError"
-                            and (
-                                "빈 응답" in err_str
-                                or "오류 문구" in err_str
-                                or "잘렸" in err_str
-                            )
-                        )
-                        # 400 영구 오류(폐기 모델)는 재시도해도 같은 결과다 — 후보만 교체한다 (INC-21).
-                        or "model_decommissioned" in err_str
-                        or "does not exist or you do not have access" in err_str
-                    ):
-                        last_error = e
-                        if model_index < len(model_candidates):
-                            logger.warning(
-                                "모델 실패로 대체 후보로 재시도합니다: provider=%s requested=%s fallback=%s failure=%s",
-                                provider.name,
-                                provider.model,
-                                model_candidates[model_index],
-                                err_str[:120],
-                            )
-                            break
-                        raise DevfolioAIError(
-                            f"[{provider.name}] 모든 모델 후보 실패: {provider.model}",
-                            hint=f"시도한 생성 모델: {', '.join(model_candidates)}.",
-                        ) from e
-                    # 할당량이 정말 0인 경우만 (INC-01). "free_tier_requests"는 일·분 한도를
+                    kind = classify_error(e)
+                    reported["errors"].append(f"{runtime_model}:{kind.value}")
+
+                    # 할당량이 정말 0인 경우 (INC-01). "free_tier_requests"는 일·분 한도를
                     # 다 쓴 경우에도 들어 있어 이것으로 판정하면 오판한다 (INC-12).
                     if "limit: 0" in err_str:
+                        store.block(model_key, ErrorKind.BAD_REQUEST, err_str)
                         raise DevfolioAIError(
                             f"{provider.name} 무료 티어 할당량이 0입니다.",
                             hint=(
@@ -1090,27 +1242,23 @@ class AIService:
                                 "다른 AI 제공자(Anthropic 등)로 전환하세요."
                             ),
                         ) from e
-                    if "RateLimitError" in err_class or "RESOURCE_EXHAUSTED" in err_str:
-                        if "quota" in err_str.lower() and "day" in err_str.lower():
-                            raise DevfolioAIRateLimitError(provider.name) from e
-                        if attempt < _MAX_RETRIES:
-                            logger.warning(
-                                "Rate limit 발생, %0.0f초 후 재시도 (%d/%d) — 무료 RPM 한도 초과",
-                                _RATE_LIMIT_RETRY_DELAY,
-                                attempt,
-                                _MAX_RETRIES,
-                            )
-                            time.sleep(_RATE_LIMIT_RETRY_DELAY)
-                            continue
+
+                    if kind is ErrorKind.AUTH:
+                        store.block(model_key, kind, err_str)
+                        raise DevfolioAIAuthError(provider.name) from e
+
+                    if (
+                        kind is ErrorKind.RATE_LIMIT
+                        and "quota" in err_str.lower()
+                        and "day" in err_str.lower()
+                    ):
+                        # 일 단위 한도 소진 — 기다려도 회복되지 않는다.
                         raise DevfolioAIRateLimitError(provider.name) from e
-                    last_error = e
-                    logger.warning(
-                        "AI 호출 실패 (%d/%d): %s\n%s",
-                        attempt,
-                        _MAX_RETRIES,
-                        e,
-                        _tb.format_exc(),
-                    )
+
+                    if is_permanent(kind):
+                        # 폐기·미존재·400·정책 위반은 같은 모델을 다시 부르지 않는다.
+                        store.block(model_key, kind, err_str)
+
                     _write_ai_log(
                         provider=provider.name,
                         model=kwargs.get("model", "unknown"),
@@ -1118,12 +1266,50 @@ class AIService:
                         response="",
                         duration_ms=int((time.monotonic() - t_start) * 1000),
                         ok=False,
-                        error=str(e),
+                        error=f"{kind.value}: {err_str}",
                     )
-                    if attempt < _MAX_RETRIES:
-                        time.sleep(_RETRY_DELAY)
+
+                    delay = backoff_delay(
+                        attempt,
+                        cap=active_settings.max_backoff_seconds,
+                        retry_after=parse_retry_after(e),
+                    )
+                    can_retry = (
+                        is_retryable(kind)
+                        and attempt < max_attempts
+                        and active_budget.can_wait(delay)
+                    )
+                    if can_retry:
+                        logger.warning(
+                            "일시 오류(%s) — %.1f초 후 같은 모델을 재시도합니다 (%d/%d): %.160s",
+                            kind.value,
+                            delay,
+                            attempt,
+                            max_attempts,
+                            err_str,
+                        )
+                        time.sleep(delay)
                         continue
+
+                    if kind is ErrorKind.RATE_LIMIT:
+                        # 같은 계정·같은 Provider 의 RPM 한도는 모델을 바꿔도 유지된다.
+                        # 남은 모델을 더 두드리지 않고 다음 Provider 로 넘긴다 (INC-12 계약).
+                        logger.warning(
+                            "Provider %s 속도 제한 소진 → 다음 Provider 로: %.160s",
+                            provider.name,
+                            err_str,
+                        )
+                        raise DevfolioAIRateLimitError(provider.name) from e
+
+                    logger.warning(
+                        "모델 실패 → 다음 후보로: provider=%s model=%s kind=%s 이유=%.180s",
+                        provider.name,
+                        runtime_model,
+                        kind.value,
+                        err_str,
+                    )
                     break
+
         raise DevfolioAIError(str(last_error)) from last_error
 
     def build_evidence(
@@ -2234,6 +2420,7 @@ class AIService:
         scan_metrics: dict,
         lang: str = "ko",
         provider_name: Optional[str] = None,
+        telemetry: Optional[dict[str, Any]] = None,
     ) -> dict:
         """소스 코드·README·의존성 정보를 분석해 포트폴리오 초안을 생성한다.
 
@@ -2310,12 +2497,15 @@ class AIService:
 
         # 출력 한도를 명시하지 않으면 provider 기본값(예: pollinations 1500토큰)에 걸려
         # JSON이 중간에 잘린다 (INC-21).
+        # validator 를 넘기면 JSON 검증에 실패한 응답은 다음 모델 후보로 자동 전환된다.
         raw = self._call(
             _CODE_ANALYSIS_SYSTEM,
             prompt,
             provider_name,
             json_mode=False,
             max_tokens=2500,
+            validator=self._extract_json,
+            telemetry=telemetry,
         )
         payload = self._extract_json(raw)
 
@@ -2343,10 +2533,134 @@ class AIService:
             repo_name=repo_name,
             lang=lang,
             provider_name=provider_name,
+            telemetry=telemetry,
         )
 
         # 언어 지시를 무시한 모델 출력에서 일본어·중국어 문자 물리적 제거
         return _strip_foreign_in_dict(payload)
+
+    def analyze_project_with_report(
+        self,
+        repo_name: str,
+        project_context: dict,
+        scan_metrics: dict,
+        lang: str = "ko",
+        provider_name: Optional[str] = None,
+    ) -> AnalysisOutcome:
+        """단계별 상태와 품질 검증을 함께 돌려주는 AI 딥 분석.
+
+        - 한 단계가 실패해도 앞 단계의 결정론적 결과(Git 스캔)는 유지된다.
+        - 완료 판정은 `QualityReport.passed` (Level 1·2) 로만 한다.
+          AI 호출이 성공해도 검증에 실패하면 완료로 보지 않는다.
+        - 실패 시 빈 payload 를 돌려주고, 호출하는 쪽은 기본 스캔 결과를 그대로 쓴다.
+          AI 가 하지 않은 기술적 판단을 규칙 기반 결과처럼 꾸며내지 않는다.
+        """
+        telemetry: dict[str, Any] = {"errors": []}
+        stages = [
+            StageResult(
+                name="scan",
+                status=STAGE_COMPLETED,
+                detail="Git 스캔 (결정론적, AI 미사용)",
+            )
+        ]
+        evidence = build_evidence_index(project_context, scan_metrics)
+
+        try:
+            payload = self.analyze_project_from_code(
+                repo_name=repo_name,
+                project_context=project_context,
+                scan_metrics=scan_metrics,
+                lang=lang,
+                provider_name=provider_name,
+                telemetry=telemetry,
+            )
+        except Exception as exc:  # noqa: BLE001 — 실패도 사용자에게 보고해야 한다
+            kind = classify_error(exc)
+            stages.append(
+                StageResult(
+                    name="analysis",
+                    status=STAGE_FAILED,
+                    detail=f"{kind.value}: {str(exc)[:160]}",
+                    model=telemetry.get("model", ""),
+                )
+            )
+            stages.append(
+                StageResult(
+                    name="cases", status=STAGE_SKIPPED, detail="분석 실패로 건너뜀"
+                )
+            )
+            stages.append(
+                StageResult(
+                    name="quality", status=STAGE_SKIPPED, detail="검증할 결과 없음"
+                )
+            )
+            report = QualityReport(level1_ok=False, level2_ok=False)
+            report.issues.append(
+                QualityIssue(
+                    level=1,
+                    code="ai_unavailable",
+                    field="$",
+                    message="AI 딥 분석을 완료하지 못했습니다. 기본 스캔 결과만 제공됩니다.",
+                    hard=True,
+                )
+            )
+            logger.warning(
+                "AI 딥 분석 미완료: kind=%s model=%s reason=%.200s",
+                kind.value,
+                telemetry.get("model", ""),
+                str(exc),
+            )
+            return AnalysisOutcome(
+                payload={},
+                stages=stages,
+                quality=report,
+                model_used=telemetry.get("model", ""),
+                fallback_used=bool(telemetry.get("fallback")),
+                error=f"{type(exc).__name__}: {str(exc)[:200]}",
+                completed=False,
+            )
+
+        stages.append(
+            StageResult(
+                name="analysis",
+                status=STAGE_COMPLETED,
+                detail="AI 초안 생성",
+                model=telemetry.get("model", ""),
+            )
+        )
+        cases = payload.get("problem_solving_cases") or []
+        stages.append(
+            StageResult(
+                name="cases",
+                status=STAGE_COMPLETED if cases else STAGE_SKIPPED,
+                detail=f"{len(cases)}건 추출" if cases else "근거가 될 커밋 이력 없음",
+                model=telemetry.get("model", ""),
+            )
+        )
+
+        report = validate_analysis(payload, evidence)
+        stages.append(
+            StageResult(
+                name="quality",
+                status=STAGE_COMPLETED if report.passed else STAGE_FAILED,
+                detail=report.summary(),
+            )
+        )
+        logger.info(
+            "AI 딥 분석 검증: verdict=%s model=%s fallback=%s issues=%d",
+            report.verdict,
+            telemetry.get("model", ""),
+            bool(telemetry.get("fallback")),
+            len(report.issues),
+        )
+        return AnalysisOutcome(
+            payload=payload,
+            stages=stages,
+            quality=report,
+            model_used=telemetry.get("model", ""),
+            fallback_used=bool(telemetry.get("fallback")),
+            completed=report.passed,
+        )
 
     def _extract_problem_solving_cases(
         self,
@@ -2356,6 +2670,7 @@ class AIService:
         repo_name: str,
         lang: str = "ko",
         provider_name: Optional[str] = None,
+        telemetry: Optional[dict[str, Any]] = None,
     ) -> list[dict]:
         """커밋 히스토리에서 기술적 판단 진화 사례를 추출한다.
 
@@ -2401,6 +2716,7 @@ class AIService:
                 provider_name,
                 json_mode=False,
                 max_tokens=2000,
+                telemetry=telemetry,
             )
             cleaned = raw.strip()
             # 코드 펜스 제거

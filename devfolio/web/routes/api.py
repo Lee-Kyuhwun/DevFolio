@@ -794,51 +794,56 @@ def scan_git(body: GitScanRequest) -> dict[str, Any]:
 
         ai_analysis: Optional[dict] = None
         ai_error: Optional[str] = None
+        ai_report: Optional[dict] = None
         if body.analyze and scan_result.project_context:
-            ai_provider = None
-            resolution = None
+            scan_metrics = {
+                "commits": len(scan_result.commits),
+                "period_months": 0,
+                "languages": {k: v for k, v in scan_result.languages.most_common(5)},
+            }
             try:
                 ai_provider_name = body.provider or cfg.default_ai_provider
                 ai_provider = (
                     cfg.get_provider(ai_provider_name) if ai_provider_name else None
                 )
-                resolution = (
-                    resolve_generation_model(ai_provider.name, ai_provider.model)
-                    if ai_provider
-                    else None
-                )
-                scan_metrics = {
-                    "commits": len(scan_result.commits),
-                    "period_months": 0,
-                    "languages": {
-                        k: v for k, v in scan_result.languages.most_common(5)
-                    },
-                }
-                if ai_provider and resolution:
+                if ai_provider:
+                    resolution = resolve_generation_model(
+                        ai_provider.name, ai_provider.model
+                    )
                     logger.info(
-                        "Git scan AI 모델 해석: provider=%s requested=%s generation=%s candidates=%s status=%s",
+                        "Git scan AI 모델 해석: provider=%s requested=%s generation=%s status=%s",
                         ai_provider.name,
                         resolution.display_model,
                         resolution.generation_model,
-                        list(resolution.candidate_models),
                         resolution.status,
                     )
-                ai_analysis = AIService(cfg).analyze_project_from_code(
+                outcome = AIService(cfg).analyze_project_with_report(
                     repo_name=repo_path.name,
                     project_context=scan_result.project_context,
                     scan_metrics=scan_metrics,
                     lang=body.lang,
                     provider_name=body.provider,
                 )
+                ai_report = outcome.to_dict()
+                if outcome.completed:
+                    ai_analysis = outcome.payload
+                else:
+                    # AI 초안이 품질 하한선을 넘지 못했다 — 기본 스캔 결과만 쓴다.
+                    ai_error = outcome.error or (
+                        outcome.quality.summary()
+                        if outcome.quality
+                        else "AI 분석 미완료"
+                    )
+                    logger.warning(
+                        "AI 딥 분석 미완료 — 기본 스캔 결과만 반환: model=%s fallback=%s quality=%s",
+                        outcome.model_used,
+                        outcome.fallback_used,
+                        outcome.quality.summary() if outcome.quality else "",
+                    )
             except Exception as exc:
                 ai_error = str(exc)
                 logger.warning(
-                    "AI 딥 분석 실패 (기본 스캔 결과로 계속): requested=%s generation=%s candidates=%s failure=%s detail=%s",
-                    resolution.display_model if ai_provider and resolution else "",
-                    resolution.generation_model if ai_provider and resolution else "",
-                    list(resolution.candidate_models)
-                    if ai_provider and resolution
-                    else [],
+                    "AI 딥 분석 실패 (기본 스캔 결과로 계속): %s: %s",
                     type(exc).__name__,
                     exc,
                 )
@@ -847,8 +852,10 @@ def scan_git(body: GitScanRequest) -> dict[str, Any]:
         return {
             "status": "ok",
             "cached": False,
+            # analyzed 는 "AI 호출 성공"이 아니라 "품질 검증까지 통과"를 뜻한다.
             "analyzed": ai_analysis is not None,
             "ai_error": ai_error,
+            "ai_report": ai_report,
             "payload": payload,
         }
     except DevfolioError as exc:

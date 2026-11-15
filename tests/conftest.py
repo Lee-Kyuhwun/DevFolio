@@ -42,6 +42,20 @@ def _isolate_credentials():
 
 
 @pytest.fixture(autouse=True)
+def _isolate_model_health(tmp_path, monkeypatch):
+    """모델 Circuit Breaker 상태가 테스트 사이에 전염되지 않게 매번 새로 만든다 (INC-10, INC-22).
+
+    상태는 프로세스 전역 싱글턴이고 파일에도 저장되므로, 격리하지 않으면 앞선 테스트가
+    차단한 모델이 다음 테스트에서 "후보 없음"으로 이어진다.
+    """
+    from devfolio.core import ai_reliability
+
+    store = ai_reliability.ModelHealthStore(path=tmp_path / "ai_model_health.json")
+    monkeypatch.setattr(ai_reliability, "_DEFAULT_STORE", store)
+    yield store
+
+
+@pytest.fixture(autouse=True)
 def _isolate_ai_log(tmp_path, monkeypatch):
     """AI 호출 로그(ai_logs.jsonl)가 사용자 데이터 폴더에 쓰이지 않게 테스트마다 임시 파일로 바꾼다.
 

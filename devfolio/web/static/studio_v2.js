@@ -87,6 +87,7 @@
       authorEmail: "",
       analyze: true,
       aiError: null,
+      aiReport: null,
     },
     ui: {
       loading: true,
@@ -1256,11 +1257,16 @@
       });
       state.experienceForm = scanPayloadToExperience(payload.payload || {});
       state.importer.aiError = payload.ai_error || null;
+      state.importer.aiReport = payload.ai_report || null;
       state.ui.formSection = "basics";
+      const report = state.importer.aiReport;
+      const modelNote = report && report.model_used ? ` (${report.model_used})` : "";
       if (payload.ai_error) {
-        showToast("AI 분석 실패 — 기본 스캔 결과만 가져왔습니다. 아래에서 재시도할 수 있습니다.", "warn");
+        showToast("AI 분석을 완료하지 못했습니다 — 기본 스캔 결과만 가져왔습니다.", "warn");
+      } else if (report && report.fallback_used) {
+        showToast(`모델을 자동 전환해 AI 분석을 완료했습니다${modelNote}.`, "ok");
       } else {
-        showToast(payload.analyzed ? "Git 스캔과 AI 분석 결과를 불러왔습니다." : "Git 스캔 결과를 불러왔습니다.", "ok");
+        showToast(payload.analyzed ? `AI 분석 완료${modelNote}.` : "Git 스캔 결과를 불러왔습니다.", "ok");
       }
     } finally {
       state.ui.aiLoading = false;
@@ -2163,7 +2169,69 @@
     `;
   }
 
+  const AI_STAGE_LABELS = {
+    scan: "Git 스캔",
+    analysis: "AI 초안",
+    cases: "문제 해결 사례",
+    quality: "품질 검증",
+  };
+
+  const AI_STAGE_STATUS = {
+    pending: "대기",
+    running: "진행 중",
+    completed: "완료",
+    partial: "일부 완료",
+    failed: "실패",
+    skipped: "건너뜀",
+  };
+
+  // AI 분석 리포트 — 어떤 모델을 썼고, 대체가 있었는지, 어느 단계까지 끝났는지 보여준다.
+  function renderAnalysisReport(report) {
+    if (!report) return "";
+    const stages = Array.isArray(report.stages) ? report.stages : [];
+    const quality = report.quality || null;
+    const stagesHtml = stages
+      .map((stage) => {
+        const name = AI_STAGE_LABELS[stage.name] || stage.name;
+        const status = AI_STAGE_STATUS[stage.status] || stage.status;
+        const detail = stage.detail ? `<span class="ai-stage-detail">${escapeHtml(stage.detail)}</span>` : "";
+        return `<li class="ai-stage ai-stage-${escapeHtml(stage.status)}">
+            <span class="ai-stage-name">${escapeHtml(name)}</span>
+            <span class="ai-stage-status">${escapeHtml(status)}</span>
+            ${detail}
+          </li>`;
+      })
+      .join("");
+
+    const chips = [];
+    if (report.model_used) {
+      chips.push(`<span class="ai-chip">모델 ${escapeHtml(report.model_used)}</span>`);
+    }
+    if (report.fallback_used) {
+      chips.push('<span class="ai-chip ai-chip-warn">대체 모델로 전환됨</span>');
+    }
+    if (quality) {
+      const tone = quality.passed ? "ok" : "warn";
+      const label = quality.passed ? "품질 검증 통과" : "품질 검증 미통과";
+      chips.push(`<span class="ai-chip ai-chip-${tone}">${label}</span>`);
+    }
+
+    const issues = quality && Array.isArray(quality.issues) ? quality.issues.slice(0, 4) : [];
+    const issuesHtml = issues.length
+      ? `<ul class="ai-issues">${issues
+          .map((issue) => `<li>${escapeHtml(issue.message)}</li>`)
+          .join("")}</ul>`
+      : "";
+
+    return `<div class="ai-report">
+        <div class="ai-report-head">${chips.join("")}</div>
+        <ul class="ai-stages">${stagesHtml}</ul>
+        ${issuesHtml}
+      </div>`;
+  }
+
   function renderExperienceBasicsSection(form) {
+    const aiReportHtml = renderAnalysisReport(state.importer.aiReport);
     const aiErrorBanner = state.importer.aiError
       ? `<div class="ai-error-banner">
           <span class="ai-error-icon">⚠</span>
@@ -2174,6 +2242,7 @@
     return `
       <div class="section-block">
         ${aiErrorBanner}
+        ${aiReportHtml}
         <div class="eyebrow">Basics</div>
         <h3>경험의 기본 정보</h3>
         <p>문서에서 가장 먼저 읽히는 제목, 역할, 기간, 중요도, 문서 연결 대상을 정리합니다.</p>
