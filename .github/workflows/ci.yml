@@ -32,7 +32,7 @@ jobs:
           python -c "import fastapi, httpx, docx; from devfolio.web.app import create_app; create_app()"
 
       - name: Run tests
-        run: pytest --cov=devfolio --cov-report=xml --cov-report=term-missing
+        run: pytest --cov=impactnote --cov=devfolio --cov-report=xml --cov-report=term-missing
 
       - name: Upload coverage
         if: matrix.python-version == '3.12'
@@ -57,7 +57,7 @@ jobs:
           pip install ruff==0.15.11
 
       - name: Lint
-        run: ruff check devfolio/ tests/ evals/
+        run: ruff check impactnote/ devfolio/ tests/ evals/
 
       - name: Format check
-        run: ruff format --check devfolio/ tests/ evals/
+        run: ruff format --check impactnote/ devfolio/ tests/ evals/

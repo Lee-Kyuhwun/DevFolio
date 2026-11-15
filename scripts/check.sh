@@ -7,6 +7,6 @@ cd "$(git rev-parse --show-toplevel)"
 PY=.venv/bin/python
 [ -x "$PY" ] || PY=python3
 
-"$PY" -m ruff check devfolio/ tests/ evals/
-"$PY" -m ruff format --check devfolio/ tests/ evals/
+"$PY" -m ruff check impactnote/ devfolio/ tests/ evals/
+"$PY" -m ruff format --check impactnote/ devfolio/ tests/ evals/
 "$PY" -m pytest -x -q --no-cov -p no:cacheprovider
