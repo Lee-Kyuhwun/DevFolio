@@ -56,7 +56,7 @@ D1·D4는 실제 모델 출력, D2·D3은 통제 입력이다. D1의 47.6%를 D2
 | C-25 | LLM Judge가 사람 라벨과 일치한다 | — | — | — | 사람 라벨 없음 | NOT_MEASURED |
 | C-26 | NVIDIA API 비용(USD) | — | — | — | 단가·청구 없음 | NOT_MEASURED |
 | C-27 | Windows GUI가 정상 동작한다 | — | — | CI import만 | 클릭 없음 | NOT_MEASURED |
-| C-28 | Mermaid 10개 다이어그램이 렌더링된다 | `docs/architecture/diagrams.md` | 문서 커밋 | 문법 스캔 | 로컬 렌더러 없음 | NOT_MEASURED |
+| C-28 | Mermaid 10개 다이어그램이 렌더링된다 | `docs/architecture/diagrams.md` | `cdaf597` | mmdc 10/10 | SVG 렌더 exit 0 | VERIFIED (로컬 mmdc) |
 | C-29 | 개발 기간 2026-04-16~2026-11-16 | Git | — | — | `git log` | VERIFIED (기록 기준) |
 | C-30 | 팀 규모·역할 분담 | — | — | — | — | UNKNOWN |
 

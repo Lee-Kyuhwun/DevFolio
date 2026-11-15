@@ -366,6 +366,7 @@ Integration Branch를 만들지 않고 `main`에 순차 커밋했다(AGENTS.md �
 
 ## 렌더링 검증
 
-- Mermaid CLI(`mmdc`)는 이 환경에 설치되어 있지 않아 **로컬 렌더링을 수행하지 않았다**.
-- 대신 코드 펜스·다이어그램 선언·노드 참조를 스크립트로 검사했다.
-- GitHub Markdown 렌더링은 실제 push 후 저장소 화면에서 확인해야 한다.
+- 2026-11-16 `@mermaid-js/mermaid-cli@11.4.2`로 Markdown 입력의 **10개 차트를 모두 SVG로 렌더링**했다(exit 0).
+- 코드 펜스·다이어그램 선언·노드 참조도 별도 스크립트로 검사했다.
+- GitHub의 Mermaid 버전은 로컬 CLI와 다를 수 있으므로, 저장소 화면에서 최종 표시를 한 번 확인한다.
+- SVG는 검증 산출물이며 저장소에는 편집 가능한 Markdown 원본만 둔다.
