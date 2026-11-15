@@ -250,3 +250,41 @@ Provider TPM 예산을 켰을 때의 대기 시간(기본값 0으로 미측정).
 | 품질 실패 실행 | `failed`, 3/4(75%), `QUALITY_GATE_FAILED`, Request ID 표시, 기술 상세는 DEBUG 전용 안내 |
 | 새로고침 복원 | 페이지 재로딩 후 서버 상태 패널 재표시(4/4 → 3/4 반영) |
 | 콘솔 오류 | 없음 |
+
+### 10.1 폴링 재연결·품질 상세·분석 기준 커밋 (INC-25)
+
+**폴링은 한 번 끊기면 영구히 멈췄다.** `pollAnalysis()`가 예외를 만나면 루프를 종료해,
+서버는 계속 실행 중인데 화면은 마지막 스냅샷에 얼어붙었다(진행 중으로 오인).
+
+- 실패 시 지수 백오프로 재시도한다: 1s → 2s → 4s → 8s, 최대 5회. 성공하면 즉시 `live`로 복귀.
+- `analysisConn`은 `live | reconnecting | offline`. `reconnecting`은 "연결 끊김 · 재연결 중 (n/5)",
+  `offline`은 "연결 끊김" + `다시 연결` 버튼을 보여준다. 상태 전이는 `aria-live`로 한 번만 알린다.
+- `마지막 갱신 N초 전`은 서버 스냅샷을 마지막으로 받은 시각이며 1초마다 문구만 갱신한다.
+  완료된 실행(`live`)에서는 표시하지 않는다(끝난 분석에 늘어나는 시계는 의미가 없다).
+
+**품질 실패의 이유가 저장되지 않았다.** 실행 기록에는 `quality_verdict` 문자열만 남아
+"어느 필드의 어떤 규칙이 왜 실패했는지"를 재구성할 수 없었다.
+
+- `AnalysisRun.quality`에 `verdict / passed / level1_ok / level2_ok / issues[]`를 저장한다.
+- 이슈 항목은 `code · field · level · hard · message`이며, 메시지는 `redact()` 후 200자로 자른다.
+- 이슈는 최대 20건만 저장하고 `issue_count`·`truncated`로 전체 건수를 보존한다.
+- 화면은 이슈를 **필드 단위로 묶어** "요약 2건 · 필수", "기술 스택 1건"처럼 보여준다.
+
+**어느 코드 기준 결과인지 기록이 없었다.** 새 커밋 후에도 옛 결과가 최신인 것처럼 보였다.
+
+- 분석 시작 시점의 `head_sha · branch · dirty · dirty_files`를 `repo_state`로 기록한다.
+  분석 중 스캔이 다른 SHA를 보고해도 시작 시점 값을 덮어쓰지 않는다(기록 1회).
+- `GET /api/analysis/{id}/repo-state`가 기록 시점과 현재 HEAD를 비교해 `stale`, `behind_commits`를 계산한다.
+  git이 없거나 저장소가 사라졌으면 `available: false`/`behind_commits: null`로 답하고 추측하지 않는다.
+  리베이스·강제 푸시로 기록 SHA를 찾을 수 없으면 `behind: null` + 사유를 내려준다.
+- 기존 `GET /api/analysis/{id}` 스냅샷 계약은 그대로 두고 `quality`·`repo_state`만 **추가**했다.
+
+| 검증 (2026-11-15, 컨테이너 `devfolio-devfolio-1`) | 결과 |
+|---|---|
+| 비동기 시작 시 기준 커밋 기록 | `REPO_STATE_RECORDED f2ab3616 branch=master dirty=False` |
+| 커밋 전 `repo-state` | `stale=False, behind=0` |
+| 커밋 1개 추가 후 | `stale=True, behind=1`, `f2ab3616 → a0180ac2` |
+| 품질 이슈 저장 | `issue_count=2`, `[('summary','unverified_metric',True), ('tech_stack','unsupported_tech',False)]` |
+| 상태·오류 코드 | `failed`, `QUALITY_GATE_FAILED` |
+| 기존 계약 키 | `analysis_id·status·progress_percent·stages·calls·errors` 모두 유지 |
+| 브라우저 | 로컬 `b82b2504 · main · 변경사항 9개 포함`, 완료 7초·4/4, `마지막 갱신 3초 전` |
