@@ -26,7 +26,7 @@ pytest -q
 2026-11-15 기준:
 
 ```text
-480 passed
+481 passed
 ```
 
 `pytest` 기본 설정은 `--cov=impactnote --cov=devfolio` 를 포함한다. 커버리지 없이 빠르게:
@@ -149,7 +149,7 @@ docker compose -p impactnote-clean down
 - Docker 포트·볼륨·저장소 마운트가 호스트 경로에 고정되지 않았는가
 
 2026-11-15 Clean Clone: 새 venv 설치, **465 passed**.
-2026-11-16 전체: **480 passed**. 별도 디렉터리 clean copy 에서도 480 passed.
+2026-11-16 전체: **481 passed**. 별도 디렉터리 clean copy 에서도 481 passed.
 Docker: `docker build` 성공 후 `serve --host 0.0.0.0` 로 기동, `/api/health` HTTP 200.
 상세는 결과 문서에 기록했다. Windows 실제 GUI 는 아직 미검증이다.
 
